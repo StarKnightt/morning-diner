@@ -18,8 +18,15 @@
  * kinks are local bends, not whole-slat rotations. Route holes are 12 × 6 mm ovals
  * (rev 2 cut 22 mm slots — the dark dashes on the centre ladder in `window`).
  * Ladders (1.3 mm cords front + rear, a rung under every slat), lift cords through the
- * holes, 25 × 38 headrail with valance lip, 25 × 12 bottom rail with end caps, tilt
- * wand, two pull cords + equaliser + almond plastic tassel — merged per material.
+ * holes, 25 × 38 headrail with valance lip, closed-channel bottom rail with end caps and
+ * cord buttons, tilt wand, two pull cords + equaliser + cream acorn tassel — merged per
+ * material.
+ *
+ * Rev 4: the rev 3 variation was measured as invisible (every slat dead straight in
+ * `window` at 1024 px — 1–3 mm of sag at 0.94 m is under a pixel). Now every blind has ONE
+ * obviously sagging slat (6–10 mm between ladders ≈ 5–8 px in `window`) and ONE creased
+ * slat whose outer 15–25 cm twists 14–25° and droops 8–15 mm (a tilt discontinuity the
+ * eye reads as a bend, not a tone step); the last blind in the row is pulled up 15–30 cm.
  */
 import * as THREE from "three";
 import type { Palette } from "../core/materials";
@@ -35,7 +42,8 @@ export const BLIND = {
   /** Slat stack centre-line z: 40 mm in from the interior wall plane, 85 mm inside the glass. */
   zCentre: ROOM.zFront + 0.04,
   headrail: { h: 0.038, d: 0.025 },
-  bottomRail: { h: 0.0125, d: 0.025 },
+  /** Closed steel channel, 1.5× the slat's tilted height (≈ 12.5 mm) so it reads as a rail, not another slat. */
+  bottomRail: { h: 0.019, d: 0.027 },
   /** Three ladders: the slats are 49.5" — 1" blinds go to four ladders above 52". */
   ladderOffsets: [-0.42, 0, 0.42],
   /** Route hole: oval, long axis along the slat, cord centred. */
@@ -209,8 +217,9 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
     const x0 = cx - openW / 2, x1 = cx + openW / 2;
     // Per-blind character
     const tilt = THREE.MathUtils.degToRad(BLIND.tiltDeg + (rng() - 0.5) * 10); // 25 ± 5°
-    const raised = wi === 1 || wi === 3 ? 0 : 0.03 + rng() * 0.05; // pulled up 3–8 cm, or down to the sill
-    const sagAmp = 0.001 + rng() * 0.002; // 1–3 mm between ladders
+    // Drop: two hang to the sill, two were pulled up 3–8 cm, the last one in the row 15–30 cm
+    const raised = wi === 1 || wi === 3 ? 0 : wi === WINDOW.centersX.length - 1 ? 0.15 + rng() * 0.15 : 0.03 + rng() * 0.05;
+    const sagAmp = 0.001 + rng() * 0.002; // 1–3 mm between ladders (the general run)
     const droopAmp = 0.0004 + rng() * 0.0008;
     const yRail = yStopFull - 0.018 + raised; // bottom rail centre (0.902 when fully lowered: 6 mm over the sill frame)
     const hanging = Math.floor((yFirst - (yRail + BLIND.bottomRail.h / 2 + 0.012)) / BLIND.pitch) + 1;
@@ -218,14 +227,22 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
     // Headrail: 25 × 38 steel channel in the slat colour; a valance lip on the room face
     b.rbox(pal.slatRail, [x0 + 0.003, yHead0, zc - BLIND.headrail.d / 2], [x1 - 0.003, yHeadTop, zc + BLIND.headrail.d / 2], 0.002);
     b.rbox(pal.slatRail, [x0 + 0.003, yHead0 - 0.004, zc - BLIND.headrail.d / 2 - 0.002], [x1 - 0.003, yHead0 + 0.012, zc - BLIND.headrail.d / 2], 0.001);
-    // 1–3 creased slats per blind (bent by a hand or a mop handle near one end)
+    // One creased slat per blind (bent by a hand or a mop handle 15–25 cm from one end): the
+    // part past the crease twists 14–25° and its tip droops 8–15 mm — a visible discontinuity.
+    // Plus one slat that lost its ladder tension and sags 6–10 mm between ladders.
+    // Both sit 66–94 % down the drop (y ≈ 1.05–1.5 m on a 2.53 → 0.92 blind) — random heights,
+    // but always in the band a seated (1.15 m) or standing (1.65 m) eye sees through the glass;
+    // rev 3 put them anywhere and the `window` pose (bottom 25 slats) never caught one.
     const kinks = new Map<number, SlatShape["kink"]>();
-    const nK = 1 + Math.floor(rng() * 3);
-    while (kinks.size < nK) {
-      const k = 2 + Math.floor(rng() * (hanging - 4));
+    const bandK = () => Math.min(hanging - 2, Math.max(2, Math.floor(hanging * (0.66 + rng() * 0.28))));
+    const kinkK = bandK();
+    {
       const side = rng() < 0.5 ? -1 : 1;
-      kinks.set(k, { x: side * (0.46 + rng() * 0.1), dTilt: THREE.MathUtils.degToRad((rng() < 0.5 ? -1 : 1) * (6 + rng() * 8)), drop: 0.002 + rng() * 0.004 });
+      kinks.set(kinkK, { x: side * (0.38 + rng() * 0.1), dTilt: THREE.MathUtils.degToRad((rng() < 0.5 ? -1 : 1) * (14 + rng() * 11)), drop: 0.008 + rng() * 0.007 });
     }
+    let sagK = bandK();
+    if (Math.abs(sagK - kinkK) < 3) sagK = kinkK + 4 < hanging - 1 ? kinkK + 4 : Math.max(2, kinkK - 4);
+    const bigSag = 0.006 + rng() * 0.004;
     const out = { pos: [] as number[], nor: [] as number[], uv: [] as number[], col: [] as number[] };
     const slatAt = (k: number): { y: number; tilt: number } => {
       if (k < hanging) return { y: yFirst - k * BLIND.pitch, tilt };
@@ -239,7 +256,7 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
         y: base.y + (rng() - 0.5) * 0.0008,
         // ±2.5° tilt jitter: each slat catches the sun a little differently → visible tone steps
         tilt: -base.tilt + THREE.MathUtils.degToRad((rng() - 0.5) * 5.0),
-        sag: sagAmp * (0.7 + rng() * 0.6),
+        sag: k === sagK ? bigSag : sagAmp * (0.7 + rng() * 0.6),
         droop: droopAmp * (0.6 + rng() * 0.8),
         kink: kinks.get(k),
         dx: (rng() - 0.5) * 0.002,
@@ -284,10 +301,17 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
       lift.translate(cx + lo, yRail + cordLen / 2, zc);
       b.add(lift, pal.cord);
     }
-    // Bottom rail 25 × 12.5 mm (1" × ½") with a slight crown, plastic end caps
+    // Bottom rail: closed 27 × 19 mm steel channel with a slight crown, plastic end caps, and a
+    // cord button under each outer ladder where the lift cord is knotted off (the centre cord
+    // ties inside the rail).
     b.rbox(pal.slatRail, [x0 + 0.006, yRail - BLIND.bottomRail.h / 2, zc - BLIND.bottomRail.d / 2], [x1 - 0.006, yRail + BLIND.bottomRail.h / 2, zc + BLIND.bottomRail.d / 2], 0.003, 3);
-    for (const [ex0, ex1] of [[x0 + 0.003, x0 + 0.014], [x1 - 0.014, x1 - 0.003]])
+    for (const [ex0, ex1] of [[x0 + 0.003, x0 + 0.016], [x1 - 0.016, x1 - 0.003]])
       b.rbox(pal.slatCap, [ex0, yRail - BLIND.bottomRail.h / 2 - 0.001, zc - BLIND.bottomRail.d / 2 - 0.001], [ex1, yRail + BLIND.bottomRail.h / 2 + 0.001, zc + BLIND.bottomRail.d / 2 + 0.001], 0.002, 2);
+    for (const lo of [BLIND.ladderOffsets[0], BLIND.ladderOffsets[2]]) {
+      const button = new THREE.CylinderGeometry(0.006, 0.0065, 0.0035, 14);
+      button.translate(cx + lo, yRail - BLIND.bottomRail.h / 2 - 0.00175, zc);
+      b.add(button, pal.slatCap);
+    }
     // Tilt wand: 12 mm tan acrylic rod, 0.5 m, on a swivel hook under the headrail at the
     // left jamb. Hangs 45 mm in front of the slat edges so it silhouettes against the glass
     // (rev 2: a clear rod 16 mm off the slats vanished into them at any distance).
@@ -308,27 +332,29 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
       tip.translate(wx, wTop - 0.046 - 0.5 - 0.006, wz);
       b.add(tip, pal.slatCap);
     }
-    // Pull cords (two, 1.3 mm) out of the cord lock at the right jamb, hanging 35 mm in front
-    // of the slats, through a cord equaliser into one tassel. A blind that was pulled up has
-    // that much more cord hanging: the tassel drops by the raised amount (never below the stool).
+    // Pull cords (two, 2 mm braided — 1.3 mm was under a pixel from the booth) out of the cord
+    // lock at the right jamb, 6 mm apart, hanging 35 mm in front of the slats so they silhouette
+    // against the glass, through a cord equaliser into one tassel. A blind that was pulled up
+    // has that much more cord hanging: the tassel drops by the raised amount (never below the stool).
     {
-      const lx = x1 - 0.08, zp = zc - 0.035;
+      const lx = x1 - 0.08, zp = zc - 0.035, pullR = 0.001;
       const yT = Math.max(WINDOW.sill + fw + 0.02, WINDOW.sill + fw + 0.068 - raised * 0.6);
-      const yEq = yT + 0.06;
+      const yEq = yT + 0.065;
       for (const dx of [-0.003, 0.003]) {
-        const cord = new THREE.CylinderGeometry(cordR, cordR, yHead0 - yEq, 6);
+        const cord = new THREE.CylinderGeometry(pullR, pullR, yHead0 - yEq, 6);
         cord.translate(lx + dx, (yHead0 + yEq) / 2, zp);
         b.add(cord, pal.cord);
       }
-      b.rbox(pal.slatCap, [lx - 0.008, yEq - 0.012, zp - 0.004], [lx + 0.008, yEq + 0.004, zp + 0.004], 0.0015, 2); // equaliser
-      const single = new THREE.CylinderGeometry(cordR, cordR, yEq - 0.012 - yT, 6);
-      single.translate(lx, (yEq - 0.012 + yT) / 2, zp);
+      b.rbox(pal.slatCap, [lx - 0.009, yEq - 0.014, zp - 0.0045], [lx + 0.009, yEq + 0.004, zp + 0.0045], 0.0015, 2); // equaliser
+      const single = new THREE.CylinderGeometry(pullR, pullR, yEq - 0.014 - yT, 6);
+      single.translate(lx, (yEq - 0.014 + yT) / 2, zp);
       b.add(single, pal.cord);
-      // Moulded plastic tassel in the slat colour: 12 mm Ø × 42 mm, a neck at the top, domed tip
+      // Cream acorn tassel: 17 mm Ø × 50 mm — a ribbed cap over a fuller body that tapers to a
+      // domed tip, with a waisted neck under the cord. Big enough to be read as an acorn at 2 m.
       const tassel = new THREE.LatheGeometry(
         // bottom → top (LatheGeometry needs increasing y for outward normals)
-        [[0, -0.042], [0.0035, -0.041], [0.0055, -0.037], [0.006, -0.028], [0.006, -0.01], [0.0045, -0.006], [0.0045, -0.002], [0.003, 0], [0, 0]].map(([r, y]) => new THREE.Vector2(r, y)),
-        14,
+        [[0, -0.05], [0.004, -0.049], [0.0065, -0.045], [0.0082, -0.036], [0.0085, -0.026], [0.0075, -0.02], [0.0085, -0.019], [0.0085, -0.011], [0.0065, -0.007], [0.0045, -0.005], [0.0045, -0.002], [0.003, 0], [0, 0]].map(([r, y]) => new THREE.Vector2(r, y)),
+        16,
       );
       tassel.translate(lx, yT, zp);
       b.add(tassel, pal.tassel);
