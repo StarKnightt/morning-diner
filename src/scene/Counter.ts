@@ -1,14 +1,17 @@
 /**
- * Counter run: L-shaped formica top (bullnose + chrome band) on a 400 mm die
- * with a 300 mm knee overhang and recessed toe kick, 40 mm chrome footrest on
- * brackets, ten bolted chrome stools (InstancedMesh parts), register block at
- * the door end, back bar with toe kick / backsplash / equipment openings, and
- * a continuous upper-cabinet run under a soffit.
+ * Counter run: L-shaped grey-speckle formica top (bullnose + chrome band) on a
+ * 400 mm die with a 300 mm knee overhang, cove base and toe recess, 36 mm
+ * chrome footrail on cast brackets, ten bolted chrome stools with domed red
+ * vinyl cushions (InstancedMesh parts, each swivelled a little differently),
+ * back bar with toe kick / backsplash / equipment fronts, and a continuous
+ * upper-cabinet run under a bulkhead. The L-return top is left empty.
  */
 import * as THREE from "three";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { slabGeometry, type XZ } from "../core/shapes";
+import { makeRng } from "../core/rng";
+import { plainColor } from "../core/upholstery";
 import { BACK_BAR, CABINETS, COUNTER, ROOM, STOOL } from "./layout";
 import { punchedWall } from "./Shell";
 
@@ -40,7 +43,7 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       bandProud: 0.003,
       curveSegments: 8,
     });
-    b.add(slab, pal.formica);
+    b.add(slab, pal.formicaCounter);
     if (band) b.add(band, pal.formicaEdge);
 
     // Die (laminate) with a 100 mm recessed toe kick faced in cove base, main run and L-return.
@@ -123,22 +126,25 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     }
     const swivel = new THREE.CylinderGeometry(0.07, 0.05, 0.02, 24);
     swivel.translate(0, seatHeight - st - 0.01, 0);
-    // Seat cushion: lathe with a 20 mm rounded edge.
+    // Seat cushion: domed vinyl with a rolled edge; the lower 50 mm is the upholstered rim.
     const seatProfile = [
       new THREE.Vector2(0, 0),
-      new THREE.Vector2(r - 0.02, 0),
+      new THREE.Vector2(r - 0.03, 0),
       new THREE.Vector2(r - 0.006, 0.006),
       new THREE.Vector2(r, 0.02),
-      new THREE.Vector2(r, st - 0.03),
-      new THREE.Vector2(r - 0.008, st - 0.008),
-      new THREE.Vector2(r - 0.03, st),
+      new THREE.Vector2(r, 0.05),
+      new THREE.Vector2(r - 0.003, 0.062),
+      new THREE.Vector2(r - 0.014, 0.072),
+      new THREE.Vector2(r - 0.04, 0.08),
+      new THREE.Vector2(r - 0.09, 0.086),
+      new THREE.Vector2(r - 0.14, 0.0895),
       new THREE.Vector2(0, st),
     ];
-    const cushion = new THREE.LatheGeometry(seatProfile, 40);
+    const cushion = plainColor(new THREE.LatheGeometry(seatProfile, 48));
     cushion.translate(0, seatHeight - st, 0);
-    // Chrome band around the cushion edge
-    const seatBand = new THREE.CylinderGeometry(r + 0.004, r + 0.004, 0.022, 40, 1, true);
-    seatBand.translate(0, seatHeight - st + 0.03, 0);
+    // 12 mm chrome band around the rim
+    const seatBand = new THREE.CylinderGeometry(r + 0.003, r + 0.003, 0.012, 48, 1, true);
+    seatBand.translate(0, seatHeight - st + 0.036, 0);
 
     const parts: Array<[THREE.BufferGeometry, THREE.Material]> = [
       [base, pal.chrome],
@@ -153,15 +159,20 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       [cushion, pal.vinylRed],
       [seatBand, pal.chrome],
     ];
-    const m = new THREE.Matrix4();
+    // Each stool is swivelled ±25° and sits a fraction of a degree off plumb.
+    const rng = makeRng(808);
+    const poses = STOOL.centersX.map((x) => {
+      const yaw = THREE.MathUtils.degToRad((rng() - 0.5) * 50);
+      const tilt = THREE.MathUtils.degToRad(0.6 * (rng() - 0.5)), tiltZ = THREE.MathUtils.degToRad(0.6 * (rng() - 0.5));
+      const m = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(tilt, yaw, tiltZ));
+      m.setPosition(x, 0, STOOL.z);
+      return m;
+    });
     for (const [geo, mat] of parts) {
       const im = new THREE.InstancedMesh(geo, mat, n);
       im.castShadow = true;
       im.receiveShadow = true;
-      STOOL.centersX.forEach((x, i) => {
-        m.makeTranslation(x, 0, STOOL.z);
-        im.setMatrixAt(i, m);
-      });
+      poses.forEach((m, i) => im.setMatrixAt(i, m));
       im.instanceMatrix.needsUpdate = true;
       im.name = "stools";
       parent.add(im);

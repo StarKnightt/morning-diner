@@ -158,6 +158,201 @@ export function acousticTile(size: number): TextureSet {
   return { map: finish(c, true, 4), roughnessMap: finish(rc, false, 4) };
 }
 
+export interface VinylSet {
+  /** Lightening map: cracks expose the pale knit backing, so they are LIGHTER than the vinyl. */
+  map: THREE.Texture;
+  normalMap: THREE.Texture;
+  roughnessMap: THREE.Texture;
+}
+
+/**
+ * Expanded-vinyl upholstery: fine leather grain plus plasticiser crazing in
+ * patches (polygonal cells 3–15 mm, cracks 0.3–1 mm, lips curled up). One
+ * canvas covers `metres` of vinyl; the caller sets repeat from the UV scale.
+ */
+export function vinylCrazing(size: number, metres: number): VinylSet {
+  const pxPerMm = size / (metres * 1000);
+  const { c, ctx } = canvas(size, size);
+  const { c: nc, ctx: nctx } = canvas(size, size);
+  const { c: rc, ctx: rctx } = canvas(size, size);
+  const rng = makeRng(2024);
+  const grain = makeFbm(61, 96, 3); // ~1 mm leather grain
+  const patch = makeFbm(62, 3, 3); // where the crazing lives
+  const cell = 9 * pxPerMm; // mean cell ≈ 9 mm
+  const grid = Math.max(4, Math.round(size / cell));
+  const step = size / grid;
+  // Jittered lattice of cell centres (tileable).
+  const cx = new Float32Array(grid * grid), cy = new Float32Array(grid * grid);
+  for (let j = 0; j < grid; j++)
+    for (let i = 0; i < grid; i++) {
+      cx[j * grid + i] = (i + 0.15 + rng() * 0.7) * step;
+      cy[j * grid + i] = (j + 0.15 + rng() * 0.7) * step;
+    }
+  const height = new Float32Array(size * size);
+  const crack = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    const gj = Math.floor(y / step);
+    for (let x = 0; x < size; x++) {
+      const gi = Math.floor(x / step);
+      let f1 = 1e9, f2 = 1e9;
+      for (let dj = -1; dj <= 1; dj++)
+        for (let di = -1; di <= 1; di++) {
+          const ii = (gi + di + grid) % grid, jj = (gj + dj + grid) % grid;
+          const px = cx[jj * grid + ii] + (gi + di - ii) * step;
+          const py = cy[jj * grid + ii] + (gj + dj - jj) * step;
+          const d = Math.hypot(px - x, py - y);
+          if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) f2 = d;
+        }
+      const edge = (f2 - f1) / pxPerMm; // mm from the cell boundary
+      const p = patch(x / size, y / size); // 0..1, crazing where > 0.55
+      const presence = Math.min(1, Math.max(0, (p - 0.52) / 0.15));
+      const w = 0.35 + p * 0.5; // crack half-width in mm
+      const inCrack = edge < w ? 1 - edge / w : 0;
+      const lip = edge >= w && edge < w + 1.2 ? 1 - (edge - w) / 1.2 : 0;
+      const i = y * size + x;
+      const g = (grain(x / size, y / size) - 0.5) * 0.25;
+      height[i] = g + presence * (-1.4 * inCrack + 0.45 * lip);
+      crack[i] = presence * inCrack;
+    }
+  }
+  const img = ctx.createImageData(size, size);
+  const nimg = nctx.createImageData(size, size);
+  const rimg = rctx.createImageData(size, size);
+  const H = (x: number, y: number) => height[((y + size) % size) * size + ((x + size) % size)];
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x, o = i * 4;
+      const dx = (H(x + 1, y) - H(x - 1, y)) * 2.2;
+      const dy = (H(x, y + 1) - H(x, y - 1)) * 2.2;
+      const len = Math.hypot(dx, dy, 1);
+      nimg.data[o] = ((-dx / len) * 0.5 + 0.5) * 255;
+      nimg.data[o + 1] = ((dy / len) * 0.5 + 0.5) * 255;
+      nimg.data[o + 2] = (1 / len) * 255;
+      nimg.data[o + 3] = 255;
+      // Colour: neutral 0.8 grey (the material colour is pre-divided), cracks toward pale backing.
+      const k = crack[i];
+      img.data[o] = 204 + k * 44; img.data[o + 1] = 204 + k * 38; img.data[o + 2] = 204 + k * 34; img.data[o + 3] = 255;
+      // Roughness: grain modulation, cracks matte.
+      const r = 0.5 + (H(x, y) - k) * 0.12 + k * 0.4;
+      const rv = Math.min(255, Math.max(0, r * 255));
+      rimg.data[o] = rv; rimg.data[o + 1] = rv; rimg.data[o + 2] = rv; rimg.data[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  nctx.putImageData(nimg, 0, 0);
+  rctx.putImageData(rimg, 0, 0);
+  return { map: finish(c, true, 8), normalMap: finish(nc, false, 8), roughnessMap: finish(rc, false, 8) };
+}
+
+/**
+ * Formica "Skylark" boomerang laminate on a cream base. One canvas = `metres`
+ * of laminate; boomerangs 20–40 mm, two low-contrast tones, wrapped for tiling.
+ */
+export function formicaBoomerang(size: number, metres: number, base: string, tones: string[], density: number, seed: number): TextureSet {
+  const { c, ctx } = canvas(size, size);
+  const { c: rc, ctx: rctx } = canvas(size, size);
+  const rng = makeRng(seed);
+  const pxPerMm = size / (metres * 1000);
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, size, size);
+  // Faint linen texture under the pattern.
+  const fbm = makeFbm(seed + 1, 48, 2);
+  const img = ctx.getImageData(0, 0, size, size);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const n = (fbm(x / size, y / size) - 0.5) * 0.05;
+      const o = (y * size + x) * 4;
+      img.data[o] *= 1 + n; img.data[o + 1] *= 1 + n; img.data[o + 2] *= 1 + n;
+    }
+  ctx.putImageData(img, 0, 0);
+  const count = Math.round(metres * metres * 1e4 * density);
+  ctx.lineCap = "round";
+  for (let k = 0; k < count; k++) {
+    const x = rng() * size, y = rng() * size;
+    const len = (14 + rng() * 16) * pxPerMm, a = rng() * Math.PI * 2;
+    const bend = 0.35 + rng() * 0.2;
+    ctx.strokeStyle = tones[Math.floor(rng() * tones.length)];
+    ctx.lineWidth = (2.8 + rng() * 1.5) * pxPerMm;
+    for (const [ox, oy] of [[0, 0], [size, 0], [-size, 0], [0, size], [0, -size], [size, size], [-size, -size], [size, -size], [-size, size]]) {
+      const px = x + ox, py = y + oy;
+      const dx = Math.cos(a) * len / 2, dy = Math.sin(a) * len / 2;
+      const nx = -Math.sin(a) * len * bend, ny = Math.cos(a) * len * bend;
+      ctx.beginPath();
+      ctx.moveTo(px - dx, py - dy);
+      ctx.quadraticCurveTo(px + nx, py + ny, px + dx, py + dy);
+      ctx.stroke();
+    }
+  }
+  // Roughness: worn gloss with directional wipe streaks.
+  const wipe = makeFbm(seed + 5, 6, 3);
+  const rimg = rctx.createImageData(size, size);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const n = wipe(x / size, (y / size) * 0.15) - 0.5;
+      const v = Math.min(255, Math.max(0, (0.34 + n * 0.16) * 255));
+      const o = (y * size + x) * 4;
+      rimg.data[o] = v; rimg.data[o + 1] = v; rimg.data[o + 2] = v; rimg.data[o + 3] = 255;
+    }
+  rctx.putImageData(rimg, 0, 0);
+  return { map: finish(c, true, 8), roughnessMap: finish(rc, false, 8) };
+}
+
+/** Light grey speckle laminate (counter top). */
+export function formicaSpeckle(size: number, seed: number): TextureSet {
+  const { c, ctx } = canvas(size, size);
+  const rng = makeRng(seed);
+  ctx.fillStyle = "#bfbfba";
+  ctx.fillRect(0, 0, size, size);
+  const fbm = makeFbm(seed + 3, 8, 3);
+  const img = ctx.getImageData(0, 0, size, size);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const n = (fbm(x / size, y / size) - 0.5) * 0.06;
+      const o = (y * size + x) * 4;
+      img.data[o] *= 1 + n; img.data[o + 1] *= 1 + n; img.data[o + 2] *= 1 + n;
+    }
+  ctx.putImageData(img, 0, 0);
+  for (let k = 0; k < size * 14; k++) {
+    const v = rng() < 0.55 ? 120 + rng() * 40 : 225 + rng() * 25;
+    ctx.fillStyle = `rgb(${v},${v},${v * 0.98})`;
+    const x = rng() * size, y = rng() * size, r = 0.6 + rng() * 1.3;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  return { map: finish(c, true, 8) };
+}
+
+/** Off-white glaze with sparse iron speckles (diner mug). */
+export function glazeSpeckle(size: number): TextureSet {
+  const { c, ctx } = canvas(size, size);
+  const rng = makeRng(77);
+  ctx.fillStyle = "rgb(236,228,212)";
+  ctx.fillRect(0, 0, size, size);
+  for (let k = 0; k < size * 0.6; k++) {
+    const v = 120 + rng() * 60;
+    ctx.fillStyle = `rgba(${v},${v * 0.9},${v * 0.8},0.6)`;
+    const x = rng() * size, y = rng() * size, r = 0.4 + rng() * 0.8;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  return { map: finish(c, true, 4) };
+}
+
+/** Brushed-metal roughness: fine streaks along u. */
+export function brushedRoughness(size: number, base: number, seed: number): THREE.Texture {
+  const { c, ctx } = canvas(size, size);
+  const streak = makeFbm(seed, 4, 3);
+  const fine = makeFbm(seed + 9, 256, 1);
+  const img = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const n = (streak((x / size) * 0.05, y / size) - 0.5) * 0.3 + (fine(x / size, y / size) - 0.5) * 0.08;
+      const v = Math.min(255, Math.max(0, (base + n) * 255));
+      const o = (y * size + x) * 4;
+      img.data[o] = v; img.data[o + 1] = v; img.data[o + 2] = v; img.data[o + 3] = 255;
+    }
+  ctx.putImageData(img, 0, 0);
+  return finish(c, false, 8);
+}
+
 /** Coarse asphalt for the lot placeholder. */
 export function asphalt(size: number): TextureSet {
   const { c, ctx } = canvas(size, size);

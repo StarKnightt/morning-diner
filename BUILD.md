@@ -18,13 +18,17 @@ src/
                           closed kitchen swing door (far end of the back-bar wall),
                           pass-through liner / shelf / heat lamps + a dim kitchen box behind it,
                           cove base, supply register, roof slab, kitchen void, lot
-    Booths.ts             5 booths: slab tables (bullnose + chrome band) on real pedestals,
-                          cushions on plinth/kick, 9° wedge backs tapering to a 90 mm roll,
-                          dividers + end panels under one mitred 70 × 35 mm T-cap each
-    Counter.ts            L-shaped slab top, die + cove-faced toe kick, 36 mm footrail on
-                          brackets, 10 instanced stools (torus footring on spokes), register
-                          stand on the L-return, back bar with cooler door + drawer unit,
-                          300 mm cabinet runs under a wall-finish bulkhead
+    Booths.ts             5 booths: boomerang-formica slab tables (bullnose + chrome band)
+                          on cast bell pedestals, pillowed + welted vinyl cushions on
+                          plinth/kick, 9° channel-tufted backs tapering to a 90 mm roll,
+                          dividers + end panels under one mitred 60 × 40 mm T-cap each
+    Counter.ts            L-shaped grey-speckle slab top, die + cove base + toe recess, 36 mm
+                          footrail on cast brackets, 10 instanced stools (domed vinyl seat,
+                          torus footring on spokes, each swivelled differently), back bar
+                          with cooler door + drawer unit, 300 mm cabinet runs under a bulkhead
+    Props.ts              System 2 props: napkin dispensers, sugar caddies, shakers, mugs
+                          (InstancedMesh + the named `pourMug`), saucers, mug ledge, two-burner
+                          brewer with the named `coffeePot` decanter, tray stack, wall clock
     Ceiling.ts            tegular tiles (instanced), main/cross tee grid with end clips,
                           wall angle (also along the bulkhead), 6 troffers with a lipped door
                           frame in a shadow gap + recessed lens, ceiling fan
@@ -32,12 +36,20 @@ src/
     Lighting.ts           PLACEHOLDER lighting; System 4 replaces this file
   player/FirstPerson.ts   pointer-lock look, WASD at 1.4 m/s, eye 1.62 m, AABB sliding collision
   core/
-    materials.ts          shared material palette (placeholders; System 5 owns the real set)
+    materials.ts          shared material palette: System 2 first-pass vinyl / laminate /
+                          chrome / ceramic / glass / coffee; System 5 refines
     merge.ts              MergedBuilder: per-material merging, `box` / `rbox` (bevelled), colliders
     shapes.ts             plan-view polygon offset, rounded corners, extruded slab + edge band,
                           trapezoid prisms — the "no razor edges" toolkit
+    upholstery.ts         pillowed cushions (analytic normals, edge-wear vertex colours),
+                          welt piping along seams, channel-tufted back panels
     rng.ts                deterministic PRNG, tileable value/fBm noise
-  procedural/textures.ts  canvas textures: checker floor, painted wall, acoustic tile, asphalt, concrete
+  procedural/
+    textures.ts           canvas textures: checker floor, painted wall, acoustic tile, asphalt,
+                          concrete, vinyl crazing (colour/normal/roughness), boomerang and
+                          speckle laminate, glaze speckle, brushed-metal roughness
+    environment.ts        procedural PMREM: an emissive room shaped like this diner (window
+                          strip, troffers, checker floor, red booth band) so chrome reads as chrome
   capture/pose.ts         window.__setPose / __SCENE_READY / __stats for the harness
 tools/
   shoot.mjs               headless capture harness (build → serve :5210 → shoot poses)
@@ -77,8 +89,10 @@ shallow dim kitchen box behind the pass-through and a black void elsewhere.
   bays have stainless fronts, the pass-through looks into a dim grey kitchen box.
 - Ceiling grid: 24 mm main tees every 1.2 m along x, 15 mm cross tees, wall
   angle, 6 mm tegular drop. Troffers own whole cells; tees are skipped inside.
-- Draw calls sit around 85–125 per frame: everything static is merged per
-  material (`MergedBuilder`); stools (9 parts) and 184 tiles are `InstancedMesh`.
+- Draw calls sit around 100–240 per frame (the transmission pass for glass
+  props roughly doubles the count where they are visible): everything static is
+  merged per material (`MergedBuilder`); stools (11 parts), mugs and 184 tiles are
+  `InstancedMesh`.
   Textures ≤ 2048 px, pixel ratio capped at 1.5. The loop is capped at ~120 fps
   and drops to ~10 fps when the tab is hidden or the window loses focus.
 
@@ -101,7 +115,7 @@ renders the sun alone (diagnostic).
 ```
 npm install
 npm run build                      # tsc --noEmit && vite build
-node tools/shoot.mjs --tag=sys1    # → shots/sys1-{door,length,aisle,counter,booth,undertable,ceiling}.png
+node tools/shoot.mjs --tag=sys2    # → shots/sys2-{door,length,aisle,counter,booth,undertable,ceiling,table,warmer}.png
 ```
 
 Options: `--no-build` (reuse `dist/`), `--poses=door,aisle`, `--query=nofill`.
@@ -117,16 +131,24 @@ Poses are defined at the top of `tools/shoot.mjs`. Every pose keeps the camera
 `length` stands just inside the door looking down the room (kitchen door at the
 far end of the back wall); `counter` stands at the L-return looking along the
 footrail toward the kitchen door; `undertable` is a 1.0 m-high view under a
-booth table for the pedestal and foot plate.
+booth table for the pedestal and bell base; `table` is a seated (1.15 m) view
+across a booth table at the dispenser, caddy and shakers; `warmer` stands in
+the service aisle looking at the brewer, decanter and mug ledge.
 
 ## Lessons recorded
 
 - `RoomEnvironment` is bright. At `environmentIntensity 0.25` it out-lit a
   5.0-intensity sun and every frame came out flat; `?nofill` proved the fills
-  were not the cause. It now sits at 0.05, reflections only.
-- With almost no environment, `metalness 1` materials render black. The
-  placeholder metals sit at metalness 0.6–0.8 so they read under direct light;
-  System 5 restores proper metals together with a real environment.
+  were not the cause. System 2 replaced it with `procedural/environment.ts` at
+  scene intensity 1; metals take it fully (`envMapIntensity 1`) while dielectrics
+  take 0.1 (0.3 for the glossy laminates/vinyl) so the sun/fill balance holds.
+- `new THREE.Color(r, g, b)` with floats is LINEAR in r152+. Author sRGB
+  swatches with `setRGB(r, g, b, THREE.SRGBColorSpace)`; the first vinyl pass
+  came out salmon pink for exactly this reason.
+- Vertex colours: a material with `vertexColors: true` needs a `color`
+  attribute on EVERY geometry in its merge bucket (`plainColor` in upholstery.ts).
+- Transmission (`MeshPhysicalMaterial.transmission`) adds a render pass; keep
+  it to the few glass props and never on the window glass.
 - r185 deprecates `PCFSoftShadowMap` (it silently maps to PCF). Use
   `PCFShadowMap` + `shadow.radius`.
 - D3D emits `X4122` precision *warnings* in the program info log for the
@@ -140,8 +162,8 @@ booth table for the pedestal and foot plate.
 
 | # | System | Status |
 |---|---|---|
-| 1 | Interior geometry and floor plan | **built, rev 3** (service zone, stools, booth caps, door per critic review) |
-| 2 | Booth and counter detail | pending |
+| 1 | Interior geometry and floor plan | **done** (rev 4 close-out: empty L-return, footrail at 200 mm on cast brackets, bell pedestals, head bulkhead + 25 mm wall angle, 60 × 40 caps, 100 mm saddle + stepped exterior slab) |
+| 2 | Booth and counter detail | **built** — vinyl upholstery form + crazing, boomerang/speckle laminates, chrome via procedural PMREM, domed stools, dispensers + caddy + shakers, mugs (`pourMug`), brewer + `coffeePot`, ledge, trays, clock |
 | 3 | Windows, blinds, exterior view | pending |
 | 4 | Lighting | pending (placeholder sun/hemi/troffers in `Lighting.ts`) |
 | 5 | Materials and textures | pending (placeholder palette in `materials.ts`) |
@@ -149,7 +171,8 @@ booth table for the pedestal and foot plate.
 | 7 | The 3 interactions (sit, pour coffee, open door) | pending — door is already a hinged Group; door leaf has no collider yet |
 | 8 | Post-processing and final polish | pending |
 
-Known System 1 simplifications: flat asphalt lot and plain sky colour outside
-(System 3), no blinds, coffee warmer is a stainless box, register stand is a
-lidded formica block with a dark display, kitchen box holds dim grey
-silhouettes only, no second (restroom) door on the far end wall.
+Known simplifications after System 2: flat asphalt lot and plain sky colour
+outside (System 3), no blinds, L-return top empty (register is a later prop),
+kitchen box holds dim grey silhouettes only, no second (restroom) door on the
+far end wall, sun-facing vinyl reads a little washed under the placeholder
+light rig (System 4/5 own that balance), shaker perforations are a dark disc.

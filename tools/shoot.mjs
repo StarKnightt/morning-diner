@@ -52,6 +52,10 @@ const POSES = {
   booth: { x: -4.3, z: 1.2, yaw: 225, pitch: -20 },
   undertable: { x: 3.0, y: 1.0, z: 0.65, yaw: 166, pitch: -14 },
   ceiling: { x: 0.85, z: 0.75, yaw: 104, pitch: 28 },
+  // Seated at the third booth, looking across the table at the dispenser and shakers.
+  table: { x: -0.52, y: 1.15, z: 2.55, yaw: 130, pitch: -21 },
+  // Behind the counter in the service aisle, looking at the brewer, decanter and the mug ledge.
+  warmer: { x: -2.35, z: -1.0, yaw: 342, pitch: -16 },
 };
 const NAMES = ONLY.length ? Object.keys(POSES).filter((p) => ONLY.includes(p)) : Object.keys(POSES);
 

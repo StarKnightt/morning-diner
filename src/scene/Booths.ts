@@ -1,15 +1,16 @@
 /**
- * Five booths against the window wall, 1.8 m pitch. Each: a formica table with
- * rounded corners, bullnose and chrome band on a real pedestal; two facing
- * benches with 140 mm cushions on a plinth and kick, 9° wedge backs tapering
- * to a 90 mm roll; laminate dividers and end panels under one continuous
- * mitred 70 × 35 mm cap per divider (T-shaped in plan).
- * Props (napkin dispensers, condiments, menus) are System 2.
+ * Five booths against the window wall, 1.8 m pitch. Each: a boomerang-formica
+ * table with 50 mm corners, bullnose and chrome band on a cast bell pedestal;
+ * two facing benches with pillowed, welted 140 mm vinyl cushions on a plinth
+ * and kick, 9° channel-tufted backs tapering to a 90 mm roll; laminate
+ * dividers and end panels under one continuous mitred 60 × 40 mm cap per
+ * divider (T-shaped in plan). Tabletop props live in Props.ts.
  */
 import * as THREE from "three";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { prismXY, rectXZ, slabGeometry, type XZ } from "../core/shapes";
+import { channelPanel, cushionGeometry, metricUv, piping, plainColor, roundedRectPoints } from "../core/upholstery";
 import { BOOTH, ROOM, WINDOW } from "./layout";
 
 export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: MergedBuilder["colliders"] } {
@@ -85,27 +86,64 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       const lo = (a: number, c: number) => Math.min(X(a), X(c));
       const hi = (a: number, c: number) => Math.max(X(a), X(c));
       const seatBack = seat.front + seat.depth; // 0.81
-      // Cushion (rounded 40 mm front edge)
-      b.rbox(pal.vinylRed, [lo(seat.front, seatBack), seat.top - seat.thickness, zInner], [hi(seat.front, seatBack), seat.top, zOuter], seat.edgeR, 4);
+      const zMid = (zInner + zOuter) / 2, cd = zOuter - zInner;
+      // Seat cushion: pillowed top, bellied front (toward the table), welt around the top edge.
+      {
+        const cush = cushionGeometry(seat.depth, seat.thickness, cd, seat.edgeR, {
+          bulge: 0.012,
+          belly: s > 0 ? "-x" : "+x",
+          bellyAmount: 0.008,
+          wear: 0.45,
+        });
+        cush.translate((lo(seat.front, seatBack) + hi(seat.front, seatBack)) / 2, seat.top - seat.thickness / 2, zMid);
+        b.add(cush, pal.vinylRed);
+        const welt = piping(
+          roundedRectPoints(lo(seat.front, seatBack) + 0.01, zInner + 0.01, hi(seat.front, seatBack) - 0.01, zOuter - 0.01, seat.top - 0.014, seat.edgeR),
+          0.0025,
+          true,
+        );
+        b.add(welt, pal.vinylRed);
+      }
       // Plinth (laminate) and kick (rubber, recessed 30 mm)
       b.rbox(pal.laminateWood, [lo(seat.front + 0.01, divider.x0), kick, zInner], [hi(seat.front + 0.01, divider.x0), seat.top - seat.thickness, zOuter], 0.003);
       b.box(pal.baseboard, [lo(seat.front + 0.04, divider.x0), 0, zInner], [hi(seat.front + 0.04, divider.x0), kick, zOuter]);
       // Wedge back: front face reclined 9°, rear face vertical against the divider, tapering to the roll.
       const yb0 = seat.top + 0.01;
-      const lean = Math.tan(THREE.MathUtils.degToRad(back.reclineDeg)) * (back.top - yb0);
+      const recl = THREE.MathUtils.degToRad(back.reclineDeg);
+      const lean = Math.tan(recl) * (back.top - yb0);
       const profile: Array<[number, number]> = [
         [X(back.frontX), yb0],
         [X(back.rearX), yb0],
         [X(back.rearX), back.top],
         [X(back.frontX + lean), back.top],
       ];
-      b.add(prismXY(profile, zInner, zOuter, 0.008), pal.vinylRed);
-      // Rolled top cushion (90 mm Ø), tucked against the divider
+      const wedge = prismXY(profile, zInner, zOuter, 0.008);
+      metricUv(wedge);
+      b.add(plainColor(wedge), pal.vinylRed);
+      // Channel tufting on the reclined face: 100 mm pleats bulging 16 mm, seated 3 mm inside the wedge.
+      {
+        const faceLen = Math.hypot(lean, back.top - yb0);
+        const panelH = faceLen - 0.1;
+        const panel = channelPanel(cd - 0.03, panelH, 0.1, 0.016);
+        const ex = new THREE.Vector3(0, 0, s), ey = new THREE.Vector3(0, 1, 0), ez = new THREE.Vector3(-s, 0, 0);
+        const m = new THREE.Matrix4().makeBasis(ex, ey, ez);
+        m.premultiply(new THREE.Matrix4().makeRotationZ(-s * recl));
+        const dirX = (s * lean) / faceLen, dirY = (back.top - yb0) / faceLen;
+        const t = 0.02 + panelH / 2;
+        m.setPosition(X(back.frontX) + dirX * t + s * 0.003, yb0 + dirY * t, zMid);
+        b.add(panel, pal.vinylRed, m);
+      }
+      // Rolled top cushion (90 mm Ø), tucked against the divider, with a welt where it meets the face.
       const rollX = X(back.rearX - back.rollR + 0.02);
-      const roll = new THREE.CylinderGeometry(back.rollR, back.rollR, zOuter - zInner - 0.01, 24);
+      const roll = new THREE.CylinderGeometry(back.rollR, back.rollR, cd - 0.01, 28);
       roll.rotateX(Math.PI / 2);
-      roll.translate(rollX, back.top, (zInner + zOuter) / 2);
-      b.add(roll, pal.vinylRed);
+      roll.translate(rollX, back.top, zMid);
+      metricUv(roll);
+      b.add(plainColor(roll), pal.vinylRed);
+      const seamZ = (x: number, y: number) => piping([new THREE.Vector3(x, y, zInner + 0.008), new THREE.Vector3(x, y, zMid), new THREE.Vector3(x, y, zOuter - 0.008)], 0.0025, false);
+      b.add(seamZ(X(back.frontX + lean * 0.94) - s * 0.004, back.top - 0.05), pal.vinylRed);
+      // Horizontal seam where the seat cushion meets the back.
+      b.add(seamZ(X(back.frontX) - s * 0.004, seat.top + 0.006), pal.vinylRed);
       // Aisle-end panel: from the seat front to the divider, under the cap.
       b.rbox(pal.laminateWood, [lo(seat.front - 0.02, divider.x0), kick, zEnd0], [hi(seat.front - 0.02, divider.x0), cap.y0, zInner], 0.003);
       b.box(pal.baseboard, [lo(seat.front + 0.01, divider.x0 - 0.005), 0, zEnd0 + 0.012], [hi(seat.front + 0.01, divider.x0 - 0.005), kick, zInner]);

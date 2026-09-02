@@ -81,9 +81,10 @@ export const COUNTER = {
 } as const;
 
 export const STOOL = {
-  seatDiameter: 0.35,
+  /** Domed vinyl cushion Ø 360, 90 mm thick with a 12 mm chrome band. */
+  seatDiameter: 0.36,
   seatHeight: 0.73,
-  seatThickness: 0.08,
+  seatThickness: 0.09,
   columnR: 0.04,
   baseR: 0.215,
   /** Torus footring: centre 290 mm AFF, ring Ø 0.42, tube Ø 20 mm, on four spokes + collar. */
@@ -108,6 +109,26 @@ export const BACK_BAR = {
   /** Under-counter equipment: reach-in cooler door, and a two-drawer unit. */
   cooler: [-3.9, -2.9] as readonly [number, number],
   drawers: [0.4, 1.1] as readonly [number, number],
+} as const;
+
+/** System 2 tabletop and back-counter props. */
+export const PROPS = {
+  /** Napkin dispensers along the counter (x), set toward the back edge of the top. */
+  napkinCounterX: [-4.3, -1.9, 0.5],
+  napkinCounterZ: -0.3,
+  /** Stool positions that get a mug on a saucer. */
+  saucerStoolX: [-3.4, -1.0],
+  saucerZ: -0.08,
+  /** Two-burner brewer on the back counter: body footprint and height. */
+  brewer: { x: -1.7, zBack: -2.5, width: 0.2, towerDepth: 0.23, baseDepth: 0.43, height: 0.4 },
+  /** Upright mug beside the brewer (filled in System 7). */
+  pourMug: { x: -1.47, z: -2.28 },
+  /** Stainless ledge with a rubber mat for six inverted mugs. */
+  mugLedge: { x0: -2.55, x1: -1.93, z0: -2.5, z1: -2.22 },
+  /** Stack of service trays at the L-return end of the back counter. */
+  trays: { x: 2.1, z: -2.28, count: 5 },
+  /** Wall clock over the pass-through. */
+  clock: { x: -0.5, y: 2.07, radius: 0.15, hour: 8, minute: 4 },
 } as const;
 
 export const CABINETS = {
