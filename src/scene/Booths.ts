@@ -47,17 +47,18 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
     {
       const zT0 = zInner + table.inset;
       const pts = rectXZ(cx - table.width / 2, zT0, cx + table.width / 2, zOuter);
-      const [slab, band] = slabGeometry(pts, {
+      const [slab, band, grooves] = slabGeometry(pts, {
         radius: table.cornerR,
         y0: table.top - table.thickness,
         thickness: table.thickness,
         bevel: 0.012,
         bandHeight: table.band,
         bandProud: 0.0015,
-        grooves: 4,
+        grooves: 3,
       });
       b.add(slab, pal.formica);
       if (band) b.add(band, pal.formicaEdge);
+      if (grooves) b.add(grooves, pal.alumGroove);
       // Pedestal on the table centroid: cast bell base Ø 470 (40 mm rim rising to a Ø 150 boss),
       // chrome column, 360 mm spider plate under the top.
       const pz = (zT0 + zOuter) / 2;
@@ -82,16 +83,20 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       const col = new THREE.CylinderGeometry(columnR, columnR, colH, 28);
       col.translate(cx, bossH + colH / 2, pz);
       b.add(col, pal.chrome);
-      const plate = new THREE.CylinderGeometry(0.125, 0.12, 0.012, 32);
-      plate.translate(cx, table.top - table.thickness - 0.006, pz);
-      b.add(plate, pal.darkMetal);
+      // 300 mm steel mounting plate with a four-arm spider under it, brushed so it reads against the underside
+      const plate = new THREE.CylinderGeometry(0.15, 0.145, 0.016, 32);
+      plate.translate(cx, table.top - table.thickness - 0.008, pz);
+      b.add(plate, pal.chromeBrushed);
       for (let k = 0; k < 4; k++) {
         const arm = new THREE.BoxGeometry(spider / 2 - columnR, 0.03, 0.04);
         arm.translate((spider / 2 + columnR) / 2, 0, 0);
-        arm.rotateY((k / 4) * Math.PI * 2);
-        arm.translate(cx, table.top - table.thickness - 0.035, pz);
-        b.add(arm, pal.darkMetal);
+        arm.rotateY((k / 4) * Math.PI * 2 + Math.PI / 4);
+        arm.translate(cx, table.top - table.thickness - 0.031, pz);
+        b.add(arm, pal.chromeBrushed);
       }
+      const hub = new THREE.CylinderGeometry(columnR + 0.012, columnR + 0.012, 0.03, 28);
+      hub.translate(cx, table.top - table.thickness - 0.031, pz);
+      b.add(hub, pal.chromeBrushed);
       b.collider([cx - table.width / 2, 0, zT0], [cx + table.width / 2, table.top, zOuter]);
     }
 
@@ -151,10 +156,11 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
         const t = 0.02 + panelH / 2;
         m.setPosition(X(back.frontX) + dirX * t + s * 0.003, yb0 + dirY * t, zMid);
         b.add(panel, pal.vinylRedCrazed, m);
+        // 5 mm welt cord sewn into every valley, sitting proud of the crown feet
         for (const vx of valleys) {
-          const cord = new THREE.CylinderGeometry(0.00175, 0.00175, panelH - 0.01, 8);
-          cord.translate(vx, 0, 0.0035);
-          b.add(plainColor(cord, 1.03), pal.vinylRed, m);
+          const cord = new THREE.CylinderGeometry(0.0025, 0.0025, panelH - 0.006, 10);
+          cord.translate(vx, 0, 0.0085);
+          b.add(plainColor(cord, 1.22), pal.vinylRed, m);
         }
       }
       // Rolled top cushion (90 mm Ø), tucked against the divider, with a welt where it meets the face.
@@ -165,10 +171,10 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       metricUv(roll);
       b.add(plainColor(roll), pal.vinylRedCrazed);
       const seamZ = (x: number, y: number, r: number) => piping([new THREE.Vector3(x, y, zInner + 0.008), new THREE.Vector3(x, y, zMid), new THREE.Vector3(x, y, zOuter - 0.008)], r, false);
-      // 6 mm welt along the head-roll seam
-      b.add(seamZ(X(back.frontX + lean * 0.94) - s * 0.004, back.top - 0.05, 0.003), pal.vinylRed);
-      // Horizontal seam where the seat cushion meets the back.
-      b.add(seamZ(X(back.frontX) - s * 0.004, seat.top + 0.006, 0.0025), pal.vinylRed);
+      // 6 mm welt along the head-roll seam, proud of the roll/panel junction
+      b.add(plainColor(seamZ(X(back.frontX + lean * 0.94) - s * 0.018, back.top - 0.046, 0.0035), 1.2), pal.vinylRed);
+      // Boxing seam welt where the seat cushion meets the back.
+      b.add(plainColor(seamZ(X(back.frontX) - s * 0.008, seat.top + 0.004, 0.003), 1.2), pal.vinylRed);
       // Aisle-end panel: from the seat front to the divider, under the cap.
       b.rbox(pal.laminatePanel, [lo(seat.front - 0.02, divider.x0), kick, zEnd0], [hi(seat.front - 0.02, divider.x0), cap.y0, zInner], 0.003, 2, { metric: true });
       b.box(pal.baseboard, [lo(seat.front + 0.01, divider.x0 - 0.005), 0, zEnd0 + 0.012], [hi(seat.front + 0.01, divider.x0 - 0.005), kick, zInner]);

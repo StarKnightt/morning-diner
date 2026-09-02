@@ -55,11 +55,16 @@ export class Diner {
     scene.environment = buildEnvironment(renderer);
     scene.environmentIntensity = 1;
     {
-      const cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType, generateMipmaps: false });
+      const cubeRT = new THREE.WebGLCubeRenderTarget(512, { type: THREE.HalfFloatType, generateMipmaps: false });
       const cubeCam = new THREE.CubeCamera(0.05, 80, cubeRT);
-      cubeCam.position.set(-2.3, 0.85, 0.95);
+      cubeCam.position.set(-2.3, 0.8, 0.95);
       scene.add(cubeCam);
+      // The red band is muted for the probe only: small chrome fittings otherwise read as copper.
+      const vinyls = [this.palette.vinylRed, this.palette.vinylRedCrazed];
+      const saved = vinyls.map((v) => v.color.clone());
+      for (const v of vinyls) v.color.set("#6a1c20");
       cubeCam.update(renderer, scene);
+      vinyls.forEach((v, i) => v.color.copy(saved[i]));
       scene.remove(cubeCam);
       const pmrem = new THREE.PMREMGenerator(renderer);
       const env = pmrem.fromCubemap(cubeRT.texture).texture;

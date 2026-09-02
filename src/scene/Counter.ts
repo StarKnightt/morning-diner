@@ -34,18 +34,21 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       [xMax, dieBack],
       [xMin, dieBack],
     ];
-    const [slab, band] = slabGeometry(pts, {
+    const [slab, band, grooves] = slabGeometry(pts, {
       radius: [0.002, 0.04, 0.04, 0.03, 0.02, 0.002],
       y0: height - tt,
       thickness: tt,
       bevel: 0.012,
       bandHeight: 0.032,
       bandProud: 0.0015,
-      grooves: 4,
+      grooves: 3,
       curveSegments: 8,
     });
     b.add(slab, pal.formicaCounter);
     if (band) b.add(band, pal.formicaEdge);
+    if (grooves) b.add(grooves, pal.alumGroove);
+    // Laminate sheet seams every 3.6 m across the top
+    for (let sx = xMin + 3.6; sx < xMax; sx += 3.6) b.box(pal.alumGroove, [sx - 0.0005, height - 0.0002, dieBack + 0.02], [sx + 0.0005, height + 0.0002, topFrontZ - 0.03]);
     // 100 mm stainless backsplash lip along the service edge of the top
     b.rbox(pal.stainless, [xMin, height - 0.004, dieBack - 0.006], [xMax + 0.006, height + 0.1, dieBack + 0.014], 0.003);
 
@@ -70,6 +73,18 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     rail.rotateZ(Math.PI / 2);
     rail.translate((xMin + 0.05 + tubeX) / 2, footrest.y, tubeZ);
     b.add(rail, pal.chrome);
+    // Near end: elbow and a return into the die face rather than a bare cut
+    const endElbow = new THREE.SphereGeometry(footrest.tubeR, 16, 12);
+    endElbow.translate(xMin + 0.05, footrest.y, tubeZ);
+    b.add(endElbow, pal.chrome);
+    const ret = new THREE.CylinderGeometry(footrest.tubeR, footrest.tubeR, tubeZ - dieFront, 20);
+    ret.rotateX(Math.PI / 2);
+    ret.translate(xMin + 0.05, footrest.y, (dieFront + tubeZ) / 2);
+    b.add(ret, pal.chrome);
+    const retFlange = new THREE.CylinderGeometry(footrest.tubeR + 0.012, footrest.tubeR + 0.012, 0.006, 20);
+    retFlange.rotateX(Math.PI / 2);
+    retFlange.translate(xMin + 0.05, footrest.y, dieFront + 0.003);
+    b.add(retFlange, pal.chrome);
     for (let x = xMin + 0.3; x < xMax; x += footrest.bracketPitch) {
       // Cast bracket: 70 × 110 mm base plate on the die, tapered arm out to a saddle under the tube
       b.rbox(pal.chrome, [x - 0.035, footrest.y - 0.055, dieFront - 0.002], [x + 0.035, footrest.y + 0.055, dieFront + 0.01], 0.004);
@@ -103,18 +118,21 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     const { seatHeight, seatThickness: st, columnR, baseR, footringY, footringR } = STOOL;
 
     // Flared base: lathe profile from a 420 mm dome down to the column.
+    // Bell base: a steep outer flank (it mirrors the floor around it) easing into the column.
     const baseProfile = [
       new THREE.Vector2(0, 0),
       new THREE.Vector2(baseR, 0),
-      new THREE.Vector2(baseR - 0.004, 0.012),
-      new THREE.Vector2(baseR * 0.72, 0.03),
-      new THREE.Vector2(baseR * 0.42, 0.055),
-      new THREE.Vector2(columnR + 0.02, 0.08),
-      new THREE.Vector2(columnR + 0.006, 0.1),
+      new THREE.Vector2(baseR, 0.024), // vertical rim band: mirrors the floor around the stool
+      new THREE.Vector2(baseR - 0.003, 0.036),
+      new THREE.Vector2(baseR - 0.018, 0.052),
+      new THREE.Vector2(baseR - 0.045, 0.068),
+      new THREE.Vector2(baseR - 0.085, 0.083),
+      new THREE.Vector2(columnR + 0.025, 0.096),
+      new THREE.Vector2(columnR + 0.008, 0.106),
       new THREE.Vector2(columnR, 0.11),
       new THREE.Vector2(0, 0.11),
     ];
-    const base = new THREE.LatheGeometry(baseProfile, 40);
+    const base = new THREE.LatheGeometry(baseProfile, 56);
     const column = new THREE.CylinderGeometry(columnR, columnR, seatHeight - st - 0.11 - 0.02, 28);
     column.translate(0, 0.11 + (seatHeight - st - 0.11 - 0.02) / 2, 0);
     // Footring: torus Ø 0.42 at 290 mm AFF, 20 mm tube, fixed to a collar by four spokes.
@@ -160,6 +178,9 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     // 22 mm chrome band around the rim, 2 mm shadow gap below it
     const seatBand = new THREE.CylinderGeometry(r + 0.0025, r + 0.0025, bandY1 - bandY0, 56, 1, true);
     seatBand.translate(0, seatHeight - st + (bandY0 + bandY1) / 2, 0);
+    // Vertical boxing seam on the vinyl rim (one per seat) so each stool's swivel reads
+    const rimSeam = plainColor(new THREE.CylinderGeometry(0.0018, 0.0018, bandY0 - 0.008, 8), 1.1);
+    rimSeam.translate(r - 0.0005, seatHeight - st + 0.004 + (bandY0 - 0.008) / 2, 0);
 
     const parts: Array<[THREE.BufferGeometry, THREE.Material]> = [
       [base, pal.chrome],
@@ -172,6 +193,7 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       [spokes[3], pal.chrome],
       [swivel, pal.darkMetal],
       [cushion, pal.vinylRed],
+      [rimSeam, pal.vinylRed],
       [seatBand, pal.chrome],
     ];
     // Per-stool: any swivel angle, ±5 mm height, ±20 mm off the line, two nudged ~50 mm along it.
@@ -181,8 +203,8 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       const yaw = rng() * Math.PI * 2;
       const tilt = THREE.MathUtils.degToRad(0.6 * (rng() - 0.5)), tiltZ = THREE.MathUtils.degToRad(0.6 * (rng() - 0.5));
       const m = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(tilt, yaw, tiltZ));
-      const dx = (rng() - 0.5) * 0.02 + (nudged.has(i) ? (rng() < 0.5 ? -0.05 : 0.05) : 0);
-      m.setPosition(x + dx, (rng() - 0.5) * 0.01, STOOL.z + (rng() - 0.5) * 0.04);
+      const dx = (rng() - 0.5) * 0.03 + (nudged.has(i) ? (rng() < 0.5 ? -0.05 : 0.05) : 0);
+      m.setPosition(x + dx, (rng() - 0.5) * 0.012, STOOL.z + (rng() - 0.5) * 0.05);
       return m;
     });
     for (const [geo, mat] of parts) {

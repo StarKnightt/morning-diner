@@ -23,6 +23,8 @@ export interface Palette {
   formicaCounter: THREE.MeshPhysicalMaterial;
   formicaEdge: THREE.MeshStandardMaterial;
   chrome: THREE.MeshStandardMaterial;
+  chromeSoft: THREE.MeshStandardMaterial;
+  alumGroove: THREE.MeshStandardMaterial;
   chromeBrushed: THREE.MeshPhysicalMaterial;
   ceramic: THREE.MeshStandardMaterial;
   bisque: THREE.MeshStandardMaterial;
@@ -107,11 +109,11 @@ export function createPalette(maxAnisotropy: number): Palette {
       normalMap: t.normalMap,
       normalScale: new THREE.Vector2(0.6, 0.6),
       roughnessMap: t.roughnessMap,
-      roughness: 0.8, // × map (≈ 0.5) → ≈ 0.4
+      roughness: 0.9, // × map (0.35–0.55) → ≈ 0.4
       metalness: 0,
-      specularIntensity: 0.6,
-      clearcoat: 0.35,
-      clearcoatRoughness: 0.15,
+      specularIntensity: 0.5,
+      clearcoat: 0.25,
+      clearcoatRoughness: 0.2,
       vertexColors: true,
     });
   };
@@ -141,9 +143,9 @@ export function createPalette(maxAnisotropy: number): Palette {
   });
 
   // Woods: solid cap (varnished, fine pores, grain along u) vs printed laminates.
-  const capTex = tex.woodGrain(1024, 0.5, "#6E4A2E", 0.6, 0.25, 501, 0.2);
-  const panelTex = tex.woodGrain(1024, 0.5, "#8A5A3A", 1.6, 0.45, 502, 0.14);
-  const cabTex = tex.woodGrain(1024, 0.5, "#7A4E30", 1.6, 0.45, 503, 0.14);
+  const capTex = tex.woodGrain(1024, 0.5, "#6E4A2E", 0.6, 0.25, 501, 0.2, false);
+  const panelTex = tex.woodGrain(1024, 0.5, "#8A5A3A", 1.6, 0.55, 502, 0.1, true);
+  const cabTex = tex.woodGrain(1024, 0.5, "#7A4E30", 1.6, 0.55, 503, 0.1, true);
   for (const t of [capTex, panelTex, cabTex]) for (const m of [t.map, t.roughnessMap, t.normalMap]) m.repeat.set(2, 2);
   const capWood = new THREE.MeshPhysicalMaterial({
     map: capTex.map, roughnessMap: capTex.roughnessMap, normalMap: capTex.normalMap, normalScale: new THREE.Vector2(0.4, 0.4),
@@ -161,14 +163,17 @@ export function createPalette(maxAnisotropy: number): Palette {
   const edgeBand = new THREE.MeshStandardMaterial({ color: 0x94623f, roughness: 0.4, metalness: 0 });
 
   // Metals: the environment is a PMREM of the real interior (Diner.ts); colours from §4.
-  const chrome = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.62, 0.65, 0.68, THREE.LinearSRGBColorSpace), roughness: 0.08, metalness: 1 });
+  const chrome = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.62, 0.65, 0.68, THREE.LinearSRGBColorSpace), roughness: 0.07, metalness: 1 });
+  // Small chrome fittings (caps, lids, bezels): a touch rougher so the room's red band blurs to a warm grey.
+  const chromeSoft = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.58, 0.63, 0.7, THREE.LinearSRGBColorSpace), roughness: 0.22, metalness: 1 });
   const chromeBrushed = new THREE.MeshPhysicalMaterial({
-    color: new THREE.Color().setRGB(0.56, 0.58, 0.6, THREE.LinearSRGBColorSpace),
-    roughnessMap: tex.brushedRoughness(512, 0.28, 91),
+    color: new THREE.Color().setRGB(0.52, 0.58, 0.66, THREE.LinearSRGBColorSpace), // cool tint offsets the warm room reflection
+    roughnessMap: tex.brushedRoughness(512, 0.32, 91),
     roughness: 1,
     metalness: 1,
-    anisotropy: 0.7,
+    anisotropy: 0.8,
   });
+  const alumGroove = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.22, 0.23, 0.24, THREE.LinearSRGBColorSpace), roughness: 0.5, metalness: 1 });
   const stainless = new THREE.MeshPhysicalMaterial({
     color: new THREE.Color().setRGB(0.5, 0.52, 0.53, THREE.LinearSRGBColorSpace),
     roughnessMap: tex.brushedRoughness(512, 0.34, 92),
@@ -177,32 +182,31 @@ export function createPalette(maxAnisotropy: number): Palette {
     anisotropy: 0.6,
   });
 
-  const ceramic = new THREE.MeshStandardMaterial({ map: tex.glazeSpeckle(256).map, roughness: 0.15, metalness: 0 });
+  const ceramic = new THREE.MeshStandardMaterial({ color: 0xf2eee6, roughness: 0.1, metalness: 0 });
   const bisque = new THREE.MeshStandardMaterial({ color: 0xe1d7c8, roughness: 0.75, metalness: 0 });
   const glassClear = new THREE.MeshPhysicalMaterial({
     color: 0xf6f8f7,
-    roughness: 0.02,
+    roughness: 0.03,
     metalness: 0,
-    transmission: 0.96,
-    ior: 1.47,
+    transmission: 0.95,
+    ior: 1.5,
     thickness: 0.003,
     specularIntensity: 1,
   });
+  // Coffee is OPAQUE on purpose: three renders transmissive objects in their own
+  // pass, so a transmissive liquid inside a transmissive decanter is invisible.
   const coffee = new THREE.MeshPhysicalMaterial({
-    color: 0x2a1408,
-    roughness: 0.03,
+    color: 0x2e1609,
+    roughness: 0.05,
     metalness: 0,
-    transmission: 0.2,
-    ior: 1.33,
-    thickness: 0.08,
-    attenuationColor: new THREE.Color(110 / 255, 45 / 255, 12 / 255),
-    attenuationDistance: 0.012,
     clearcoat: 1,
-    clearcoatRoughness: 0.02,
+    clearcoatRoughness: 0.03,
   });
   const coffeeStain = new THREE.MeshStandardMaterial({ color: 0x4a2a12, roughness: 0.6, metalness: 0, transparent: true, opacity: 0.55 });
-  const lensNormal = tex.prismLensNormal(256, 8);
-  lensNormal.repeat.set(100, 50);
+  const lens = tex.prismLens(256, 8);
+  // 8 cells per canvas × 25 repeats over the 1.2 m lens = 6 mm prisms (real K12 lens pitch)
+  lens.normalMap.repeat.set(25, 12);
+  lens.map.repeat.set(25, 12);
 
   const palette: Palette = {
     wallPaint,
@@ -222,8 +226,10 @@ export function createPalette(maxAnisotropy: number): Palette {
     laminateScuffed,
     edgeBand,
     // Bright grooved aluminium T-mould
-    formicaEdge: new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.66, 0.68, 0.7, THREE.LinearSRGBColorSpace), roughness: 0.1, metalness: 1 }),
+    formicaEdge: new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.66, 0.68, 0.7, THREE.LinearSRGBColorSpace), roughness: 0.2, metalness: 1 }),
+    alumGroove,
     chrome,
+    chromeSoft,
     chromeBrushed,
     ceramic,
     bisque,
@@ -260,8 +266,10 @@ export function createPalette(maxAnisotropy: number): Palette {
       roughness: 0.35,
       metalness: 0,
       emissive: 0xfff3dc,
-      emissiveIntensity: 2.2,
-      normalMap: lensNormal,
+      emissiveIntensity: 1.4, // low enough that the prism cells survive tone mapping
+      map: lens.map,
+      emissiveMap: lens.map,
+      normalMap: lens.normalMap,
       normalScale: new THREE.Vector2(0.8, 0.8),
     }),
     fanBlade: new THREE.MeshStandardMaterial({ map: capTex.map, roughnessMap: capTex.roughnessMap, normalMap: capTex.normalMap, color: 0x8a7060, roughness: 1, metalness: 0 }),
@@ -291,5 +299,9 @@ export function createPalette(maxAnisotropy: number): Palette {
   palette.vinylRed.envMapIntensity = 0.35;
   palette.vinylRedCrazed.envMapIntensity = 0.35;
   palette.capWood.envMapIntensity = 0.3;
+  // Laminates are semi-matt: cut the room reflection so grazing views don't turn the die into a mirror.
+  palette.laminatePanel.envMapIntensity = 0.3;
+  palette.laminateCabinet.envMapIntensity = 0.3;
+  palette.ceramic.envMapIntensity = 0.5;
   return palette;
 }

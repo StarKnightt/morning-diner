@@ -181,7 +181,7 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
   ironFoot.translate(ironR1 - 0.05, -0.016, 0);
   const ironGeo = mergeGeometries([ironArm, ironFoot], false)!;
   // Blades: constant 130 mm width, 11 mm thick, rounded edges, wood grain along the blade
-  const bladeGeo = new RoundedBoxGeometry(bladeR1 - bladeR0, 0.011, 0.13, 2, 0.005);
+  const bladeGeo = new RoundedBoxGeometry(bladeR1 - bladeR0, 0.014, 0.13, 2, 0.006);
   bladeGeo.translate((bladeR0 + bladeR1) / 2, 0, 0);
   metricUv(bladeGeo);
   for (let i = 0; i < 4; i++) {

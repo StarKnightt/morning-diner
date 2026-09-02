@@ -234,7 +234,7 @@ export function vinylSurface(size: number, metres: number, crazed: boolean): Vin
       nimg.data[o + 2] = (1 / len) * 255;
       nimg.data[o + 3] = 255;
       // Roughness around 0.5 (material scales it), cracks a little matter (≤ 15 %).
-      const r = 0.5 + (H(x, y) - crack[i]) * 0.04 + crack[i] * 0.075;
+      const r = 0.45 + (H(x, y) - crack[i]) * 0.06 + crack[i] * 0.07;
       const rv = Math.min(255, Math.max(0, r * 255));
       rimg.data[o] = rv; rimg.data[o + 1] = rv; rimg.data[o + 2] = rv; rimg.data[o + 3] = 255;
     }
@@ -245,8 +245,9 @@ export function vinylSurface(size: number, metres: number, crazed: boolean): Vin
 }
 
 /**
- * Formica "Skylark" boomerang laminate: cream base, tan and grey boomerangs
- * 15–25 mm long at ~40 % coverage, fine gold fleck. One canvas = `metres`.
+ * Formica "Skylark" boomerang laminate: cream base with sparse filled
+ * kidney/boomerang shapes 40–60 mm long in four sizes and two tones (tan, grey)
+ * at ~30–35 % coverage, plus a fine gold fleck. One canvas = `metres`.
  */
 export function formicaBoomerang(size: number, metres: number, seed: number): TextureSet {
   const { c, ctx } = canvas(size, size);
@@ -259,39 +260,40 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
   const img = ctx.getImageData(0, 0, size, size);
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
-      const n = (fbm(x / size, y / size) - 0.5) * 0.035;
+      const n = (fbm(x / size, y / size) - 0.5) * 0.03;
       const o = (y * size + x) * 4;
       img.data[o] *= 1 + n; img.data[o + 1] *= 1 + n; img.data[o + 2] *= 1 + n;
     }
   ctx.putImageData(img, 0, 0);
-  // ~40 % coverage: each boomerang ≈ 20 × 4 mm ≈ 0.8 cm²
+  // A boomerang: thick crescent, arc length L, width ≈ L/5, spanning ~130°.
   const areaCm2 = metres * metres * 1e4;
-  const count = Math.round((areaCm2 * 0.34) / 0.9);
-  const tones = ["#C9B79C", "#9AA0A4", "#C9B79C", "#B7AA94"];
+  const count = Math.round((areaCm2 * 0.32) / 5.5);
+  const tones = ["#C9B79C", "#9AA0A4", "#C9B79C", "#B9AB92"];
   const wraps = [[0, 0], [size, 0], [-size, 0], [0, size], [0, -size], [size, size], [-size, -size], [size, -size], [-size, size]];
-  ctx.lineCap = "round";
+  const sizesMm = [40, 46, 53, 60];
   for (let k = 0; k < count; k++) {
     const x = rng() * size, y = rng() * size;
-    const len = (15 + rng() * 10) * pxPerMm, a = rng() * Math.PI * 2;
-    const bend = 0.3 + rng() * 0.2;
-    ctx.strokeStyle = tones[Math.floor(rng() * tones.length)];
-    ctx.lineWidth = (3.5 + rng() * 1.5) * pxPerMm;
-    const dx = Math.cos(a) * len / 2, dy = Math.sin(a) * len / 2;
-    const nx = -Math.sin(a) * len * bend, ny = Math.cos(a) * len * bend;
+    const L = sizesMm[Math.floor(rng() * 4)] * pxPerMm;
+    const span = (110 + rng() * 40) * (Math.PI / 180);
+    const R = L / span; // radius of the centre-line arc
+    const w = L * (0.18 + rng() * 0.06);
+    const a0 = rng() * Math.PI * 2;
+    ctx.fillStyle = tones[Math.floor(rng() * tones.length)];
     for (const [ox, oy] of wraps) {
       const px = x + ox, py = y + oy;
-      if (px < -len || px > size + len || py < -len || py > size + len) continue;
+      if (px < -L || px > size + L || py < -L || py > size + L) continue;
       ctx.beginPath();
-      ctx.moveTo(px - dx, py - dy);
-      ctx.quadraticCurveTo(px + nx, py + ny, px + dx, py + dy);
-      ctx.stroke();
+      ctx.arc(px, py, R + w / 2, a0, a0 + span, false);
+      ctx.arc(px + Math.cos(a0 + span) * R, py + Math.sin(a0 + span) * R, w / 2, a0 + span, a0 + span + Math.PI, false);
+      ctx.arc(px, py, R - w / 2, a0 + span, a0, true);
+      ctx.arc(px + Math.cos(a0) * R, py + Math.sin(a0) * R, w / 2, a0 + Math.PI, a0 + Math.PI * 2, false);
+      ctx.closePath();
+      ctx.fill();
     }
   }
   // Gold fleck
   ctx.fillStyle = "#C8A860";
-  for (let k = 0; k < areaCm2 * 1.2; k++) {
-    ctx.fillRect(rng() * size, rng() * size, 1, 1);
-  }
+  for (let k = 0; k < areaCm2 * 1.6; k++) ctx.fillRect(rng() * size, rng() * size, 1, 1);
   // Roughness: worn gloss with directional wipe streaks.
   const wipe = makeFbm(seed + 5, 6, 3);
   const rimg = rctx.createImageData(size, size);
@@ -313,11 +315,13 @@ export interface WoodSet {
 }
 
 /**
- * Wood grain along u. `pore` is the grain scale in mm (0.3–1 for solid oak,
- * 1–2 for printed laminate). Colour is a base hex with earlywood/latewood
- * banding; open pores carry a fine normal. One canvas = `metres` along u.
+ * Irregular veneer / plank grain. Growth rings run along the grain axis
+ * (`vertical` → along v, else along u) with a 10–30 mm pitch that wanders and
+ * bends into cathedral arches; latewood lines are thin and soft; fibre streaks
+ * run along the grain. `contrast` is the latewood darkening (≤ 0.15 for
+ * printed laminate). Open pores give a faint normal; `pore` is their length in mm.
  */
-export function woodGrain(size: number, metres: number, hex: string, pore: number, rough: number, seed: number, contrast = 0.16): WoodSet {
+export function woodGrain(size: number, metres: number, hex: string, pore: number, rough: number, seed: number, contrast = 0.14, vertical = false): WoodSet {
   const { c, ctx } = canvas(size, size);
   const { c: rc, ctx: rctx } = canvas(size, size);
   const { c: nc, ctx: nctx } = canvas(size, size);
@@ -325,38 +329,46 @@ export function woodGrain(size: number, metres: number, hex: string, pore: numbe
   const base = { r: parseInt(hex.slice(1, 3), 16) / 255, g: parseInt(hex.slice(3, 5), 16) / 255, b: parseInt(hex.slice(5, 7), 16) / 255 };
   const rng = makeRng(seed);
   const pxPerMm = size / (metres * 1000);
-  const rings = makeFbm(seed, 2, 4); // slow wander of the growth rings
-  const fine = makeFbm(seed + 3, 8, 3);
-  const ringPitchPx = 6 * pxPerMm; // ~6 mm ring pitch
+  const pitchN = makeFbm(seed, 2, 2); // pitch wander
+  const archN = makeFbm(seed + 1, 2, 3); // cathedral bending (integer period: the lattice is period×period)
+  const fibre = makeFbm(seed + 3, 10, 3);
+  const figure = makeFbm(seed + 7, 3, 2); // broad tonal figure
   const img = ctx.createImageData(size, size);
   const rimg = rctx.createImageData(size, size);
   const heights = new Float32Array(size * size);
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
-      const wander = (rings(x / size, y / size) - 0.5) * 14 * pxPerMm;
-      const phase = ((y + wander) / ringPitchPx) * Math.PI * 2;
-      const ring = 0.5 + 0.5 * Math.sin(phase); // 0 earlywood .. 1 latewood
-      const band = Math.pow(ring, 3); // narrow dark latewood lines
-      const streak = (fine((x / size) * 0.25, y / size) - 0.5) * 0.5;
-      const k = 1 - contrast * band + streak * contrast * 0.6;
+      // a = along the grain, cc = across the grain
+      const a = vertical ? y : x, cc = vertical ? x : y;
+      const ua = a / size, uc = cc / size;
+      const pitch = (10 + 20 * pitchN(uc * 0.7, ua * 0.2)) * pxPerMm; // 10–30 mm
+      const arch = (archN(ua, uc * 0.3) - 0.5) * 60 * pxPerMm; // rings bend along the grain
+      const phase = (cc + arch) / pitch;
+      const ring = 0.5 + 0.5 * Math.sin(phase * Math.PI * 2 + fibre(ua * 0.1, uc) * 1.2);
+      const late = Math.pow(ring, 4); // soft, thin latewood
+      const streak = (fibre(vertical ? uc * 3 : ua * 0.3, vertical ? ua * 0.3 : uc * 3) - 0.5) * 0.5;
+      const fig = (figure(ua, uc) - 0.5) * 0.5;
+      const k = 1 - contrast * late + contrast * 0.5 * streak + contrast * 0.6 * fig;
       const o = (y * size + x) * 4;
       img.data[o] = Math.min(255, Math.max(0, base.r * 255 * k));
       img.data[o + 1] = Math.min(255, Math.max(0, base.g * 255 * k));
       img.data[o + 2] = Math.min(255, Math.max(0, base.b * 255 * k));
       img.data[o + 3] = 255;
-      // Pores: short dark dashes along u in the latewood
-      const poreHit = rng() < 0.012 * band ? 1 : 0;
-      heights[y * size + x] = -band * 0.25 - poreHit * 0.8;
-      const rv = Math.min(255, Math.max(0, (rough + band * 0.08 + poreHit * 0.2) * 255));
+      const poreHit = rng() < 0.008 * late ? 1 : 0;
+      heights[y * size + x] = -late * 0.2 - poreHit * 0.7;
+      const rv = Math.min(255, Math.max(0, (rough + late * 0.06 + poreHit * 0.2) * 255));
       rimg.data[o] = rv; rimg.data[o + 1] = rv; rimg.data[o + 2] = rv; rimg.data[o + 3] = 255;
     }
-  // Stretch the pores along u by smearing heights horizontally.
+  // Stretch the pores along the grain by smearing heights.
   const smeared = new Float32Array(size * size);
   const poreLen = Math.max(1, Math.round(pore * 3 * pxPerMm));
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
       let m = 0;
-      for (let k = 0; k < poreLen; k++) m = Math.min(m, heights[y * size + ((x + k) % size)]);
+      for (let k = 0; k < poreLen; k++) {
+        const xx = vertical ? x : (x + k) % size, yy = vertical ? (y + k) % size : y;
+        m = Math.min(m, heights[yy * size + xx]);
+      }
       smeared[y * size + x] = m;
     }
   const nimg = nctx.createImageData(size, size);
@@ -377,10 +389,16 @@ export function woodGrain(size: number, metres: number, hex: string, pore: numbe
   return { map: finish(c, true, 8), roughnessMap: finish(rc, false, 8), normalMap: finish(nc, false, 8) };
 }
 
-/** Prismatic acrylic lens: square pyramids, `cells` per canvas edge; normal map only. */
-export function prismLensNormal(size: number, cells: number): THREE.Texture {
+/**
+ * Prismatic acrylic lens: square pyramids, `cells` per canvas edge. Returns a
+ * normal map and a colour/emissive map whose cell ridges are slightly darker so
+ * the pattern reads even on a self-lit lens.
+ */
+export function prismLens(size: number, cells: number): { normalMap: THREE.Texture; map: THREE.Texture } {
   const { c, ctx } = canvas(size, size);
+  const { c: mc, ctx: m2 } = canvas(size, size);
   const img = ctx.createImageData(size, size);
+  const mimg = m2.createImageData(size, size);
   const cell = size / cells;
   const slope = 0.55;
   for (let y = 0; y < size; y++)
@@ -394,9 +412,14 @@ export function prismLensNormal(size: number, cells: number): THREE.Texture {
       img.data[o + 1] = ((gy * slope) / len) * 0.5 * 255 + 127.5;
       img.data[o + 2] = (1 / len) * 255;
       img.data[o + 3] = 255;
+      // Ridges (cell edges) and the apex catch light differently: darker at the edges.
+      const edge = Math.max(Math.abs(u), Math.abs(v));
+      const shade = 255 - 110 * Math.pow(edge, 8) - 45 * Math.pow(1 - Math.abs(Math.abs(u) - Math.abs(v)), 3);
+      mimg.data[o] = shade; mimg.data[o + 1] = shade; mimg.data[o + 2] = shade; mimg.data[o + 3] = 255;
     }
   ctx.putImageData(img, 0, 0);
-  return finish(c, false, 4);
+  m2.putImageData(mimg, 0, 0);
+  return { normalMap: finish(c, false, 4), map: finish(mc, true, 4) };
 }
 
 /** Light grey speckle laminate (counter top). */

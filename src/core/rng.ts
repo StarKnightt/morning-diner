@@ -12,6 +12,7 @@ export function makeRng(seed: number): () => number {
 
 /** 2D value noise in [0,1], tileable over `period` lattice cells. */
 export function makeValueNoise(seed: number, period: number) {
+  if (!Number.isInteger(period) || period < 1) throw new Error(`makeValueNoise: period must be a positive integer (got ${period})`);
   const rng = makeRng(seed);
   const lattice = new Float32Array(period * period);
   for (let i = 0; i < lattice.length; i++) lattice[i] = rng();

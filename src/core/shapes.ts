@@ -77,7 +77,7 @@ export interface SlabOptions {
   bandHeight?: number;
   /** How far the band stands proud of the slab outline. */
   bandProud?: number;
-  /** Number of raised ribs (grooved T-mould) centred on the band, 1.5 mm pitch. */
+  /** Number of grooves (grooved T-mould) centred on the band, 6 mm pitch, returned as a third geometry. */
   grooves?: number;
   curveSegments?: number;
 }
@@ -87,7 +87,7 @@ export interface SlabOptions {
  * top and bottom edges and an optional metal band wrapping the edge at mid
  * height. Returns [slabGeometry, bandGeometry | null].
  */
-export function slabGeometry(pts: XZ[], o: SlabOptions): [THREE.BufferGeometry, THREE.BufferGeometry | null] {
+export function slabGeometry(pts: XZ[], o: SlabOptions): [THREE.BufferGeometry, THREE.BufferGeometry | null, THREE.BufferGeometry | null] {
   const bevel = Math.min(o.bevel, o.thickness / 2 - 0.0005);
   const inset = offsetPolygon(pts, -bevel);
   const radii = Array.isArray(o.radius) ? o.radius.map((r) => Math.max(0.0005, r - bevel)) : Math.max(0.0005, o.radius - bevel);
@@ -105,6 +105,7 @@ export function slabGeometry(pts: XZ[], o: SlabOptions): [THREE.BufferGeometry, 
   slab.translate(0, o.y0 + bevel, 0);
 
   let band: THREE.BufferGeometry | null = null;
+  let grooves: THREE.BufferGeometry | null = null;
   if (o.bandHeight && o.bandHeight > 0) {
     const proud = o.bandProud ?? 0.003;
     const outer = roundedPath(new THREE.Shape(), offsetPolygon(pts, proud), o.radius);
@@ -113,23 +114,30 @@ export function slabGeometry(pts: XZ[], o: SlabOptions): [THREE.BufferGeometry, 
     band = new THREE.ExtrudeGeometry(outer, { depth: o.bandHeight, bevelEnabled: false, curveSegments: o.curveSegments ?? 6 });
     band.rotateX(-Math.PI / 2);
     band.translate(0, o.y0 + o.thickness / 2 - o.bandHeight / 2, 0);
+    // Returned lower lip: the T-mould's leg folds under the slab edge by 8 mm.
+    const lipOuter = roundedPath(new THREE.Shape(), offsetPolygon(pts, proud), o.radius);
+    lipOuter.holes.push(roundedPath(new THREE.Path(), offsetPolygon(pts, -0.008), o.radius));
+    const lip = new THREE.ExtrudeGeometry(lipOuter, { depth: 0.0015, bevelEnabled: false, curveSegments: o.curveSegments ?? 6 });
+    lip.rotateX(-Math.PI / 2);
+    lip.translate(0, o.y0 - 0.0015 + 0.0015, 0);
+    band = mergeGeometries([band, lip].map((g) => (g.index ? g.toNonIndexed() : g)), false)!;
     if (o.grooves && o.grooves > 0) {
-      // Ribs stand 0.7 mm further proud; the gaps between them read as the grooves.
-      const ribs: THREE.BufferGeometry[] = [band];
-      const ribOuter = roundedPath(new THREE.Shape(), offsetPolygon(pts, proud + 0.0007), o.radius);
-      ribOuter.holes.push(roundedPath(new THREE.Path(), offsetPolygon(pts, proud - 0.001), o.radius));
-      const pitch = 0.0015, ribH = 0.0008;
+      // Grooves: 2 mm dark recessed lines on the band face at 6 mm pitch (a separate, darker material).
+      const rings: THREE.BufferGeometry[] = [];
+      const gOuter = roundedPath(new THREE.Shape(), offsetPolygon(pts, proud + 0.0003), o.radius);
+      gOuter.holes.push(roundedPath(new THREE.Path(), offsetPolygon(pts, proud - 0.0015), o.radius));
+      const pitch = 0.006, gH = 0.002;
       const y0 = o.y0 + o.thickness / 2 - ((o.grooves - 1) * pitch) / 2;
       for (let k = 0; k < o.grooves; k++) {
-        const rib = new THREE.ExtrudeGeometry(ribOuter, { depth: ribH, bevelEnabled: false, curveSegments: o.curveSegments ?? 6 });
-        rib.rotateX(-Math.PI / 2);
-        rib.translate(0, y0 + k * pitch - ribH / 2, 0);
-        ribs.push(rib);
+        const g = new THREE.ExtrudeGeometry(gOuter, { depth: gH, bevelEnabled: false, curveSegments: o.curveSegments ?? 6 });
+        g.rotateX(-Math.PI / 2);
+        g.translate(0, y0 + k * pitch - gH / 2, 0);
+        rings.push(g);
       }
-      band = mergeGeometries(ribs.map((g) => (g.index ? g.toNonIndexed() : g)), false)!;
+      grooves = mergeGeometries(rings, false)!;
     }
   }
-  return [slab, band];
+  return [slab, band, grooves];
 }
 
 /** Axis-aligned rectangle as plan points, from min/max corners. */

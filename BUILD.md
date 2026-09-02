@@ -119,8 +119,13 @@ renders the sun alone (diagnostic).
 ```
 npm install
 npm run build                      # tsc --noEmit && vite build
-node tools/shoot.mjs --tag=sys2    # → shots/sys2-{door,length,aisle,counter,booth,undertable,ceiling,table,warmer}.png
+node tools/shoot.mjs --tag=sys2    # → shots/sys2-{door,length,aisle,counter,booth,undertable,ceiling,table,warmer,macro-table,macro-warmer}.png
+node tools/crop.mjs shots/sys2-booth.png 750,470 shots/crops/valley.png   # 400 px crop (×2) centred on x,y for close inspection
 ```
+
+`shots/crops/` is scratch (git-ignored) — always look at the crops before
+reporting a feature as done: a 4 mm welt cord or a 2 mm groove is 2–3 px at
+1080p and only reads in a crop.
 
 Options: `--no-build` (reuse `dist/`), `--poses=door,aisle`, `--query=nofill`.
 The harness serves `dist/` on `127.0.0.1:5210`, launches full Chromium
@@ -134,10 +139,12 @@ Poses are defined at the top of `tools/shoot.mjs`. Every pose keeps the camera
 ≥ 0.5 m from any surface. `door` stands inside looking at the entrance;
 `length` stands just inside the door looking down the room (kitchen door at the
 far end of the back wall); `counter` stands at the L-return looking along the
-footrail toward the kitchen door; `undertable` is a 1.0 m-high view under a
-booth table for the pedestal and bell base; `table` is a seated (1.15 m) view
-across a booth table at the dispenser, caddy and shakers; `warmer` stands in
-the service aisle looking at the brewer, decanter and mug ledge.
+footrail toward the kitchen door; `undertable` is a 0.62 m-high view between
+two booth end panels so the pedestal column, spider plate and bell base are
+all in frame; `table` is a seated (1.15 m) view across a booth table at the
+dispenser, caddy and shakers; `warmer` stands in the service aisle looking at
+the brewer, decanter and mug ledge; `macro-table` is 0.6 m from the third
+booth's caddy set; `macro-warmer` is 0.7 m from the decanter and pour mug.
 
 ## Lessons recorded
 
@@ -167,13 +174,31 @@ the service aisle looking at the brewer, decanter and mug ledge.
   non-indexed, so `MergedBuilder.build` converts the bucket when mixed.
 - Two coplanar faces from butting boxes z-fight; make adjoining panels butt
   edge-to-edge (booth end panels stop at the divider face) rather than overlap.
+- Transmissive objects do not see each other: three renders them in a separate
+  pass after the opaque transmission buffer, so a transmissive liquid inside a
+  transmissive decanter is invisible. Liquids inside glass must be opaque
+  (`coffee` is an opaque clearcoated dark brown) — and need a light backdrop
+  behind the glass or dark coffee reads as empty glass.
+- `makeValueNoise(seed, period)` needs an INTEGER period; a fractional period
+  produced NaN → every woodGrain map and roughness map became black → every
+  wood surface rendered as a perfect chrome mirror. `rng.ts` now throws on it.
+  Probe materials in the live page (`__APP.scene.traverse`, read the
+  roughnessMap canvas) when a surface looks wrong rather than guessing.
+- Glossy dielectrics at grazing angles mirror the room (Fresnel). Laminates use
+  `envMapIntensity 0.3` and roughness ≥ 0.55 or the counter die turns into a
+  mirror in `length`.
+- A rotationally symmetric stool can't show its swivel; each seat has a single
+  vertical boxing seam on the rim so the random rotation reads.
+- Small chrome parts near red vinyl read as copper because they mirror the red
+  band. The probe capture mutes the vinyl to #6a1c20 and small fittings use a
+  cool-tinted `chromeSoft`/`chromeBrushed`.
 
 ## System status
 
 | # | System | Status |
 |---|---|---|
 | 1 | Interior geometry and floor plan | **done** (rev 4 close-out: empty L-return, footrail at 200 mm on cast brackets, bell pedestals, head bulkhead + 25 mm wall angle, 60 × 40 caps, 100 mm saddle + stepped exterior slab) |
-| 2 | Booth and counter detail | **built, rev 2** — sewn channel backs (welt cord in every V valley, ±10 % channel widths, puckers at the roll), 6 mm welts, seat sag, vinyl #AD161E with micro-grain normal and crazing confined to roll/crowns; interior-capture PMREM so chrome reflects the room; cap wood vs panel vs cabinet laminates with scuff bands, plinth lines, edge bands; grooved 32 mm T-mould, 36 mm counter top + stainless backsplash lip; 9 stools at 610 mm with welted 25 mm crown cushions; BUNN-proportioned brewer with funnel/rails/upper warmer/badge, 64 oz decanter with tide line; rebuilt dispensers, ribbed sugar cap, perforated shakers; waisted mugs with bisque feet; drip tray; clock bezel + glass; fan irons; tile through the door opening |
+| 2 | Booth and counter detail | **built, rev 3 (verified at crop level)** — 5 mm welt cords proud in every channel valley + 7 mm roll-seam and boxing-seam welts, puckers at both tucks, broad sheen (roughness map 0.35–0.55, clearcoat 0.25); 512 px interior-capture PMREM; irregular vertical veneer grain on end panels/counter die/cabinets (contrast 0.10), horizontal cap grain; T-mould with 3 real 2 mm grooves + returned lip, 38 mm tops with sparse two-tone boomerang; counter sheet seams every 3.6 m; steep-rimmed bell stool bases that mirror the floor, per-stool rim seam, ±12 mm height/±25 mm offset; footrail elbow + return flange; 300 mm brushed spider plate; BUNN VPR brewer with one lower + one upper warmer, deep SplashGard funnel, brushed body; 173 × 178 decanter with opaque 55 % coffee, fill line, tide line, black collar/handle, stainless base ring; closed 98 × 117 × 184 dispenser with recessed faceplates and one napkin tip; 12-flute sugar pourer at 65 %; glass shakers with visible fill; glossy waisted mugs (roughness 0.1); 6 mm prism troffer lens; 14 mm fan blades; alu threshold plate |
 | 3 | Windows, blinds, exterior view | pending |
 | 4 | Lighting | pending (placeholder sun/hemi/troffers in `Lighting.ts`) |
 | 5 | Materials and textures | pending (placeholder palette in `materials.ts`) |
@@ -186,4 +211,5 @@ outside (System 3), no blinds, L-return top empty (register is a later prop),
 kitchen box holds dim grey silhouettes only, no second (restroom) door on the
 far end wall, sun-facing vinyl reads a little washed under the placeholder
 light rig (System 4/5 own that balance), the troffer lens prism pattern is a
-normal map that only reads once System 4 lights it.
+faint 6 mm cell map + normal map that will only really read once System 4
+lights it, cap rails have no separate end-grain material.

@@ -183,13 +183,15 @@ export function channelPanel(w: number, h: number, pitch: number, depth: number,
     // Crown: rounded top, sharp V at the valleys (sin^0.55 has a steep foot).
     const pleat = Math.sin(Math.PI * Math.min(1, Math.max(0, u))) ** 0.55;
     const env = smooth(0, 0.06, 0.5 - Math.abs(y) / h) * smooth(0, 0.03, 0.5 - Math.abs(x) / w);
-    // Puckers where the channel meets the roll: 3 small ridges per channel over the top 40 mm.
-    const top = h / 2 - y;
-    const pucker = top < 0.045 ? Math.sin(Math.PI * u * 3) * Math.exp(-((top / 0.02) ** 2)) * 0.15 : 0;
+    // Puckers where the channel is tucked into the roll seam (top) and the seat seam (bottom):
+    // 4 ridges per channel, fading over ~45 mm.
+    const top = h / 2 - y, bot = y + h / 2;
+    const tuck = Math.exp(-((top / 0.025) ** 2)) + 0.7 * Math.exp(-((bot / 0.025) ** 2));
+    const pucker = Math.abs(Math.sin(Math.PI * u * 4)) * tuck * 0.55;
     const z = depth * (pleat + pucker * pleat) * env;
     p.setZ(i, z);
     // Crowns pick up the light; the valleys are the shadow side of the seam.
-    const shade = 0.88 + 0.12 * pleat;
+    const shade = (0.74 + 0.26 * pleat) * (1 - 0.15 * pucker);
     col[i * 3] = shade; col[i * 3 + 1] = shade; col[i * 3 + 2] = shade;
     uv.setXY(i, x + w / 2, y + h / 2);
   }

@@ -50,12 +50,16 @@ const POSES = {
   aisle: { x: -2.0, z: 0.55, yaw: 210, pitch: -12 },
   counter: { x: 3.6, z: 0.5, yaw: 78, pitch: -11 },
   booth: { x: -4.3, z: 1.2, yaw: 225, pitch: -20 },
-  undertable: { x: 3.0, y: 1.0, z: 0.65, yaw: 166, pitch: -14 },
+  // Low camera (0.62 m) so the pedestal column, spider plate and bell base are all in frame.
+  undertable: { x: 3.05, y: 0.62, z: 0.3, yaw: 166, pitch: -5 },
   ceiling: { x: 0.85, z: 0.75, yaw: 104, pitch: 28 },
   // Seated at the third booth, looking across the table at the dispenser and shakers.
   table: { x: -0.52, y: 1.15, z: 2.55, yaw: 130, pitch: -21 },
   // Behind the counter in the service aisle, looking at the brewer, decanter and the mug ledge.
   warmer: { x: -2.35, z: -1.0, yaw: 342, pitch: -16 },
+  // Close-ups for prop judgement: 0.6 m from the third booth's caddy set; 0.7 m from the decanter + pour mug.
+  "macro-table": { x: -0.68, y: 0.98, z: 2.68, yaw: 136, pitch: -17 },
+  "macro-warmer": { x: -1.42, y: 1.22, z: -1.68, yaw: 15, pitch: -18 },
 };
 const NAMES = ONLY.length ? Object.keys(POSES).filter((p) => ONLY.includes(p)) : Object.keys(POSES);
 

@@ -213,7 +213,8 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     b.box(pal.alum, [x1 - jw - st, 0.02, zs0], [x1 - jw, DOOR.height - jw, zs1]);
     b.box(pal.alum, [x0 + jw, DOOR.height - jw - st, zs0], [x1 - jw, DOOR.height - jw, zs1]);
     // 100 × 12 mm aluminium threshold saddle under the leaf; concrete slab fills the opening below it
-    b.rbox(pal.chromeBrushed, [x0 + jw, -0.002, zMid - 0.05], [x1 - jw, 0.012, zMid + 0.05], 0.004, 3);
+    b.rbox(pal.alum, [x0 + jw, -0.002, zMid - 0.05], [x1 - jw, 0.012, zMid + 0.05], 0.004, 3);
+    b.box(pal.alumGroove, [x0 + jw, 0.011, zMid - 0.0003], [x1 - jw, 0.0125, zMid + 0.0003]);
     // Floor tile runs through the opening to the saddle; outside it the concrete step is 120 mm down.
     b.box(pal.concrete, [x0, yLow, zMid], [x1, -0.12, zFront + T], { uvScale: 1 });
     b.box(pal.concrete, [x0, -0.12, zMid], [x1, -0.005, zMid + 0.06], { uvScale: 1 });
