@@ -42,6 +42,13 @@ export interface LightingResult {
  * Per-light caster lists. `renderer.shadowMap.render` is wrapped to render one light's
  * map at a time; between maps the interior meshes and the cone occluder swap
  * `castShadow`. Everything flagged `userData.lotCaster` (Exterior.ts) casts into both.
+ *
+ * Shadow-once (Diner.ts sets `shadowMap.autoUpdate = false` and raises `needsUpdate`
+ * through `Diner.invalidateShadows()`): WebGLShadowMap.render returns early when
+ * neither flag is set and clears `needsUpdate` at the end of a pass, so with the
+ * per-light split the flag has to be re-raised before every light's pass or only the
+ * first map in the list would ever be rendered. The wrapper mirrors the early return
+ * and the final clear itself.
  */
 export function installShadowMasks(renderer: THREE.WebGLRenderer, root: THREE.Object3D, lights: LightingResult): void {
   const interior: THREE.Object3D[] = [];
@@ -51,13 +58,17 @@ export function installShadowMasks(renderer: THREE.WebGLRenderer, root: THREE.Ob
   const shadowMap = renderer.shadowMap as THREE.WebGLShadowMap & { render: (l: THREE.Light[], s: THREE.Scene, c: THREE.Camera) => void };
   const original = shadowMap.render.bind(shadowMap);
   shadowMap.render = (list: THREE.Light[], scene: THREE.Scene, camera: THREE.Camera) => {
+    if (!shadowMap.enabled) return;
+    if (!shadowMap.autoUpdate && !shadowMap.needsUpdate) return;
     for (const light of list) {
       const lot = light === lights.sunLot;
       for (const o of interior) o.castShadow = !lot;
       lights.cone.castShadow = lot;
+      shadowMap.needsUpdate = true;
       original([light], scene, camera);
     }
     for (const o of interior) o.castShadow = true;
+    shadowMap.needsUpdate = false;
   };
 }
 

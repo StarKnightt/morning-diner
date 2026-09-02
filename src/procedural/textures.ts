@@ -7,7 +7,9 @@ import * as THREE from "three";
 import { makeFbm, makeFbm2, makeRng } from "../core/rng";
 
 function canvas(w: number, h: number) {
-  const c = document.createElement("canvas");
+  // Main thread: an HTMLCanvasElement. Inside the texture worker (no `document`): an
+  // OffscreenCanvas — same 2D API, same rasteriser, byte-identical output.
+  const c = (typeof document === "undefined" ? new OffscreenCanvas(w, h) : document.createElement("canvas")) as HTMLCanvasElement;
   c.width = w;
   c.height = h;
   const ctx = c.getContext("2d", { willReadFrequently: true });

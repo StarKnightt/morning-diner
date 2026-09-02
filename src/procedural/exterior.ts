@@ -7,7 +7,9 @@ import * as THREE from "three";
 import { makeFbm, makeFbm2, makeRng } from "../core/rng";
 
 function canvas(w: number, h: number) {
-  const c = document.createElement("canvas");
+  // Main thread: an HTMLCanvasElement. Inside the texture worker (no `document`): an
+  // OffscreenCanvas — same 2D API, same rasteriser, byte-identical output.
+  const c = (typeof document === "undefined" ? new OffscreenCanvas(w, h) : document.createElement("canvas")) as HTMLCanvasElement;
   c.width = w;
   c.height = h;
   const ctx = c.getContext("2d", { willReadFrequently: true });
@@ -471,4 +473,18 @@ export function blockWall(size: number, seed: number): { map: THREE.Texture; rou
   for (let i = 0; i < w * h; i++) { const o = i * 4; rimg.data[o + 1] = rimg.data[o]; rimg.data[o + 2] = rimg.data[o]; }
   rctx.putImageData(rimg, 0, 0);
   return { map: finish(c, true, 8), roughnessMap: finish(rc, false, 8) };
+}
+
+/** Radial falloff alpha for the vehicles' and scrub patches' contact-shadow decals. */
+export function contactShadowAlpha(size: number): THREE.Texture {
+  const { c, ctx } = canvas(size, size);
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, "rgba(255,255,255,0.72)");
+  g.addColorStop(0.55, "rgba(255,255,255,0.45)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.NoColorSpace;
+  return t;
 }

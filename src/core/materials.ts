@@ -4,8 +4,9 @@
  * builders can group geometry by material.
  */
 import * as THREE from "three";
-import * as tex from "../procedural/textures";
-import * as ext from "../procedural/exterior";
+import * as texModule from "../procedural/textures";
+import * as extModule from "../procedural/exterior";
+import type { TextureBank } from "./textureBank";
 
 export interface Palette {
   wallPaint: THREE.MeshStandardMaterial;
@@ -85,8 +86,12 @@ export interface Palette {
   blackPowder: THREE.MeshStandardMaterial;
 }
 
-export function createPalette(maxAnisotropy: number): Palette {
+export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palette {
   const aniso = Math.min(8, maxAnisotropy);
+  // With a TextureBank the generators run in workers and return placeholders that
+  // fill in later (see core/textureBank.ts); without one they run synchronously.
+  const tex = bank ? bank.proxy(texModule, "tex") : texModule;
+  const ext = bank ? bank.proxy(extModule, "ext") : extModule;
 
   const floorTex = tex.checkerFloor(40, 20, 51, aniso);
   const wallTex = tex.paintedWall("#e9e2d2", 1024, 11);

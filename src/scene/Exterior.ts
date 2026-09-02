@@ -14,7 +14,8 @@ import * as THREE from "three";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { makeRng, makeFbm } from "../core/rng";
-import * as ext from "../procedural/exterior";
+import type { TextureBank } from "../core/textureBank";
+import * as extModule from "../procedural/exterior";
 import { ROOM } from "./layout";
 
 const T = ROOM.wallThickness;
@@ -150,22 +151,6 @@ function buildHorizon(parent: THREE.Group): void {
   });
 }
 
-/** Radial falloff alpha for the vehicles' contact shadows. */
-function contactShadowAlpha(size: number): THREE.Texture {
-  const c = document.createElement("canvas");
-  c.width = c.height = size;
-  const ctx = c.getContext("2d")!;
-  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  g.addColorStop(0, "rgba(255,255,255,0.72)");
-  g.addColorStop(0.55, "rgba(255,255,255,0.45)");
-  g.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.NoColorSpace;
-  return t;
-}
-
 /** Boxy vehicle from a side profile (z along length, nose at z = 0) extruded across x. */
 interface CarSpec {
   profile: Array<[number, number]>;
@@ -289,7 +274,8 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
   parent.add(dm);
 }
 
-export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Vector3): ExteriorResult {
+export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Vector3, bank?: TextureBank): ExteriorResult {
+  const ext = bank ? bank.proxy(extModule, "ext") : extModule; // canvases in workers when a bank is given
   // Own group: everything in it is flagged `userData.lotCaster` at the end so Diner.ts
   // lets it cast into the lot sun's shadow map (interior objects are masked out of it).
   const parent = new THREE.Group();
@@ -313,7 +299,7 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
   /* ---------------- lot: detailed near plane + plain surround ---------------- */
   const stallLinesX: number[] = [];
   for (let x = -13.5; x <= 13.5 + 1e-6; x += LOT.stallPitch) stallLinesX.push(x);
-  const layout: ext.LotLayout = { x0: LOT.x0, z0: LOT.kerbZ, w: LOT.w, d: LOT.d, stallLinesX, stallDepth: LOT.stallDepth };
+  const layout: extModule.LotLayout = { x0: LOT.x0, z0: LOT.kerbZ, w: LOT.w, d: LOT.d, stallLinesX, stallDepth: LOT.stallDepth };
   const lotTex = ext.lotSurface(2048, layout, 3310);
   const detail = ext.asphaltDetail(512, 3311);
   const asphalt = skyFill(new THREE.MeshStandardMaterial({
@@ -397,7 +383,7 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
     dark: new THREE.MeshStandardMaterial({ color: 0x0c0c0c, roughness: 0.9, metalness: 0 }),
     lamp: new THREE.MeshStandardMaterial({ color: 0xaeb4b8, roughness: 0.08, metalness: 0.6 }),
     tail: new THREE.MeshStandardMaterial({ color: 0x8a1212, roughness: 0.2, metalness: 0 }),
-    shadow: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, alphaMap: contactShadowAlpha(128), depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }),
+    shadow: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, alphaMap: ext.contactShadowAlpha(128), depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }),
   };
   // Trim buckets sit inside the body's silhouette (hubs behind tyres, lamps in the nose,
   // chrome strips on the flanks): no shadow of their own, so skip their depth draws in both maps.
@@ -472,7 +458,7 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
     // frustum stops at the CMU wall, so the desert gets its ground contact this way).
     const decalGeo = new THREE.CircleGeometry(0.5, 14);
     decalGeo.rotateX(-Math.PI / 2);
-    const decals = new THREE.InstancedMesh(decalGeo, new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.42, alphaMap: contactShadowAlpha(64), depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }), N);
+    const decals = new THREE.InstancedMesh(decalGeo, new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.42, alphaMap: ext.contactShadowAlpha(64), depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }), N);
     const shadowDir = new THREE.Vector3(-sunDir.x, 0, -sunDir.z).normalize();
     const shadowLen = 1 / Math.tan(Math.asin(sunDir.y)); // shadow length per metre of height
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), pos = new THREE.Vector3(), c = new THREE.Color();
