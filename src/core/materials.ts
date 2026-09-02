@@ -370,7 +370,23 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
       specularIntensity: 1,
       side: THREE.DoubleSide,
     }),
-    glassSmudge: new THREE.MeshBasicMaterial({ color: 0xf4f2ec, transparent: true, opacity: 0.12, alphaMap: ext.handprintAlpha(1024, 3321), depthWrite: false, side: THREE.DoubleSide }),
+    glassSmudge: (() => {
+      // Greasy palm-smear haze on the door pane. Forward scatter from a grease film is
+      // strongest at grazing view angles, so the alpha is scaled by a Fresnel-like term
+      // (0.3 at normal incidence → 1 at grazing): the smear brightens as you look along the
+      // pane and nearly disappears face-on, which is how a real smudge behaves (rev 3).
+      const m = new THREE.MeshBasicMaterial({ color: 0xf4f2ec, transparent: true, opacity: 0.2, alphaMap: ext.handprintAlpha(1024, 3321), depthWrite: false, side: THREE.DoubleSide });
+      m.onBeforeCompile = (shader) => {
+        shader.vertexShader = shader.vertexShader
+          .replace("#include <common>", "#include <common>\nvarying vec3 vSmN; varying vec3 vSmV;")
+          .replace("#include <fog_vertex>", "#include <fog_vertex>\nvSmN = normalize(normalMatrix * normal); vSmV = normalize(-(modelViewMatrix * vec4(position, 1.0)).xyz);");
+        shader.fragmentShader = shader.fragmentShader
+          .replace("#include <common>", "#include <common>\nvarying vec3 vSmN; varying vec3 vSmV;")
+          .replace("#include <alphamap_fragment>", "#include <alphamap_fragment>\n{ float g = 1.0 - abs(dot(normalize(vSmN), normalize(vSmV))); diffuseColor.a *= 0.3 + 0.7 * g * g; }");
+      };
+      m.customProgramCacheKey = () => "glassSmudgeFresnel";
+      return m;
+    })(),
     // 1" venetian slats: baked-enamel aluminium, alabaster (238,232,218) slightly yellowed,
     // 20–30 GU → roughness ~0.45 (dielectric paint, F0 4 %), dust streaks on the up-face.
     slat: (() => {
@@ -383,9 +399,10 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     cord: new THREE.MeshStandardMaterial({ color: 0xd9d2c0, roughness: 0.95, metalness: 0 }),
     // Tilt wand: opaque almond acrylic (rev 2 — a clear rod disappeared against the slats)
     wand: new THREE.MeshStandardMaterial({ color: 0xc4b08a, roughness: 0.18, metalness: 0 }),
-    // Turned-wood acorn tassel on the pull cords: the one warm note on the blind, so it reads
-    // as hardware against the almond rail instead of merging with it
-    tassel: new THREE.MeshStandardMaterial({ color: 0x8c6a45, roughness: 0.45, metalness: 0 }),
+    // Moulded plastic tassel on the pull cords, in the slat colour like the real hardware
+    // (rev 2 used a turned-wood acorn for contrast; the critics read it as a curtain tassel).
+    // Glossier than the caps so it still separates from the matte wall behind it.
+    tassel: new THREE.MeshStandardMaterial({ color: 0xd2c7ab, roughness: 0.3, metalness: 0 }),
     laminateWood: new THREE.MeshStandardMaterial({ color: 0x6b4a2e, roughness: 0.5, metalness: 0 }),
     kickPanel: new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.6, metalness: 0.3 }),
     tileBacking: new THREE.MeshStandardMaterial({ color: 0x5a5650, roughness: 1, metalness: 0 }),
