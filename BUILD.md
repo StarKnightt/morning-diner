@@ -23,12 +23,13 @@ src/
                           plinth/kick, 9° channel-tufted backs tapering to a 90 mm roll,
                           dividers + end panels under one mitred 60 × 40 mm T-cap each
     Counter.ts            L-shaped grey-speckle slab top, die + cove base + toe recess, 36 mm
-                          footrail on cast brackets, 10 instanced stools (domed vinyl seat,
+                          footrail on cast brackets, 9 instanced stools at 610 mm (domed vinyl seat,
                           torus footring on spokes, each swivelled differently), back bar
                           with cooler door + drawer unit, 300 mm cabinet runs under a bulkhead
-    Props.ts              System 2 props: napkin dispensers, sugar caddies, shakers, mugs
-                          (InstancedMesh + the named `pourMug`), saucers, mug ledge, two-burner
-                          brewer with the named `coffeePot` decanter, tray stack, wall clock
+    Props.ts              System 2 props: table sets (117×98×184 dispenser with napkin stack,
+                          sugar pourer, S&P) on every table and every second stool, mugs
+                          (InstancedMesh + the named `pourMug`, bisque foot rings), saucers, drip
+                          tray, BUNN VPR-class brewer with the named `coffeePot`, trays, clock
     Ceiling.ts            tegular tiles (instanced), main/cross tee grid with end clips,
                           wall angle (also along the bulkhead), 6 troffers with a lipped door
                           frame in a shadow gap + recessed lens, ceiling fan
@@ -36,8 +37,9 @@ src/
     Lighting.ts           PLACEHOLDER lighting; System 4 replaces this file
   player/FirstPerson.ts   pointer-lock look, WASD at 1.4 m/s, eye 1.62 m, AABB sliding collision
   core/
-    materials.ts          shared material palette: System 2 first-pass vinyl / laminate /
-                          chrome / ceramic / glass / coffee; System 5 refines
+    materials.ts          shared material palette: vinyl (plain + crazed), boomerang / speckle
+                          Formica, solid cap wood vs two woodgrain laminates, chrome (r 0.08),
+                          anisotropic brushed stainless, ceramic, glass, coffee; System 5 refines
     merge.ts              MergedBuilder: per-material merging, `box` / `rbox` (bevelled), colliders
     shapes.ts             plan-view polygon offset, rounded corners, extruded slab + edge band,
                           trapezoid prisms — the "no razor edges" toolkit
@@ -46,10 +48,12 @@ src/
     rng.ts                deterministic PRNG, tileable value/fBm noise
   procedural/
     textures.ts           canvas textures: checker floor, painted wall, acoustic tile, asphalt,
-                          concrete, vinyl crazing (colour/normal/roughness), boomerang and
-                          speckle laminate, glaze speckle, brushed-metal roughness
-    environment.ts        procedural PMREM: an emissive room shaped like this diner (window
-                          strip, troffers, checker floor, red booth band) so chrome reads as chrome
+                          concrete, vinyl micro-grain + crazing (normal/roughness only), boomerang
+                          and speckle laminate, wood grain (map/rough/normal), glaze speckle,
+                          brushed-metal roughness, prismatic lens normal
+    environment.ts        procedural emissive room used ONLY during the startup CubeCamera pass;
+                          Diner.ts then PMREMs a 256 px capture of the real interior from counter
+                          height and that becomes `scene.environment`
   capture/pose.ts         window.__setPose / __SCENE_READY / __stats for the harness
 tools/
   shoot.mjs               headless capture harness (build → serve :5210 → shoot poses)
@@ -139,9 +143,15 @@ the service aisle looking at the brewer, decanter and mug ledge.
 
 - `RoomEnvironment` is bright. At `environmentIntensity 0.25` it out-lit a
   5.0-intensity sun and every frame came out flat; `?nofill` proved the fills
-  were not the cause. System 2 replaced it with `procedural/environment.ts` at
-  scene intensity 1; metals take it fully (`envMapIntensity 1`) while dielectrics
-  take 0.1 (0.3 for the glossy laminates/vinyl) so the sun/fill balance holds.
+  were not the cause. System 2 replaced it with a procedural room map, and rev 2
+  with a one-time CubeCamera capture of the actual interior (256 px, HalfFloat,
+  PMREM'd) taken from counter height — the checker floor and red seats now bend
+  into the chrome. Metals take it fully (`envMapIntensity 1`); dielectrics 0.1
+  (0.3 for glossy laminates/vinyl) so the sun/fill balance holds. Render targets
+  skip tone mapping, so the capture is linear HDR as it should be.
+- Canvas textures are sRGB bytes. Never feed `new THREE.Color(hex).r` into a
+  canvas — the constructor converts to linear and the wood came out near-black.
+  Parse the hex yourself (see `woodGrain`).
 - `new THREE.Color(r, g, b)` with floats is LINEAR in r152+. Author sRGB
   swatches with `setRGB(r, g, b, THREE.SRGBColorSpace)`; the first vinyl pass
   came out salmon pink for exactly this reason.
@@ -163,7 +173,7 @@ the service aisle looking at the brewer, decanter and mug ledge.
 | # | System | Status |
 |---|---|---|
 | 1 | Interior geometry and floor plan | **done** (rev 4 close-out: empty L-return, footrail at 200 mm on cast brackets, bell pedestals, head bulkhead + 25 mm wall angle, 60 × 40 caps, 100 mm saddle + stepped exterior slab) |
-| 2 | Booth and counter detail | **built** — vinyl upholstery form + crazing, boomerang/speckle laminates, chrome via procedural PMREM, domed stools, dispensers + caddy + shakers, mugs (`pourMug`), brewer + `coffeePot`, ledge, trays, clock |
+| 2 | Booth and counter detail | **built, rev 2** — sewn channel backs (welt cord in every V valley, ±10 % channel widths, puckers at the roll), 6 mm welts, seat sag, vinyl #AD161E with micro-grain normal and crazing confined to roll/crowns; interior-capture PMREM so chrome reflects the room; cap wood vs panel vs cabinet laminates with scuff bands, plinth lines, edge bands; grooved 32 mm T-mould, 36 mm counter top + stainless backsplash lip; 9 stools at 610 mm with welted 25 mm crown cushions; BUNN-proportioned brewer with funnel/rails/upper warmer/badge, 64 oz decanter with tide line; rebuilt dispensers, ribbed sugar cap, perforated shakers; waisted mugs with bisque feet; drip tray; clock bezel + glass; fan irons; tile through the door opening |
 | 3 | Windows, blinds, exterior view | pending |
 | 4 | Lighting | pending (placeholder sun/hemi/troffers in `Lighting.ts`) |
 | 5 | Materials and textures | pending (placeholder palette in `materials.ts`) |
@@ -175,4 +185,5 @@ Known simplifications after System 2: flat asphalt lot and plain sky colour
 outside (System 3), no blinds, L-return top empty (register is a later prop),
 kitchen box holds dim grey silhouettes only, no second (restroom) door on the
 far end wall, sun-facing vinyl reads a little washed under the placeholder
-light rig (System 4/5 own that balance), shaker perforations are a dark disc.
+light rig (System 4/5 own that balance), the troffer lens prism pattern is a
+normal map that only reads once System 4 lights it.

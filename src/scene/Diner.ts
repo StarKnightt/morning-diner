@@ -44,13 +44,30 @@ export class Diner {
     scene.add(this.group);
     this.sun = buildLighting(scene).sun;
 
-    // Procedural reflection environment shaped like this room (see
-    // procedural/environment.ts). Metals take it at full strength; dielectrics
-    // only at ~0.1 (materials.ts) so the sun/fill balance is unchanged.
+    scene.background = new THREE.Color(0x9cc0ea);
+
+    // Reflection environment: a one-time CubeCamera capture of the real interior
+    // from counter height between the stools, PMREM-filtered. The chrome then
+    // carries the actual checker floor, red seats and window wall. During that
+    // capture pass the metals borrow the procedural room map so they are not
+    // black in their own reflections. Metals take the result at full strength;
+    // dielectrics only at ~0.1 (materials.ts) so the sun/fill balance holds.
     scene.environment = buildEnvironment(renderer);
     scene.environmentIntensity = 1;
-
-    scene.background = new THREE.Color(0x9cc0ea);
+    {
+      const cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType, generateMipmaps: false });
+      const cubeCam = new THREE.CubeCamera(0.05, 80, cubeRT);
+      cubeCam.position.set(-2.3, 0.85, 0.95);
+      scene.add(cubeCam);
+      cubeCam.update(renderer, scene);
+      scene.remove(cubeCam);
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      const env = pmrem.fromCubemap(cubeRT.texture).texture;
+      scene.environment.dispose();
+      scene.environment = env;
+      pmrem.dispose();
+      cubeRT.dispose();
+    }
   }
 
   update(dt: number): void {

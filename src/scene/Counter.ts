@@ -38,22 +38,30 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       radius: [0.002, 0.04, 0.04, 0.03, 0.02, 0.002],
       y0: height - tt,
       thickness: tt,
-      bevel: 0.018,
-      bandHeight: 0.02,
-      bandProud: 0.003,
+      bevel: 0.012,
+      bandHeight: 0.032,
+      bandProud: 0.0015,
+      grooves: 4,
       curveSegments: 8,
     });
     b.add(slab, pal.formicaCounter);
     if (band) b.add(band, pal.formicaEdge);
+    // 100 mm stainless backsplash lip along the service edge of the top
+    b.rbox(pal.stainless, [xMin, height - 0.004, dieBack - 0.006], [xMax + 0.006, height + 0.1, dieBack + 0.014], 0.003);
 
-    // Die (laminate) with a 100 mm recessed toe kick faced in cove base, main run and L-return.
+    // Die (woodgrain laminate, metric UVs) with a 100 mm recessed toe kick faced in cove base, main run and L-return.
     const kickH = COUNTER.kickHeight, kickIn = COUNTER.kickRecess;
-    b.box(pal.laminateWood, [xMin, kickH, dieBack], [xMax, height - tt, dieFront]);
+    b.box(pal.laminatePanel, [xMin, kickH, dieBack], [xMax, height - tt, dieFront], { metric: true });
     b.rbox(pal.baseboard, [xMin, 0, dieBack], [xMax, kickH, dieFront - kickIn], 0.004);
-    b.box(pal.laminateWood, [xMax, kickH, lReturnZEnd], [lDieX1, height - tt, dieBack]);
+    b.box(pal.laminatePanel, [xMax, kickH, lReturnZEnd], [lDieX1, height - tt, dieBack], { metric: true });
     b.rbox(pal.baseboard, [xMax, 0, lReturnZEnd + kickIn], [lDieX1 - kickIn, kickH, dieBack], 0.004);
+    // 130 mm scuff band and a plinth line at the base of the die faces
+    b.box(pal.laminateScuffed, [xMin + 0.002, kickH + 0.002, dieFront], [xMax, kickH + 0.132, dieFront + 0.0006]);
+    b.box(pal.laminateScuffed, [lDieX1, kickH + 0.002, lReturnZEnd + 0.002], [lDieX1 + 0.0006, kickH + 0.132, dieBack]);
+    b.box(pal.baseboard, [xMin + 0.002, kickH + 0.132, dieFront], [xMax, kickH + 0.138, dieFront + 0.0008]);
+    b.box(pal.baseboard, [lDieX1, kickH + 0.132, lReturnZEnd + 0.002], [lDieX1 + 0.0008, kickH + 0.138, dieBack]);
     // Work-side shelf under the main counter (open, laminate)
-    b.box(pal.laminateWood, [xMin, 0.5, dieBack - 0.01], [xMax, 0.52, dieBack + 0.3]);
+    b.box(pal.laminateCabinet, [xMin, 0.5, dieBack - 0.01], [xMax, 0.52, dieBack + 0.3], { metric: true });
 
     // Footrail: 36 mm chrome tube 130 mm off the die face at 230 mm AFF, brackets every 1.2 m.
     const tubeZ = dieFront + footrest.gap + footrest.tubeR;
@@ -126,25 +134,32 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     }
     const swivel = new THREE.CylinderGeometry(0.07, 0.05, 0.02, 24);
     swivel.translate(0, seatHeight - st - 0.01, 0);
-    // Seat cushion: domed vinyl with a rolled edge; the lower 50 mm is the upholstered rim.
+    // Seat cushion: vinyl rim band below a 22 mm chrome band (2 mm shadow gap under it), then the
+    // upholstered top with a 6 mm rolled welt at the rim and a 25 mm domed crown.
+    const bandY0 = 0.03, bandY1 = 0.052, crown = 0.025;
     const seatProfile = [
       new THREE.Vector2(0, 0),
       new THREE.Vector2(r - 0.03, 0),
       new THREE.Vector2(r - 0.006, 0.006),
-      new THREE.Vector2(r, 0.02),
-      new THREE.Vector2(r, 0.05),
-      new THREE.Vector2(r - 0.003, 0.062),
-      new THREE.Vector2(r - 0.014, 0.072),
-      new THREE.Vector2(r - 0.04, 0.08),
-      new THREE.Vector2(r - 0.09, 0.086),
-      new THREE.Vector2(r - 0.14, 0.0895),
+      new THREE.Vector2(r - 0.001, 0.016),
+      new THREE.Vector2(r - 0.001, bandY0 - 0.002), // shadow gap under the band
+      new THREE.Vector2(r - 0.004, bandY0),
+      new THREE.Vector2(r - 0.004, bandY1),
+      new THREE.Vector2(r - 0.002, bandY1 + 0.002),
+      new THREE.Vector2(r, bandY1 + 0.006), // welt roll
+      new THREE.Vector2(r - 0.002, bandY1 + 0.011),
+      new THREE.Vector2(r - 0.006, bandY1 + 0.012),
+      new THREE.Vector2(r - 0.012, st - crown + 0.002),
+      new THREE.Vector2(r - 0.05, st - crown + 0.012),
+      new THREE.Vector2(r - 0.1, st - crown + 0.019),
+      new THREE.Vector2(r - 0.15, st - 0.001),
       new THREE.Vector2(0, st),
     ];
-    const cushion = plainColor(new THREE.LatheGeometry(seatProfile, 48));
+    const cushion = plainColor(new THREE.LatheGeometry(seatProfile, 56));
     cushion.translate(0, seatHeight - st, 0);
-    // 12 mm chrome band around the rim
-    const seatBand = new THREE.CylinderGeometry(r + 0.003, r + 0.003, 0.012, 48, 1, true);
-    seatBand.translate(0, seatHeight - st + 0.036, 0);
+    // 22 mm chrome band around the rim, 2 mm shadow gap below it
+    const seatBand = new THREE.CylinderGeometry(r + 0.0025, r + 0.0025, bandY1 - bandY0, 56, 1, true);
+    seatBand.translate(0, seatHeight - st + (bandY0 + bandY1) / 2, 0);
 
     const parts: Array<[THREE.BufferGeometry, THREE.Material]> = [
       [base, pal.chrome],
@@ -159,13 +174,15 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       [cushion, pal.vinylRed],
       [seatBand, pal.chrome],
     ];
-    // Each stool is swivelled ±25° and sits a fraction of a degree off plumb.
+    // Per-stool: any swivel angle, ±5 mm height, ±20 mm off the line, two nudged ~50 mm along it.
     const rng = makeRng(808);
-    const poses = STOOL.centersX.map((x) => {
-      const yaw = THREE.MathUtils.degToRad((rng() - 0.5) * 50);
+    const nudged = new Set([2, 6]);
+    const poses = STOOL.centersX.map((x, i) => {
+      const yaw = rng() * Math.PI * 2;
       const tilt = THREE.MathUtils.degToRad(0.6 * (rng() - 0.5)), tiltZ = THREE.MathUtils.degToRad(0.6 * (rng() - 0.5));
       const m = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(tilt, yaw, tiltZ));
-      m.setPosition(x, 0, STOOL.z);
+      const dx = (rng() - 0.5) * 0.02 + (nudged.has(i) ? (rng() < 0.5 ? -0.05 : 0.05) : 0);
+      m.setPosition(x + dx, (rng() - 0.5) * 0.01, STOOL.z + (rng() - 0.5) * 0.04);
       return m;
     });
     for (const [geo, mat] of parts) {
@@ -196,7 +213,7 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       kickH,
       height - topT,
       openings.map(([a0, a1]) => ({ a0, a1, y0: kickH, y1: yTop })),
-      (x0, x1, y0, y1) => b.box(pal.laminateWood, [x0, y0, zBack], [x1, y1, zFront]),
+      (x0, x1, y0, y1) => b.box(pal.laminateCabinet, [x0, y0, zBack], [x1, y1, zFront], { metric: true }),
     );
     for (const [a0, a1] of openings) {
       // Stainless face frame; the bay is backed 60 mm deep so nothing reads as a hole
@@ -257,17 +274,20 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     for (const [x0, x1] of runs) {
       // Carcass with a dark face so door gaps read as shadow; laminate end panels run to the soffit.
       b.box(pal.kickPanel, [x0 + 0.018, bottom, zWall], [x1 - 0.018, top, zFace - 0.02]);
-      b.rbox(pal.laminateWood, [x0, bottom, zWall], [x0 + 0.018, top, zFace], 0.002);
-      b.rbox(pal.laminateWood, [x1 - 0.018, bottom, zWall], [x1, top, zFace], 0.002);
+      b.rbox(pal.laminateCabinet, [x0, bottom, zWall], [x0 + 0.018, top, zFace], 0.002, 2, { metric: true });
+      b.rbox(pal.laminateCabinet, [x1 - 0.018, bottom, zWall], [x1, top, zFace], 0.002, 2, { metric: true });
       // Light rail under the cabinets (laminate, set back 30 mm)
-      b.rbox(pal.laminateWood, [x0, bottom - 0.04, zFace - 0.05], [x1, bottom, zFace - 0.03], 0.002);
-      // Equal door modules with 4 mm reveals, running up to a scribe under the soffit
+      b.rbox(pal.laminateCabinet, [x0, bottom - 0.04, zFace - 0.05], [x1, bottom, zFace - 0.03], 0.002, 2, { metric: true });
+      // Equal door modules with 3 mm gaps (dark carcass behind reads as the shadow), up to a scribe under the soffit
       const inner0 = x0 + 0.018, inner1 = x1 - 0.018;
       const count = Math.max(1, Math.round((inner1 - inner0) / doorWidth));
       const w = (inner1 - inner0) / count;
       for (let k = 0; k < count; k++) {
-        const dx0 = inner0 + k * w + 0.002, dx1 = inner0 + (k + 1) * w - 0.002;
-        b.rbox(pal.laminateWood, [dx0, bottom + 0.002, zFace - 0.02], [dx1, top - 0.004, zFace], 0.003, 2);
+        const dx0 = inner0 + k * w + 0.0015, dx1 = inner0 + (k + 1) * w - 0.0015;
+        b.rbox(pal.laminateCabinet, [dx0, bottom + 0.0015, zFace - 0.02], [dx1, top - 0.003, zFace], 0.002, 2, { metric: true });
+        // 2 mm edge band on the door's visible vertical edges
+        b.box(pal.edgeBand, [dx0, bottom + 0.0015, zFace - 0.02], [dx0 + 0.0022, top - 0.003, zFace + 0.0002]);
+        b.box(pal.edgeBand, [dx1 - 0.0022, bottom + 0.0015, zFace - 0.02], [dx1, top - 0.003, zFace + 0.0002]);
         // Small bar pull near the bottom edge (alternating sides)
         const px = k % 2 === 0 ? dx1 - 0.05 : dx0 + 0.05;
         b.rbox(pal.chrome, [px - 0.006, bottom + 0.06, zFace], [px + 0.006, bottom + 0.16, zFace + 0.025], 0.003);

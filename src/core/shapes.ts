@@ -4,6 +4,7 @@
  * Points are world (x, z); slabs are extruded along +y.
  */
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 export type XZ = [number, number];
 
@@ -76,6 +77,8 @@ export interface SlabOptions {
   bandHeight?: number;
   /** How far the band stands proud of the slab outline. */
   bandProud?: number;
+  /** Number of raised ribs (grooved T-mould) centred on the band, 1.5 mm pitch. */
+  grooves?: number;
   curveSegments?: number;
 }
 
@@ -110,6 +113,21 @@ export function slabGeometry(pts: XZ[], o: SlabOptions): [THREE.BufferGeometry, 
     band = new THREE.ExtrudeGeometry(outer, { depth: o.bandHeight, bevelEnabled: false, curveSegments: o.curveSegments ?? 6 });
     band.rotateX(-Math.PI / 2);
     band.translate(0, o.y0 + o.thickness / 2 - o.bandHeight / 2, 0);
+    if (o.grooves && o.grooves > 0) {
+      // Ribs stand 0.7 mm further proud; the gaps between them read as the grooves.
+      const ribs: THREE.BufferGeometry[] = [band];
+      const ribOuter = roundedPath(new THREE.Shape(), offsetPolygon(pts, proud + 0.0007), o.radius);
+      ribOuter.holes.push(roundedPath(new THREE.Path(), offsetPolygon(pts, proud - 0.001), o.radius));
+      const pitch = 0.0015, ribH = 0.0008;
+      const y0 = o.y0 + o.thickness / 2 - ((o.grooves - 1) * pitch) / 2;
+      for (let k = 0; k < o.grooves; k++) {
+        const rib = new THREE.ExtrudeGeometry(ribOuter, { depth: ribH, bevelEnabled: false, curveSegments: o.curveSegments ?? 6 });
+        rib.rotateX(-Math.PI / 2);
+        rib.translate(0, y0 + k * pitch - ribH / 2, 0);
+        ribs.push(rib);
+      }
+      band = mergeGeometries(ribs.map((g) => (g.index ? g.toNonIndexed() : g)), false)!;
+    }
   }
   return [slab, band];
 }

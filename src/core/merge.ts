@@ -6,6 +6,7 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { metricUv } from "./upholstery";
 
 export interface Collider {
   min: THREE.Vector3;
@@ -27,11 +28,12 @@ export class MergedBuilder {
   }
 
   /** Sharp axis-aligned box from min to max corners, in world space. */
-  box(material: THREE.Material, min: V3, max: V3, opts: { collide?: boolean; uvScale?: number } = {}): void {
+  box(material: THREE.Material, min: V3, max: V3, opts: { collide?: boolean; uvScale?: number; metric?: boolean } = {}): void {
     const w = max[0] - min[0], h = max[1] - min[1], d = max[2] - min[2];
     const g = new THREE.BoxGeometry(w, h, d);
     if (opts.uvScale) scaleBoxUv(g, w, h, d, opts.uvScale);
     g.translate((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
+    if (opts.metric) metricUv(g);
     this.add(g, material);
     if (opts.collide) this.collider(min, max);
   }
@@ -40,11 +42,12 @@ export class MergedBuilder {
    * Bevelled box: every edge rounded with `radius` (default 3 mm). Use for
    * anything the camera can get close to; razor edges read as CG.
    */
-  rbox(material: THREE.Material, min: V3, max: V3, radius = 0.003, segments = 2, opts: { collide?: boolean } = {}): void {
+  rbox(material: THREE.Material, min: V3, max: V3, radius = 0.003, segments = 2, opts: { collide?: boolean; metric?: boolean } = {}): void {
     const w = max[0] - min[0], h = max[1] - min[1], d = max[2] - min[2];
     const r = Math.min(radius, w / 2 - 1e-4, h / 2 - 1e-4, d / 2 - 1e-4);
     const g = r > 1e-4 ? new RoundedBoxGeometry(w, h, d, segments, r) : new THREE.BoxGeometry(w, h, d);
     g.translate((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
+    if (opts.metric) metricUv(g);
     this.add(g, material);
     if (opts.collide) this.collider(min, max);
   }

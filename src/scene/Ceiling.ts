@@ -8,6 +8,8 @@ import * as THREE from "three";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { metricUv } from "../core/upholstery";
 import { BACK_BAR, CABINETS, CEILING, FAN, ROOM, WINDOW, cellX, cellZ } from "./layout";
 
 export interface CeilingResult {
@@ -169,13 +171,19 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
   const rotor = new THREE.Group();
   rotor.position.y = housingY - housingH / 2 + 0.03;
   fan.add(rotor);
-  const ironR0 = FAN.housingR - 0.01, ironR1 = FAN.housingR + 0.13;
-  const bladeR0 = FAN.housingR + 0.09, bladeR1 = FAN.bladeSpan / 2;
-  const ironGeo = new THREE.BoxGeometry(ironR1 - ironR0, 0.008, 0.05);
-  ironGeo.translate((ironR0 + ironR1) / 2, 0, 0);
-  // Blades: constant 130 mm width, 11 mm thick, rounded edges
+  // Blade irons: cast arms from the motor flange out under the blade root (visible from below),
+  // 12 mm thick, 55 mm wide, with a wider foot at the blade end.
+  const ironR0 = FAN.housingR - 0.01, ironR1 = FAN.housingR + 0.21;
+  const bladeR0 = FAN.housingR + 0.08, bladeR1 = FAN.bladeSpan / 2;
+  const ironArm = new RoundedBoxGeometry(ironR1 - ironR0, 0.012, 0.045, 2, 0.004);
+  ironArm.translate((ironR0 + ironR1) / 2, -0.012, 0);
+  const ironFoot = new RoundedBoxGeometry(0.09, 0.008, 0.07, 2, 0.003);
+  ironFoot.translate(ironR1 - 0.05, -0.016, 0);
+  const ironGeo = mergeGeometries([ironArm, ironFoot], false)!;
+  // Blades: constant 130 mm width, 11 mm thick, rounded edges, wood grain along the blade
   const bladeGeo = new RoundedBoxGeometry(bladeR1 - bladeR0, 0.011, 0.13, 2, 0.005);
-  bladeGeo.translate((bladeR0 + bladeR1) / 2, -0.014, 0);
+  bladeGeo.translate((bladeR0 + bladeR1) / 2, 0, 0);
+  metricUv(bladeGeo);
   for (let i = 0; i < 4; i++) {
     const arm = new THREE.Group();
     arm.rotation.y = (i / 4) * Math.PI * 2;
@@ -185,6 +193,7 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
     arm.add(iron);
     const blade = new THREE.Mesh(bladeGeo, pal.fanBlade);
     blade.rotation.x = THREE.MathUtils.degToRad(12);
+    iron.rotation.x = THREE.MathUtils.degToRad(12);
     blade.castShadow = true;
     arm.add(blade);
     rotor.add(arm);

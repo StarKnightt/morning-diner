@@ -58,9 +58,17 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
   /* ---------------- floor ---------------- */
   {
     const w = halfX * 2, d = zFront - zBack;
-    const g = new THREE.PlaneGeometry(w, d);
-    g.rotateX(-Math.PI / 2);
-    g.translate(0, 0, (zFront + zBack) / 2);
+    const g0 = new THREE.PlaneGeometry(w, d);
+    g0.rotateX(-Math.PI / 2);
+    g0.translate(0, 0, (zFront + zBack) / 2);
+    // The tile also runs through the door opening to the threshold saddle, on the same grid.
+    const dx0 = DOOR.hingeX - DOOR.jamb, dx1 = DOOR.hingeX + DOOR.width + DOOR.jamb, dz1 = zFront + T / 2;
+    const g1 = new THREE.PlaneGeometry(dx1 - dx0, dz1 - zFront);
+    g1.rotateX(-Math.PI / 2);
+    g1.translate((dx0 + dx1) / 2, 0, (zFront + dz1) / 2);
+    const uv1 = g1.attributes.uv as THREE.BufferAttribute, p1 = g1.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < p1.count; i++) uv1.setXY(i, (p1.getX(i) + halfX) / w, (zFront - p1.getZ(i)) / d);
+    const g = mergeGeometries([g0, g1], false)!;
     const floor = new THREE.Mesh(g, pal.floor);
     // 40 × 20 tiles on the canvas; tiles are 0.3 m.
     const map = pal.floor.map!;
@@ -205,8 +213,10 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     b.box(pal.alum, [x1 - jw - st, 0.02, zs0], [x1 - jw, DOOR.height - jw, zs1]);
     b.box(pal.alum, [x0 + jw, DOOR.height - jw - st, zs0], [x1 - jw, DOOR.height - jw, zs1]);
     // 100 × 12 mm aluminium threshold saddle under the leaf; concrete slab fills the opening below it
-    b.rbox(pal.alum, [x0 + jw, -0.002, zMid - 0.05], [x1 - jw, 0.012, zMid + 0.05], 0.004, 3);
-    b.box(pal.concrete, [x0, yLow, zFront - 0.01], [x1, 0, zFront + T], { uvScale: 1 });
+    b.rbox(pal.chromeBrushed, [x0 + jw, -0.002, zMid - 0.05], [x1 - jw, 0.012, zMid + 0.05], 0.004, 3);
+    // Floor tile runs through the opening to the saddle; outside it the concrete step is 120 mm down.
+    b.box(pal.concrete, [x0, yLow, zMid], [x1, -0.12, zFront + T], { uvScale: 1 });
+    b.box(pal.concrete, [x0, -0.12, zMid], [x1, -0.005, zMid + 0.06], { uvScale: 1 });
     // Closer bracket on the head (interior side); the arm lives on the leaf in Door.ts
     b.rbox(pal.darkMetal, [x0 + jw + 0.08, DOOR.height - jw - 0.004, zFront + 0.01], [x0 + jw + 0.34, DOOR.height - jw, zFront + 0.07], 0.002);
   }

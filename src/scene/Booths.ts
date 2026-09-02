@@ -22,10 +22,24 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
   const czMid = (zEnd0 + zInner) / 2;
   const cz0 = czMid - capHalf, cz1 = czMid + capHalf;
 
-  // Cap rail 60 × 40 mm with a 16 mm bullnose, one continuous run per divider.
-  const capSlab = (pts: XZ[]) => {
+  // Cap rail 60 × 40 mm solid wood with a 16 mm bullnose, one continuous run per divider.
+  // Vertex colours darken/polish the wood 8 % within 0.2 m of the aisle-end grip points.
+  const capSlab = (pts: XZ[], grips: XZ[]) => {
     const [slab] = slabGeometry(pts, { radius: 0.008, y0: cap.y0, thickness: cap.y1 - cap.y0, bevel: cap.bullnose, curveSegments: 3 });
-    b.add(slab, pal.laminateWood);
+    const p = slab.attributes.position;
+    const col = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+      let d = 1e9;
+      for (const [gx, gz] of grips) d = Math.min(d, Math.hypot(p.getX(i) - gx, p.getZ(i) - gz));
+      const k = 1 - 0.08 * (1 - THREE.MathUtils.smoothstep(d, 0.05, 0.22));
+      col[i * 3] = k; col[i * 3 + 1] = k; col[i * 3 + 2] = k;
+    }
+    slab.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    b.add(slab, pal.capWood);
+  };
+  // 130 mm scuff band at the base of a laminate panel face.
+  const scuffBand = (x0: number, x1: number, y0: number, z0: number, z1: number) => {
+    b.box(pal.laminateScuffed, [x0, y0, z0], [x1, y0 + 0.13, z1]);
   };
 
   for (const cx of WINDOW.centersX) {
@@ -39,7 +53,8 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
         thickness: table.thickness,
         bevel: 0.012,
         bandHeight: table.band,
-        bandProud: 0.003,
+        bandProud: 0.0015,
+        grooves: 4,
       });
       b.add(slab, pal.formica);
       if (band) b.add(band, pal.formicaEdge);
@@ -67,8 +82,8 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       const col = new THREE.CylinderGeometry(columnR, columnR, colH, 28);
       col.translate(cx, bossH + colH / 2, pz);
       b.add(col, pal.chrome);
-      const plate = new THREE.CylinderGeometry(spider / 2, spider / 2 - 0.01, 0.02, 32);
-      plate.translate(cx, table.top - table.thickness - 0.01, pz);
+      const plate = new THREE.CylinderGeometry(0.125, 0.12, 0.012, 32);
+      plate.translate(cx, table.top - table.thickness - 0.006, pz);
       b.add(plate, pal.darkMetal);
       for (let k = 0; k < 4; k++) {
         const arm = new THREE.BoxGeometry(spider / 2 - columnR, 0.03, 0.04);
@@ -93,20 +108,23 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
           bulge: 0.012,
           belly: s > 0 ? "-x" : "+x",
           bellyAmount: 0.008,
-          wear: 0.45,
+          wear: 0.35,
+          sags: [{ z: -0.3, depth: 0.007 }, { z: 0.3, depth: 0.007 }],
         });
         cush.translate((lo(seat.front, seatBack) + hi(seat.front, seatBack)) / 2, seat.top - seat.thickness / 2, zMid);
         b.add(cush, pal.vinylRed);
         const welt = piping(
           roundedRectPoints(lo(seat.front, seatBack) + 0.01, zInner + 0.01, hi(seat.front, seatBack) - 0.01, zOuter - 0.01, seat.top - 0.014, seat.edgeR),
-          0.0025,
+          0.003,
           true,
         );
         b.add(welt, pal.vinylRed);
       }
       // Plinth (laminate) and kick (rubber, recessed 30 mm)
-      b.rbox(pal.laminateWood, [lo(seat.front + 0.01, divider.x0), kick, zInner], [hi(seat.front + 0.01, divider.x0), seat.top - seat.thickness, zOuter], 0.003);
+      b.rbox(pal.laminatePanel, [lo(seat.front + 0.01, divider.x0), kick, zInner], [hi(seat.front + 0.01, divider.x0), seat.top - seat.thickness, zOuter], 0.003, 2, { metric: true });
       b.box(pal.baseboard, [lo(seat.front + 0.04, divider.x0), 0, zInner], [hi(seat.front + 0.04, divider.x0), kick, zOuter]);
+      // Plinth reveal line under the cushion
+      b.box(pal.baseboard, [lo(seat.front + 0.0104, divider.x0), seat.top - seat.thickness - 0.008, zInner], [hi(seat.front + 0.0104, divider.x0), seat.top - seat.thickness - 0.002, zOuter]);
       // Wedge back: front face reclined 9°, rear face vertical against the divider, tapering to the roll.
       const yb0 = seat.top + 0.01;
       const recl = THREE.MathUtils.degToRad(back.reclineDeg);
@@ -120,18 +138,24 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       const wedge = prismXY(profile, zInner, zOuter, 0.008);
       metricUv(wedge);
       b.add(plainColor(wedge), pal.vinylRed);
-      // Channel tufting on the reclined face: 100 mm pleats bulging 16 mm, seated 3 mm inside the wedge.
+      // Sewn channel back on the reclined face: ~120 mm channels (±10 %) crowning 30 mm, a
+      // 3.5 mm welt cord in every valley, puckers at the roll. Panel base sits 3 mm inside the wedge.
       {
         const faceLen = Math.hypot(lean, back.top - yb0);
         const panelH = faceLen - 0.1;
-        const panel = channelPanel(cd - 0.03, panelH, 0.1, 0.016);
+        const { geometry: panel, valleys } = channelPanel(cd - 0.03, panelH, 0.12, 0.03, 11 + Math.round(cx * 10) + s);
         const ex = new THREE.Vector3(0, 0, s), ey = new THREE.Vector3(0, 1, 0), ez = new THREE.Vector3(-s, 0, 0);
         const m = new THREE.Matrix4().makeBasis(ex, ey, ez);
         m.premultiply(new THREE.Matrix4().makeRotationZ(-s * recl));
         const dirX = (s * lean) / faceLen, dirY = (back.top - yb0) / faceLen;
         const t = 0.02 + panelH / 2;
         m.setPosition(X(back.frontX) + dirX * t + s * 0.003, yb0 + dirY * t, zMid);
-        b.add(panel, pal.vinylRed, m);
+        b.add(panel, pal.vinylRedCrazed, m);
+        for (const vx of valleys) {
+          const cord = new THREE.CylinderGeometry(0.00175, 0.00175, panelH - 0.01, 8);
+          cord.translate(vx, 0, 0.0035);
+          b.add(plainColor(cord, 1.03), pal.vinylRed, m);
+        }
       }
       // Rolled top cushion (90 mm Ø), tucked against the divider, with a welt where it meets the face.
       const rollX = X(back.rearX - back.rollR + 0.02);
@@ -139,22 +163,27 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       roll.rotateX(Math.PI / 2);
       roll.translate(rollX, back.top, zMid);
       metricUv(roll);
-      b.add(plainColor(roll), pal.vinylRed);
-      const seamZ = (x: number, y: number) => piping([new THREE.Vector3(x, y, zInner + 0.008), new THREE.Vector3(x, y, zMid), new THREE.Vector3(x, y, zOuter - 0.008)], 0.0025, false);
-      b.add(seamZ(X(back.frontX + lean * 0.94) - s * 0.004, back.top - 0.05), pal.vinylRed);
+      b.add(plainColor(roll), pal.vinylRedCrazed);
+      const seamZ = (x: number, y: number, r: number) => piping([new THREE.Vector3(x, y, zInner + 0.008), new THREE.Vector3(x, y, zMid), new THREE.Vector3(x, y, zOuter - 0.008)], r, false);
+      // 6 mm welt along the head-roll seam
+      b.add(seamZ(X(back.frontX + lean * 0.94) - s * 0.004, back.top - 0.05, 0.003), pal.vinylRed);
       // Horizontal seam where the seat cushion meets the back.
-      b.add(seamZ(X(back.frontX) - s * 0.004, seat.top + 0.006), pal.vinylRed);
+      b.add(seamZ(X(back.frontX) - s * 0.004, seat.top + 0.006, 0.0025), pal.vinylRed);
       // Aisle-end panel: from the seat front to the divider, under the cap.
-      b.rbox(pal.laminateWood, [lo(seat.front - 0.02, divider.x0), kick, zEnd0], [hi(seat.front - 0.02, divider.x0), cap.y0, zInner], 0.003);
+      b.rbox(pal.laminatePanel, [lo(seat.front - 0.02, divider.x0), kick, zEnd0], [hi(seat.front - 0.02, divider.x0), cap.y0, zInner], 0.003, 2, { metric: true });
       b.box(pal.baseboard, [lo(seat.front + 0.01, divider.x0 - 0.005), 0, zEnd0 + 0.012], [hi(seat.front + 0.01, divider.x0 - 0.005), kick, zInner]);
+      scuffBand(lo(seat.front - 0.02, divider.x0) + 0.004, hi(seat.front - 0.02, divider.x0) - 0.004, kick + 0.002, zEnd0 - 0.0006, zEnd0);
+      // 2 mm PVC edge band on the panel's outer vertical edge (seat-front side)
+      b.box(pal.edgeBand, [X(seat.front - 0.02) - 0.0011, kick, zEnd0 - 0.0003], [X(seat.front - 0.02) + 0.0011, cap.y0, zInner]);
       b.collider([lo(seat.front - 0.05, divider.x0), 0, cz0], [hi(seat.front - 0.05, divider.x0), cap.y1, zOuter]);
     }
   }
 
   /* ---- dividers between back-to-back benches, with one T-shaped cap each ---- */
   const dividerBody = (x0: number, x1: number) => {
-    b.rbox(pal.laminateWood, [x0, kick, zEnd0], [x1, cap.y0, zOuter], 0.003);
+    b.rbox(pal.laminatePanel, [x0, kick, zEnd0], [x1, cap.y0, zOuter], 0.003, 2, { metric: true });
     b.box(pal.baseboard, [x0 + 0.005, 0, zEnd0 + 0.012], [x1 - 0.005, kick, zOuter]);
+    scuffBand(x0 + 0.002, x1 - 0.002, kick + 0.002, zEnd0 - 0.0006, zEnd0);
     b.collider([x0 - capHalf, 0, cz0], [x1 + capHalf, cap.y1, zOuter]);
   };
   const n = WINDOW.centersX.length;
@@ -168,7 +197,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       [xa, cz0], [xb, cz0], [xb, cz1],
       [xd + capHalf, cz1], [xd + capHalf, zOuter], [xd - capHalf, zOuter], [xd - capHalf, cz1],
       [xa, cz1],
-    ]);
+    ], [[xa, czMid], [xb, czMid]]);
   }
   // Left end: 40 mm partition with an L cap; a lower wall-return filler closes the gap to the wall.
   {
@@ -176,8 +205,8 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
     const xd = cx - divider.x0 - 0.02;
     dividerBody(xd - 0.02, xd + 0.02);
     const xb = cx - seat.front + 0.02 + 0.015;
-    capSlab([[xd - capHalf, cz0], [xb, cz0], [xb, cz1], [xd + capHalf, cz1], [xd + capHalf, zOuter], [xd - capHalf, zOuter]]);
-    b.rbox(pal.laminateWood, [-ROOM.halfX + 0.012, kick, zEnd0], [xd - 0.02, cap.y0 - 0.03, zOuter], 0.003);
+    capSlab([[xd - capHalf, cz0], [xb, cz0], [xb, cz1], [xd + capHalf, cz1], [xd + capHalf, zOuter], [xd - capHalf, zOuter]], [[xb, czMid]]);
+    b.rbox(pal.laminatePanel, [-ROOM.halfX + 0.012, kick, zEnd0], [xd - 0.02, cap.y0 - 0.03, zOuter], 0.003, 2, { metric: true });
     b.box(pal.baseboard, [-ROOM.halfX + 0.012, 0, zEnd0 + 0.012], [xd - 0.02, kick, zOuter]);
     b.collider([-ROOM.halfX, 0, cz0], [xd, cap.y1, zOuter]);
   }
@@ -187,7 +216,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
     const xd = cx + divider.x0 + 0.02;
     dividerBody(xd - 0.02, xd + 0.02);
     const xa = cx + seat.front - 0.02 - 0.015;
-    capSlab([[xa, cz0], [xd + capHalf, cz0], [xd + capHalf, zOuter], [xd - capHalf, zOuter], [xd - capHalf, cz1], [xa, cz1]]);
+    capSlab([[xa, cz0], [xd + capHalf, cz0], [xd + capHalf, zOuter], [xd - capHalf, zOuter], [xd - capHalf, cz1], [xa, cz1]], [[xa, czMid]]);
   }
 
   b.build(parent, { name: "booths" });

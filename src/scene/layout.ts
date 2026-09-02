@@ -50,7 +50,7 @@ export const BOOTH = {
   zInner: 2.0,
   zOuter: 3.21,
   /** Table is inset 120 mm from the end panels; 50 mm corner radii. */
-  table: { width: 0.7, inset: 0.12, top: 0.75, thickness: 0.038, cornerR: 0.05, band: 0.025 },
+  table: { width: 0.7, inset: 0.12, top: 0.75, thickness: 0.038, cornerR: 0.05, band: 0.032 },
   pedestal: { bellR: 0.235, bellRim: 0.04, bossR: 0.075, bossH: 0.09, columnR: 0.045, spider: 0.36 },
   seat: { front: 0.36, depth: 0.45, thickness: 0.14, top: 0.45, edgeR: 0.04 },
   /** Wedge back: front face reclined, rear face vertical against the divider, tapering to the roll. */
@@ -68,7 +68,7 @@ export const COUNTER = {
   overhang: 0.3,
   dieDepth: 0.4,
   height: 1.05,
-  topThickness: 0.04,
+  topThickness: 0.036,
   xMin: -5.8,
   xMax: 2.0,
   /** L-return at the door end: die x ∈ [xMax, xMax+dieDepth], top out to lReturnXOuter. */
@@ -81,8 +81,8 @@ export const COUNTER = {
 } as const;
 
 export const STOOL = {
-  /** Domed vinyl cushion Ø 360, 90 mm thick with a 12 mm chrome band. */
-  seatDiameter: 0.36,
+  /** Domed vinyl cushion Ø 370, 90 mm thick, 25 mm crown, 6 mm rolled welt, 22 mm chrome band. */
+  seatDiameter: 0.37,
   seatHeight: 0.73,
   seatThickness: 0.09,
   columnR: 0.04,
@@ -93,8 +93,9 @@ export const STOOL = {
   footringTube: 0.01,
   /** Seat centre z: seat front 75 mm from the counter overhang edge. */
   z: 0.4,
-  pitch: 0.6,
-  centersX: [-5.2, -4.6, -4.0, -3.4, -2.8, -2.2, -1.6, -1.0, -0.4, 0.2],
+  /** 610 mm centre-to-centre; nine stools, the register end of the counter stays clear. */
+  pitch: 0.61,
+  centersX: [-5.05, -4.44, -3.83, -3.22, -2.61, -2.0, -1.39, -0.78, -0.17],
 } as const;
 
 export const BACK_BAR = {
@@ -113,22 +114,23 @@ export const BACK_BAR = {
 
 /** System 2 tabletop and back-counter props. */
 export const PROPS = {
-  /** Napkin dispensers along the counter (x), set toward the back edge of the top. */
-  napkinCounterX: [-4.3, -1.9, 0.5],
+  /** Table sets (dispenser + sugar + S&P) on the counter at every second stool, toward the back edge. */
+  napkinCounterX: [-4.44, -3.22, -2.0, -0.78],
   napkinCounterZ: -0.3,
-  /** Stool positions that get a mug on a saucer. */
-  saucerStoolX: [-3.4, -1.0],
+  /** Stool positions that get an inverted mug on a saucer. */
+  saucerStoolX: [-3.22, -0.78],
   saucerZ: -0.08,
   /** Two-burner brewer on the back counter: body footprint and height. */
-  brewer: { x: -1.7, zBack: -2.5, width: 0.2, towerDepth: 0.23, baseDepth: 0.43, height: 0.4 },
+  /** BUNN VPR-class brewer on the back counter: 411 W × 203 D × 513 H, 50 mm off the wall. */
+  brewer: { x: -1.7, zBack: -2.55, width: 0.411, depth: 0.203, height: 0.513 },
   /** Upright mug beside the brewer (filled in System 7). */
-  pourMug: { x: -1.47, z: -2.28 },
-  /** Stainless ledge with a rubber mat for six inverted mugs. */
-  mugLedge: { x0: -2.55, x1: -1.93, z0: -2.5, z1: -2.22 },
+  pourMug: { x: -1.36, z: -2.3 },
+  /** Stainless drip tray for the inverted mug row. */
+  mugLedge: { x0: -2.62, x1: -1.98, z0: -2.52, z1: -2.24 },
   /** Stack of service trays at the L-return end of the back counter. */
   trays: { x: 2.1, z: -2.28, count: 5 },
   /** Wall clock over the pass-through. */
-  clock: { x: -0.5, y: 2.07, radius: 0.15, hour: 8, minute: 4 },
+  clock: { x: -0.5, y: 2.03, radius: 0.15, hour: 8, minute: 4 },
 } as const;
 
 export const CABINETS = {
@@ -139,9 +141,9 @@ export const CABINETS = {
   /** Bulkhead from cabinet tops to the ceiling, 60 mm proud of the cabinet faces. */
   soffitDepth: 0.36,
   doorWidth: 0.533,
-  /** Two runs flanking the pass-through. */
+  /** Two runs flanking the pass-through; the left run stops short to leave a bay for the brewer. */
   runs: [
-    [-4.5, -1.35],
+    [-4.5, -2.05],
     [0.35, 2.4],
   ] as ReadonlyArray<readonly [number, number]>,
 } as const;
