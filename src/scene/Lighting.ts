@@ -51,7 +51,7 @@
  * between them — a per-MAP caster list with no wasted depth draws.
  */
 import * as THREE from "three";
-import { BACK_BAR, BOOTH, CEILING, COUNTER, PASS_THROUGH, ROOM, STOOL, WINDOW, trofferCenter } from "./layout";
+import { BACK_BAR, BOOTH, CEILING, COUNTER, DOOR, PASS_THROUGH, ROOM, STOOL, WINDOW, trofferCenter } from "./layout";
 
 /* ------------------------------------------------------------------------- */
 /* Units and exposure                                                         */
@@ -234,29 +234,29 @@ export const TROFFER_LENS_NITS = TROFFER_LUMENS / (Math.PI * TROFFER_LENS_AREA);
  * E_sun,h / E_sky = 51.6 klux / E_sky, and it is most of what lights the shaded room.
  * Integrated numerically over the shader (this model, sun at 35°):
  *   rev 2  10,000 horizon · zenith 0.29× · linear · boost 1.0          →  23 klux, 3.2:1 (1.7 EV);
- *   rev 3   6,500 horizon · zenith 0.50× · linear · aureole as above   →  15.3 klux, 4.4:1
- *          (2.1 EV) on open ground; ≈ 3 EV under a car, which also hides half the sky.
- * A clear-to-hazy summer morning with the sun at 35° measures 12–18 klux diffuse (CIE
- * types 11–13: horizon 5–8 k cd/m², zenith 3–4 k). Rev 2's 23 klux (and its 3.4:1
- * horizon/zenith) was still the turbid end; both critics measured every lot shadow 1 EV
- * too shallow and every sky sample achromatic — the latter because 8–12 k nits sat on the
- * camera curve's shoulder, where the channels converge. At 6,500 the band the windows see
- * (5–25°, away from the sun) is ≈ 6,000 nits, 5,200 through the glass: +1.6 EV, blue
- * channel at +2.2 — sRGB ≈ (165, 200, 240), the critics' (150, 185, 235) — while the
- * aureole quarter still clips.
+ *   rev 3   4,500 horizon · zenith 0.50× · linear · aureole as above   →  ≈ 11 klux, 4.7:1
+ *          (2.2 EV) on open ground; 3.1 EV under a car, which also hides half the sky.
+ * A clear summer morning with the sun at 35° measures 10–15 klux diffuse (CIE types 11–12:
+ * horizon 4–6 k cd/m², zenith 2–3 k). Rev 2's 23 klux (and its 3.4:1 horizon/zenith) was
+ * the turbid end; both critics measured every lot shadow 1 EV too shallow and every sky
+ * sample achromatic — the latter because 8–12 k nits sat on the camera curve's shoulder,
+ * where the channels converge. Measured on the dome (evalpage, HDR): 90° from the sun at
+ * 20° elevation (2,107, 3,843, 7,433) nits — through the door glass (×0.84, Fresnel twice +
+ * the pane's tint) the sky prints sRGB (151, 185, 219) against the critics' (150, 185, 235).
  */
 const SKY_HORIZON_NITS = 4_500;
 const SKY_ZENITH_RATIO = 0.5;
 /**
- * Chroma at unit luminance. Horizon (0.42, 0.66, 1.0) / Y, B/R 2.4; zenith (0.28, 0.50, 1.0)
- * / Y, B/R 3.6; blended in √h so the 5–25° band the windows see sits near B/R 3. That is
+ * Chroma at unit luminance. Horizon (0.34, 0.58, 1.0) / Y, B/R 2.9; zenith (0.22, 0.45, 1.0)
+ * / Y, B/R 4.5; blended in √h so the 5–25° band the windows see sits near B/R 3.5. That is
  * what the critics' target sRGB (150, 185, 235) means once inverted through the camera
- * curve: B at +2.0 EV over grey, R at +0.25 — a scene ratio of 3.4, not the 1.6 of a
- * "pale blue" (0.6, 0.76, 1.0) which the per-channel shoulder then squeezed to
- * (205, 225, 245). Rev 2's authored horizon (0.78, 0.86, 0.97) read R ≈ G ≈ B outright.
+ * curve (tools camtone: 1,980 / 3,281 / 6,860 nits): B at +2.0 EV over grey, R at +0.25 — a
+ * scene ratio of 3.5, not the 1.6 of a "pale blue" (0.6, 0.76, 1.0) which the per-channel
+ * shoulder then squeezed to (205, 225, 245). Rev 2's authored horizon (0.78, 0.86, 0.97)
+ * read R ≈ G ≈ B outright.
  */
-const SKY_HORIZON_CHROMA = new THREE.Color(0.36, 0.6, 1.0);
-const SKY_ZENITH_CHROMA = new THREE.Color(0.24, 0.47, 1.0);
+const SKY_HORIZON_CHROMA = new THREE.Color(0.34, 0.58, 1.0);
+const SKY_ZENITH_CHROMA = new THREE.Color(0.22, 0.45, 1.0);
 export const luminance = (c: THREE.Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
 SKY_HORIZON_CHROMA.multiplyScalar(1 / luminance(SKY_HORIZON_CHROMA));
 SKY_ZENITH_CHROMA.multiplyScalar(1 / luminance(SKY_ZENITH_CHROMA));
@@ -998,6 +998,26 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
       scene.add(l, l.target);
       bounces.push(l);
     }
+    // The door's beam (rev 3). The leaf's light is 0.69 × 1.69 m of clear glass with no
+    // blinds: 90 klux × (sun·+z = cos 35°·cos 38° = 0.645) × 0.88 × 1.17 m² ≈ 60,000 lm
+    // enter and land on the vestibule floor between 0.4 and 2.8 m inside the wall, shifted
+    // −x by tan 38°; × checker albedo ≈ 27,000 lm back up — as much as a whole booth window.
+    // Without it the walls either side of the door (the `door` pose) saw only the probe and
+    // sat at sRGB 27, a stop under the other shaded walls, while a 1 m² patch of 26,000-nit
+    // floor lay 1.5 m in front of them.
+    {
+      const glassA = 0.692 * 1.692;
+      const E = SUN_LUX * Math.cos(THREE.MathUtils.degToRad(35)) * Math.cos(THREE.MathUtils.degToRad(38)) * 0.88;
+      const flux = new THREE.Vector3(0.47, 0.45, 0.42).multiplyScalar(E * glassA);
+      const lum = 0.2126 * flux.x + 0.7152 * flux.y + 0.0722 * flux.z;
+      const color = new THREE.Color(flux.x / lum, flux.y / lum, flux.z / lum);
+      const depth = 1.12 / Math.tan(THREE.MathUtils.degToRad(35)); // glass mid-height → floor
+      const l = lambertSpot(color, lum, "door-bounce");
+      l.position.set(DOOR.centerX - depth * planShift, 0.12, ROOM.zFront - depth);
+      l.target.position.set(l.position.x, 3, l.position.z);
+      scene.add(l, l.target);
+      bounces.push(l);
+    }
     // Red bounce off the lit −x bench of each booth (VINYL_FLUX, derivation at BOUNCE_FLUX):
     // on the bench's front face at seat-back height, aimed +x and 35° up, so it reaches the
     // opposite bench, the divider, the table underside and the window wall above the seat.
@@ -1101,6 +1121,11 @@ function scaleHorizonRings(scene: THREE.Scene): void {
   const k = SKY_SCALE / 0.905;
   const tint = SKY_HORIZON_CHROMA;
   const c = new THREE.Color();
+  // The far range was authored at the sky's own luminance (its haze vertices reach 0.87 of
+  // the dome's 0.905) and read 0.3 EV under the sky through the door glass; a range 30 km
+  // off on a clear morning sits 0.7–1 EV under the sky behind it, so the far ring takes
+  // 0.65× (the mid ring already lands −0.8 EV, the near ring is sunlit ground).
+  const ringScale: Record<string, number> = { horizon: 1, "horizon-mid": 1, "horizon-far": 0.65 };
   for (const name of ["horizon", "horizon-mid", "horizon-far"]) {
     const mesh = scene.getObjectByName(name) as THREE.Mesh | undefined;
     if (!mesh) continue;
@@ -1113,7 +1138,7 @@ function scaleHorizonRings(scene: THREE.Scene): void {
     for (let i = 0; i < col.count; i++) {
       c.setRGB(col.getX(i), col.getY(i), col.getZ(i));
       const t = THREE.MathUtils.clamp(luminance(c) / 0.87, 0, 1);
-      c.multiplyScalar(k);
+      c.multiplyScalar(k * ringScale[name]);
       c.r *= THREE.MathUtils.lerp(1, tint.r, t);
       c.g *= THREE.MathUtils.lerp(1, tint.g, t);
       c.b *= THREE.MathUtils.lerp(1, tint.b, t);

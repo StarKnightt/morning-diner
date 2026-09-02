@@ -607,8 +607,12 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   palette.kitchenDim.emissiveIntensity = nits(65) / luminance(palette.kitchenDim.emissive);
   // Heat-lamp bulb face: a 250 W red R40 runs ≈ 2,800 K behind a red coating; the visible
   // face of the reflector bulb is ≈ 8,000 nits (a 60 W frosted bulb is ≈ 12,000 nits; the
-  // coating passes ~15 % but the reflector concentrates it). +3.7 EV: clips to the paper
-  // white with a red fringe, as heat lamps do in every diner photograph.
+  // coating passes ~15 % but the reflector concentrates it). Rev 3: the coating's chroma,
+  // (1, 0.12, 0.02) — rev 2's (1, 0.35, 0.13) put the green channel at 6,000 nits, which
+  // this camera shows as sRGB 225: a pale peach, the critics' "grey" lamps. Now red clips
+  // (27,000 nits), green sits at +0.9 EV (sRGB ≈ 160), blue at −1.7 EV: a saturated orange
+  // face with a clipped core, as heat lamps do in every diner photograph.
+  palette.heatLampBulb.emissive.setRGB(1.0, 0.12, 0.02, THREE.LinearSRGBColorSpace);
   palette.heatLampBulb.emissiveIntensity = nits(8_000) / luminance(palette.heatLampBulb.emissive);
 
   /* ---- System 5: wear variants, derived from the tuned base materials ----
