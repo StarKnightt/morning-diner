@@ -5,6 +5,7 @@
  *   node tools/shoot.mjs --tag=sys1            # build, serve, shoot all poses -> shots/sys1-<pose>.png
  *   node tools/shoot.mjs --tag=sys1 --no-build # reuse dist/
  *   node tools/shoot.mjs --poses=door,aisle    # subset
+ *   node tools/shoot.mjs --port=5211            # when another worktree holds 5210
  *   node tools/shoot.mjs --query=debug         # extra URL query
  *
  * Renders on the discrete GPU and fails loudly on SwiftShader or on any shader
@@ -21,8 +22,6 @@ import { assertSceneGpu, launchOptions, readLaunchRenderer, isSoftwareRenderer }
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const WIDTH = 1920;
 const HEIGHT = 1080;
-// SHOOT_PORT lets parallel worktrees shoot at the same time (each preview server needs its own port).
-const PORT = Number(process.env.SHOOT_PORT ?? 5210);
 const READY_TIMEOUT_MS = 90_000;
 const SETTLE_MS = 600;
 
@@ -31,6 +30,11 @@ const arg = (name, fallback) => {
   const hit = argv.find((a) => a.startsWith(`--${name}=`));
   return hit ? hit.slice(name.length + 3) : fallback;
 };
+/**
+ * `--port=N` (or the SHOOT_PORT env var): the machine is shared with other worktrees'
+ * harnesses and each preview server needs its own port; pick a free one.
+ */
+const PORT = Number(arg("port", process.env.SHOOT_PORT ?? "5210"));
 const TAG = arg("tag", "sys1");
 const QUERY = arg("query", "");
 const ONLY = arg("poses", "").split(",").filter(Boolean);
@@ -173,6 +177,16 @@ async function main() {
   // The check that covers the pixels: renderer string from three's live context.
   const stats = await assertSceneGpu(page, "shoot");
   console.log(`[shoot] scene ready in ${readyMs} ms  draw calls=${stats.calls}  triangles=${stats.triangles}`);
+
+  // Boot timeline from src/main.ts (window.__perf): where the start-up time went.
+  const perf = await page.evaluate(() => (typeof window.__perf === "function" ? window.__perf() : null));
+  if (perf) {
+    console.log(
+      `[shoot] boot: ${perf.marks.map((m) => `${m.name} ${m.ms}`).join(" · ")} ms` +
+        `  textures ${perf.textures.wallMs} ms wall on ${perf.textures.workers} workers` +
+        `  programs=${perf.programs} parallel-compile=${perf.parallelCompile}`,
+    );
+  }
 
   const outDir = path.join(ROOT, "shots");
   await fs.mkdir(outDir, { recursive: true });

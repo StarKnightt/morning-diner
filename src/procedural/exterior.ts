@@ -7,7 +7,9 @@ import * as THREE from "three";
 import { makeFbm, makeFbm2, makeRng } from "../core/rng";
 
 function canvas(w: number, h: number) {
-  const c = document.createElement("canvas");
+  // Main thread: an HTMLCanvasElement. Inside the texture worker (no `document`): an
+  // OffscreenCanvas — same 2D API, same rasteriser, byte-identical output.
+  const c = (typeof document === "undefined" ? new OffscreenCanvas(w, h) : document.createElement("canvas")) as HTMLCanvasElement;
   c.width = w;
   c.height = h;
   const ctx = c.getContext("2d", { willReadFrequently: true });
@@ -142,23 +144,30 @@ export function lotSurface(size: number, layout: LotLayout, seed: number): LotTe
   }
   // ---- long meandering cracks: random walks, some sealed (black, glossy), some dusty ------
   const walkCracks: Array<{ pts: Array<[number, number]>; sealed: boolean; width: number }> = [];
-  for (let k = 0; k < 9; k++) {
-    const sealed = rng() < 0.45;
-    const along = rng() < 0.6; // longitudinal (with traffic, along z) or transverse
-    let x = along ? rng() * W : 0, y = along ? 0 : rng() * H;
-    let ang = along ? Math.PI / 2 : 0;
+  const walk = (x: number, y: number, ang: number, base: number, steps: number, sealed: boolean, width: number, depth: number) => {
     const path: Array<[number, number]> = [[x, y]];
-    const steps = 60 + Math.floor(rng() * 80);
     for (let s = 0; s < steps; s++) {
       ang += (rng() - 0.5) * 0.5;
-      const base = along ? Math.PI / 2 : 0;
       ang = base + clamp(ang - base, -0.9, 0.9);
       x += Math.cos(ang) * 0.35 * pxPerM;
       y += Math.sin(ang) * 0.35 * pxPerM;
       if (x < 0 || x >= W || y < 0 || y >= H) break;
       path.push([x, y]);
+      // Branches: a thinner crack leaves at 35–70°, itself allowed one more fork
+      if (depth < 2 && s > 8 && rng() < 0.035) {
+        const side = rng() < 0.5 ? 1 : -1;
+        walk(x, y, ang + side * (0.6 + rng() * 0.6), ang + side * 0.8, 12 + Math.floor(rng() * 30), sealed && rng() < 0.6, width * 0.7, depth + 1);
+      }
     }
-    walkCracks.push({ pts: path, sealed, width: sealed ? 2.2 : 1.1 });
+    walkCracks.push({ pts: path, sealed, width });
+  };
+  for (let k = 0; k < 12; k++) {
+    const sealed = rng() < 0.5;
+    const along = rng() < 0.6; // longitudinal (with traffic, along z) or transverse
+    const x = along ? rng() * W : 0, y = along ? 0 : rng() * H;
+    const base = along ? Math.PI / 2 : 0;
+    // Sealed cracks carry a 3–4 cm band of black filler; open ones are a dusty hairline
+    walk(x, y, base, base, 60 + Math.floor(rng() * 80), sealed, sealed ? (0.03 + rng() * 0.01) * pxPerM : 1.1, 0);
   }
   // Composite the crack overlay through a temp canvas (putImageData would replace alpha).
   {
@@ -175,11 +184,12 @@ export function lotSurface(size: number, layout: LotLayout, seed: number): LotTe
     ctx.stroke();
     if (cr.sealed) {
       // Sealant band is glossy; mark roughness along the path.
+      const rr = Math.ceil(cr.width / 2);
       for (const [x, y] of cr.pts)
-        for (let dy = -2; dy <= 2; dy++)
-          for (let dx = -2; dx <= 2; dx++) {
+        for (let dy = -rr; dy <= rr; dy++)
+          for (let dx = -rr; dx <= rr; dx++) {
             const xx = (x | 0) + dx, yy = (y | 0) + dy;
-            if (xx >= 0 && yy >= 0 && xx < W && yy < H && dx * dx + dy * dy <= 4) rough[yy * W + xx] = 0.4;
+            if (xx >= 0 && yy >= 0 && xx < W && yy < H && dx * dx + dy * dy <= rr * rr) rough[yy * W + xx] = 0.4;
           }
     }
   }
@@ -204,6 +214,43 @@ export function lotSurface(size: number, layout: LotLayout, seed: number): LotTe
         if (e < 1) rough[(y | 0) * W + (x | 0)] = Math.min(rough[(y | 0) * W + (x | 0)], 0.55 + e * 0.3);
       }
   }
+
+  // ---- one big oil blotch at a stall head + tyre scuff marks ------------------------------
+  {
+    const i = Math.floor(layout.stallLinesX.length / 2) - 2; // the stall by the pickup
+    const sx = (layout.stallLinesX[i] + layout.stallLinesX[i + 1]) / 2 + 0.15;
+    const [px, py] = toPx(sx, layout.z0 + 1.7);
+    const rx = 0.32 * pxPerM, rz = 0.5 * pxPerM;
+    const g = ctx.createRadialGradient(px, py, 0, px, py, rz);
+    g.addColorStop(0, "rgba(18,16,15,0.9)");
+    g.addColorStop(0.5, "rgba(30,28,26,0.7)");
+    g.addColorStop(0.8, "rgba(48,46,44,0.3)");
+    g.addColorStop(1, "rgba(60,58,56,0)");
+    ctx.save(); ctx.translate(px, py); ctx.scale(rx / rz, 1); ctx.translate(-px, -py);
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(px, py, rz, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    // Drip trail toward the aisle
+    ctx.strokeStyle = "rgba(24,22,20,0.55)"; ctx.lineWidth = 0.04 * pxPerM;
+    ctx.beginPath(); ctx.moveTo(px + rx * 0.2, py + rz * 0.8); ctx.quadraticCurveTo(px + rx * 0.6, py + rz * 1.6, px + rx * 0.3, py + rz * 2.4); ctx.stroke();
+    for (let y = Math.max(0, py - rz); y < Math.min(H, py + rz); y++)
+      for (let x = Math.max(0, px - rx); x < Math.min(W, px + rx); x++) {
+        const e = Math.hypot((x - px) / rx, (y - py) / rz);
+        if (e < 1) rough[(y | 0) * W + (x | 0)] = Math.min(rough[(y | 0) * W + (x | 0)], 0.42 + e * 0.35);
+      }
+  }
+  // Tyre scuffs: dark 15–22 cm arcs where cars swing into the stalls and brake at the stops
+  ctx.lineCap = "butt";
+  for (let k = 0; k < 14; k++) {
+    const i = Math.floor(rng() * (layout.stallLinesX.length - 1));
+    const sx = (layout.stallLinesX[i] + layout.stallLinesX[i + 1]) / 2 + (rng() - 0.5) * 1.4;
+    const sz = layout.z0 + 0.9 + rng() * 4.2;
+    const [px, py] = toPx(sx, sz);
+    const len = (0.5 + rng() * 1.1) * pxPerM, bend = (rng() - 0.5) * 0.8 * pxPerM;
+    ctx.strokeStyle = `rgba(30,29,28,${(0.16 + rng() * 0.16).toFixed(3)})`;
+    ctx.lineWidth = (0.15 + rng() * 0.07) * pxPerM;
+    ctx.beginPath(); ctx.moveTo(px, py); ctx.quadraticCurveTo(px + bend, py - len * 0.5, px + bend * 0.4, py - len); ctx.stroke();
+  }
+  ctx.lineCap = "round";
 
   // ---- parking lines: faded originals + offset re-stripe ------------------------------------
   const lineW = 0.1 * pxPerM;
@@ -361,11 +408,13 @@ export function slatDust(size: number, seed: number): { roughnessMap: THREE.Text
   for (let y = 0; y < h; y++)
     for (let x = 0; x < size; x++) {
       const u = x / size, v = y / h;
-      const dust = clamp((streak(u, v) - 0.42) * 1.8, 0, 1) * (0.35 + 0.65 * Math.sin(Math.PI * v) ** 0.7);
+      // Sparse dust streaks along the slat, heaviest at the centre of the up-face; the
+      // baked enamel itself is a smooth 0.3 so the curved profile carries a crown highlight.
+      const dust = clamp((streak(u, v) - 0.55) * 2.4, 0, 1) * (0.3 + 0.7 * Math.sin(Math.PI * v) ** 0.7);
       const o = (y * size + x) * 4;
-      const r = clamp(0.42 + dust * 0.22, 0, 1) * 255;
+      const r = clamp(0.3 + dust * 0.3, 0, 1) * 255;
       rimg.data[o] = r; rimg.data[o + 1] = r; rimg.data[o + 2] = r; rimg.data[o + 3] = 255;
-      const k = 1 - dust * 0.14;
+      const k = 1 - dust * 0.06;
       img.data[o] = 224 * k; img.data[o + 1] = 216 * k; img.data[o + 2] = 196 * k; img.data[o + 3] = 255;
     }
   ctx.putImageData(img, 0, 0); rctx.putImageData(rimg, 0, 0);
@@ -389,22 +438,23 @@ export function desertDirt(size: number, seed: number): THREE.Texture {
   return finish(c, true, 8);
 }
 
-/** CMU block wall: 400 × 200 mm blocks with recessed mortar joints; tiles every 1.2 × 0.6 m. */
+/** CMU block wall: 400 × 200 mm blocks with recessed mortar joints; tiles every 3.2 × 0.8 m (8 × 4 blocks). */
 export function blockWall(size: number, seed: number): { map: THREE.Texture; roughnessMap: THREE.Texture } {
-  const w = size, h = size / 2;
+  const w = size, h = size / 4;
   const { c, ctx } = canvas(w, h);
   const { c: rc, ctx: rctx } = canvas(w, h);
   const rng = makeRng(seed);
   const grain = makeFbm(seed + 1, 64, 2);
-  const cols = 3, rows = 3;
-  const bw = w / cols, bh = h / rows, joint = w / 120;
+  const cols = 8, rows = 4;
+  const bw = w / cols, bh = h / rows, joint = w / 320;
   ctx.fillStyle = "#8f877a"; ctx.fillRect(0, 0, w, h); // mortar
   rctx.fillStyle = "#e6e6e6"; rctx.fillRect(0, 0, w, h);
   for (let r = 0; r < rows; r++) {
     const off = r % 2 ? bw / 2 : 0;
     for (let cI = -1; cI <= cols; cI++) {
       const x = cI * bw + off + joint / 2, y = r * bh + joint / 2;
-      const t = 0.9 + rng() * 0.2;
+      // Per-block tone: mostly ±6 %, one block in eight noticeably darker or lighter (different pallet)
+      const t = (0.94 + rng() * 0.12) * (rng() < 0.12 ? (rng() < 0.5 ? 0.86 : 1.1) : 1);
       ctx.fillStyle = `rgb(${Math.round(171 * t)},${Math.round(160 * t)},${Math.round(142 * t)})`;
       ctx.fillRect(x, y, bw - joint, bh - joint);
       rctx.fillStyle = `rgb(${Math.round(215 * (0.95 + rng() * 0.1))},0,0)`;
@@ -423,4 +473,18 @@ export function blockWall(size: number, seed: number): { map: THREE.Texture; rou
   for (let i = 0; i < w * h; i++) { const o = i * 4; rimg.data[o + 1] = rimg.data[o]; rimg.data[o + 2] = rimg.data[o]; }
   rctx.putImageData(rimg, 0, 0);
   return { map: finish(c, true, 8), roughnessMap: finish(rc, false, 8) };
+}
+
+/** Radial falloff alpha for the vehicles' and scrub patches' contact-shadow decals. */
+export function contactShadowAlpha(size: number): THREE.Texture {
+  const { c, ctx } = canvas(size, size);
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, "rgba(255,255,255,0.72)");
+  g.addColorStop(0.55, "rgba(255,255,255,0.45)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.NoColorSpace;
+  return t;
 }

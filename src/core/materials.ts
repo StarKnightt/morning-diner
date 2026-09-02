@@ -4,8 +4,9 @@
  * builders can group geometry by material.
  */
 import * as THREE from "three";
-import * as tex from "../procedural/textures";
-import * as ext from "../procedural/exterior";
+import * as texModule from "../procedural/textures";
+import * as extModule from "../procedural/exterior";
+import type { TextureBank } from "./textureBank";
 
 export interface Palette {
   wallPaint: THREE.MeshStandardMaterial;
@@ -62,8 +63,10 @@ export interface Palette {
   glassSmudge: THREE.MeshBasicMaterial;
   slat: THREE.MeshStandardMaterial;
   slatRail: THREE.MeshStandardMaterial;
+  slatCap: THREE.MeshStandardMaterial;
   cord: THREE.MeshStandardMaterial;
-  wand: THREE.MeshPhysicalMaterial;
+  wand: THREE.MeshStandardMaterial;
+  tassel: THREE.MeshStandardMaterial;
   laminateWood: THREE.MeshStandardMaterial;
   kickPanel: THREE.MeshStandardMaterial;
   tileBacking: THREE.MeshStandardMaterial;
@@ -83,8 +86,12 @@ export interface Palette {
   blackPowder: THREE.MeshStandardMaterial;
 }
 
-export function createPalette(maxAnisotropy: number): Palette {
+export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palette {
   const aniso = Math.min(8, maxAnisotropy);
+  // With a TextureBank the generators run in workers and return placeholders that
+  // fill in later (see core/textureBank.ts); without one they run synchronously.
+  const tex = bank ? bank.proxy(texModule, "tex") : texModule;
+  const ext = bank ? bank.proxy(extModule, "ext") : extModule;
 
   const floorTex = tex.checkerFloor(40, 20, 51, aniso);
   const wallTex = tex.paintedWall("#e9e2d2", 1024, 11);
@@ -190,7 +197,9 @@ export function createPalette(maxAnisotropy: number): Palette {
   // Overlay materials: these sit 0.2–1 mm proud of a parent face (scuff bands, plinth lines,
   // door edge bands, T-mould grooves, sheet seams). polygonOffset pulls them a depth unit
   // toward the camera so they cannot z-fight the face under them at grazing angles.
-  const overlay = { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 };
+  // They also never cast shadows (userData.noCast, read by MergedBuilder.build): an overlay
+  // lies on a face that already casts, so its own depth draw would only cost draw calls.
+  const overlay = { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2, userData: { noCast: true } };
   const laminateScuffed = new THREE.MeshStandardMaterial({ color: 0x6a4630, roughness: 0.75, metalness: 0, ...overlay });
   const edgeBand = new THREE.MeshStandardMaterial({ color: 0x94623f, roughness: 0.4, metalness: 0, ...overlay });
   const plinthLine = new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 0.6, metalness: 0, ...overlay });
@@ -366,11 +375,17 @@ export function createPalette(maxAnisotropy: number): Palette {
     // 20–30 GU → roughness ~0.45 (dielectric paint, F0 4 %), dust streaks on the up-face.
     slat: (() => {
       const d = ext.slatDust(1024, 3322);
-      return new THREE.MeshStandardMaterial({ map: d.map, roughnessMap: d.roughnessMap, roughness: 1, metalness: 0.04, envMapIntensity: 0.4, side: THREE.DoubleSide });
+      return new THREE.MeshStandardMaterial({ map: d.map, roughnessMap: d.roughnessMap, roughness: 1, metalness: 0.1, envMapIntensity: 0.7, side: THREE.DoubleSide });
     })(),
     slatRail: new THREE.MeshStandardMaterial({ color: 0xe6dfcc, roughness: 0.42, metalness: 0.25 }),
+    // Moulded plastic end caps, tassel, equaliser, wand tip: almond a shade darker than the rail
+    slatCap: new THREE.MeshStandardMaterial({ color: 0xd8cfb8, roughness: 0.55, metalness: 0 }),
     cord: new THREE.MeshStandardMaterial({ color: 0xd9d2c0, roughness: 0.95, metalness: 0 }),
-    wand: new THREE.MeshPhysicalMaterial({ color: 0xdfe3e2, roughness: 0.12, metalness: 0, transmission: 0.6, ior: 1.49, thickness: 0.006 }),
+    // Tilt wand: opaque almond acrylic (rev 2 — a clear rod disappeared against the slats)
+    wand: new THREE.MeshStandardMaterial({ color: 0xc4b08a, roughness: 0.18, metalness: 0 }),
+    // Turned-wood acorn tassel on the pull cords: the one warm note on the blind, so it reads
+    // as hardware against the almond rail instead of merging with it
+    tassel: new THREE.MeshStandardMaterial({ color: 0x8c6a45, roughness: 0.45, metalness: 0 }),
     laminateWood: new THREE.MeshStandardMaterial({ color: 0x6b4a2e, roughness: 0.5, metalness: 0 }),
     kickPanel: new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.6, metalness: 0.3 }),
     tileBacking: new THREE.MeshStandardMaterial({ color: 0x5a5650, roughness: 1, metalness: 0 }),

@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Morning Diner</title>
     <!-- Inline icon so the page never requests /favicon.ico. The scene is fully
-         procedural: a load makes exactly two requests, this file and the bundle. -->
+         procedural: a load makes exactly three requests, this file, the bundle
+         and the texture worker. -->
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23f3e7d3'/%3E%3Crect x='3' y='9' width='10' height='4' fill='%238a1a1a'/%3E%3C/svg%3E"
@@ -13,9 +14,60 @@
     <style>
       html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; }
       canvas { display: block; width: 100%; height: 100%; }
+
+      /* Loading screen. Lives in the HTML so it paints before the bundle is parsed;
+         src/ui/Loader.ts drives it. Dark warm room before the blinds open. */
+      #loader {
+        position: fixed; inset: 0; z-index: 10;
+        display: flex; align-items: center; justify-content: center;
+        background: radial-gradient(ellipse at 50% 45%, #2a1f16 0%, #1a130e 55%, #110c09 100%);
+        color: #e9dcc3;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        user-select: none; cursor: default;
+        transition: opacity 0.8s ease;
+      }
+      #loader.enter { cursor: pointer; }
+      #loader.out { opacity: 0; pointer-events: none; }
+      #loader .card { width: min(440px, 72vw); text-align: center; }
+      #loader h1 {
+        margin: 0 0 34px; font-weight: 300; font-size: 30px; letter-spacing: 0.14em;
+        text-transform: uppercase; color: #efe4cf;
+      }
+      #loader .bar {
+        position: relative; height: 2px; background: rgba(233, 220, 195, 0.14); overflow: hidden;
+        transition: opacity 0.5s ease;
+      }
+      #loader .fill {
+        position: absolute; inset: 0 auto 0 0; width: 0%; background: #e9dcc3;
+        transition: width 0.25s linear;
+      }
+      #loader .row {
+        display: flex; justify-content: space-between; margin-top: 12px;
+        font-size: 12px; letter-spacing: 0.04em; color: rgba(233, 220, 195, 0.62);
+        font-variant-numeric: tabular-nums; transition: opacity 0.5s ease;
+      }
+      #loader .stage { text-align: left; min-height: 1.2em; }
+      #loader .enter-hint {
+        margin-top: 26px; font-size: 13px; letter-spacing: 0.2em; text-transform: uppercase;
+        color: #efe4cf; opacity: 0; transition: opacity 0.6s ease;
+      }
+      #loader.enter .bar, #loader.enter .row { opacity: 0; }
+      #loader.enter .enter-hint { opacity: 1; animation: loader-pulse 2.4s ease-in-out infinite; }
+      #loader .error { margin-top: 20px; font-size: 12px; color: #d9a08a; white-space: pre-wrap; text-align: left; }
+      @keyframes loader-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+      @media (prefers-reduced-motion: reduce) { #loader.enter .enter-hint { animation: none; } }
     </style>
   </head>
   <body>
+    <div id="loader" role="status" aria-live="polite">
+      <div class="card">
+        <h1>Morning Diner</h1>
+        <div class="bar"><div class="fill"></div></div>
+        <div class="row"><span class="stage">Opening up…</span><span class="pct">0%</span></div>
+        <div class="enter-hint" aria-hidden="true">Click to enter</div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

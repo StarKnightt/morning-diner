@@ -10,8 +10,12 @@
  * 24.8 mm pitch on the floor. System 4 re-tunes θ with the final sun.
  *
  * Geometry: one InstancedMesh for all slats (curved 25 × 0.2 mm strip, 1 mm sag
- * baked, per-slat ±0.5° tilt and ±0.3 mm drop jitter, two kinked slats per
- * blind); ladder cords, rungs, rails, tilt wand and lift cords merged per material.
+ * baked, 10 × 6 mm lift-cord route slots at the three ladder positions, per-slat
+ * ±2.5° tilt and ±0.3 mm drop jitter, ±4 % tone, 3–4 kinked slats per blind);
+ * ladders (1.3 mm braided cords front + rear with a rung under every slat), lift
+ * cords through the slots, 40 × 25 headrail with valance lip, 25 × 12 bottom rail
+ * with end caps, 0.5 m tilt wand on the left jamb, two pull cords + tassel on the
+ * right hanging to sill height — all merged per material.
  */
 import * as THREE from "three";
 import type { Palette } from "../core/materials";
@@ -27,13 +31,16 @@ export const BLIND = {
   /** Slat stack centre-line z: 40 mm in from the interior wall plane, 85 mm inside the glass. */
   zCentre: ROOM.zFront + 0.04,
   headrail: { h: 0.04, d: 0.025 },
-  bottomRail: { h: 0.01, d: 0.025 },
+  bottomRail: { h: 0.0125, d: 0.025 },
   ladderOffsets: [-0.42, 0, 0.42],
 } as const;
 
-/** Curved slat strip: chord `w`, sagitta 2 mm, convex face up, gentle 1 mm sag between the three ladders. */
-function slatGeometry(length: number, w: number): THREE.BufferGeometry {
-  const along = 28, across = 6;
+/**
+ * Curved slat strip: chord `w`, sagitta 2 mm, convex face up, gentle 1 mm sag between the
+ * three ladders, and a 10 × 6 mm route slot punched at each ladder position for the lift cord.
+ */
+function slatGeometry(length: number, w: number, slotsX: readonly number[]): THREE.BufferGeometry {
+  const along = 112, across = 8;
   const R = (w * w / 4 + 0.002 * 0.002) / (2 * 0.002);
   const a = Math.asin(w / 2 / R);
   const pos: number[] = [], nor: number[] = [], uv: number[] = [], idx: number[] = [];
@@ -53,11 +60,16 @@ function slatGeometry(length: number, w: number): THREE.BufferGeometry {
       uv.push(u, v);
     }
   }
-  for (let i = 0; i < along; i++)
+  const cellW = length / along;
+  for (let i = 0; i < along; i++) {
+    const xc = (i + 0.5) / along * length - length / 2;
+    const inSlot = slotsX.some((sx) => Math.abs(xc - sx) < cellW * 0.5 + 1e-6);
     for (let j = 0; j < across; j++) {
+      if (inSlot && (j === 3 || j === 4)) continue; // the slot: middle 2 of 8 rows ≈ 6 mm
       const p = i * (across + 1) + j, q = p + across + 1;
       idx.push(p, q, p + 1, q, q + 1, p + 1);
     }
+  }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
@@ -87,13 +99,15 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
   const yLast = yFirst - (count - 1) * BLIND.pitch;
   const yRail = yLast - 0.02; // bottom rail centre
 
-  const slatGeo = slatGeometry(slatLen, BLIND.slatWidth);
+  const slatGeo = slatGeometry(slatLen, BLIND.slatWidth, BLIND.ladderOffsets);
   const slats = new THREE.InstancedMesh(slatGeo, pal.slat, count * WINDOW.centersX.length);
   slats.castShadow = true;
   slats.receiveShadow = true;
   slats.name = "blind-slats";
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1), col = new THREE.Color();
-  const rung = new THREE.BoxGeometry(0.0008, 0.0008, BLIND.slatWidth - 0.002);
+  const rung = new THREE.CylinderGeometry(0.00035, 0.00035, BLIND.slatWidth - 0.002, 5);
+  rung.rotateX(Math.PI / 2);
+  const cordR = 0.00065; // 1.3 mm braided ladder / lift cord
   let inst = 0;
 
   for (const cx of WINDOW.centersX) {
@@ -101,16 +115,18 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
     // Headrail: 40 × 25 steel channel, almond; end caps; a valance lip on the room face
     b.rbox(pal.slatRail, [x0 + 0.003, yHead0, zc - BLIND.headrail.d / 2], [x1 - 0.003, yHeadTop, zc + BLIND.headrail.d / 2], 0.002);
     b.rbox(pal.slatRail, [x0 + 0.003, yHead0 - 0.004, zc - BLIND.headrail.d / 2 - 0.002], [x1 - 0.003, yHead0 + 0.012, zc - BLIND.headrail.d / 2], 0.001);
-    // Two kinked slats per blind
+    // 3–4 kinked slats per blind (bent once by a hand or a mop handle)
     const kinks = new Set<number>();
-    while (kinks.size < 2) kinks.add(4 + Math.floor(rng() * (count - 8)));
+    const nK = 3 + Math.floor(rng() * 2);
+    while (kinks.size < nK) kinks.add(3 + Math.floor(rng() * (count - 6)));
     for (let k = 0; k < count; k++) {
       const y = yFirst - k * BLIND.pitch + (rng() - 0.5) * 0.0006;
-      let rx = -tilt + THREE.MathUtils.degToRad((rng() - 0.5) * 1.0);
+      // ±2.5° tilt jitter: each slat catches the sun a little differently → visible tone steps
+      let rx = -tilt + THREE.MathUtils.degToRad((rng() - 0.5) * 5.0);
       let dz = 0;
       if (kinks.has(k)) {
-        rx += THREE.MathUtils.degToRad((rng() - 0.5) * 8);
-        dz = (rng() - 0.5) * 0.008;
+        rx += THREE.MathUtils.degToRad((rng() < 0.5 ? -1 : 1) * (5 + rng() * 7));
+        dz = (rng() - 0.5) * 0.01;
       }
       e.set(rx, 0, THREE.MathUtils.degToRad((rng() - 0.5) * 0.2));
       q.setFromEuler(e);
@@ -127,32 +143,65 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
         b.add(rung.clone(), pal.cord, rm);
       }
     }
-    // Ladder cords: two per ladder, at the slat edges, headrail to bottom rail
-    for (const lo of BLIND.ladderOffsets)
+    const cordLen = yHead0 - yRail;
+    for (const lo of BLIND.ladderOffsets) {
+      // Ladder cords: same 1.3 mm gauge front and rear, hugging the slat edges
       for (const zs of [-1, 1]) {
         const zcord = zc + zs * (BLIND.slatWidth / 2 * Math.cos(tilt) + 0.0006);
-        // cords shift up/down with the tilted edge they hug
-        b.box(pal.cord, [cx + lo - 0.00075, yRail, zcord - 0.00075], [cx + lo + 0.00075, yHead0, zcord + 0.00075]);
+        const cord = new THREE.CylinderGeometry(cordR, cordR, cordLen, 6);
+        cord.translate(cx + lo, yRail + cordLen / 2, zcord);
+        b.add(cord, pal.cord);
       }
-    // Bottom rail 25 × 10 mm with a slight crown, end caps
-    b.rbox(pal.slatRail, [x0 + 0.004, yRail - BLIND.bottomRail.h / 2, zc - BLIND.bottomRail.d / 2], [x1 - 0.004, yRail + BLIND.bottomRail.h / 2, zc + BLIND.bottomRail.d / 2], 0.003, 3);
-    // Tilt wand: 8 mm clear plastic rod, 0.6 m, hung from the headrail at the left end
-    {
-      const wx = x0 + 0.06, wTop = yHead0 - 0.002;
-      const hook = new THREE.CylinderGeometry(0.0025, 0.0025, 0.03, 8);
-      hook.translate(wx, wTop - 0.015, zc - 0.014);
-      b.add(hook, pal.darkMetal);
-      const wand = new THREE.CylinderGeometry(0.004, 0.004, 0.6, 6);
-      wand.translate(wx, wTop - 0.03 - 0.3, zc - 0.016);
-      b.add(wand, pal.wand);
+      // Lift cord: straight down through the route slots to the bottom rail
+      const lift = new THREE.CylinderGeometry(cordR, cordR, cordLen + 0.006, 6);
+      lift.translate(cx + lo, yRail + cordLen / 2, zc);
+      b.add(lift, pal.cord);
     }
-    // Lift cords (two, 1.6 mm) at the right end, down to ~1.35 m with a tassel
+    // Bottom rail 25 × 12.5 mm (1" × ½") with a slight crown, plastic end caps
+    b.rbox(pal.slatRail, [x0 + 0.006, yRail - BLIND.bottomRail.h / 2, zc - BLIND.bottomRail.d / 2], [x1 - 0.006, yRail + BLIND.bottomRail.h / 2, zc + BLIND.bottomRail.d / 2], 0.003, 3);
+    for (const [ex0, ex1] of [[x0 + 0.003, x0 + 0.014], [x1 - 0.014, x1 - 0.003]])
+      b.rbox(pal.slatCap, [ex0, yRail - BLIND.bottomRail.h / 2 - 0.001, zc - BLIND.bottomRail.d / 2 - 0.001], [ex1, yRail + BLIND.bottomRail.h / 2 + 0.001, zc + BLIND.bottomRail.d / 2 + 0.001], 0.002, 2);
+    // Tilt wand: 12 mm tan acrylic rod, 0.5 m, on a swivel hook under the headrail at the
+    // left jamb. Hangs 30 mm in front of the slat edges so it silhouettes against the glass
+    // (rev 2: a clear rod 16 mm off the slats vanished into them at any distance).
     {
-      const lx = x1 - 0.05, yT = 1.32;
-      for (const dx of [-0.004, 0.004]) b.box(pal.cord, [lx + dx - 0.0008, yT, zc - 0.0158], [lx + dx + 0.0008, yHead0, zc - 0.0142]);
-      const tassel = new THREE.CylinderGeometry(0.006, 0.009, 0.045, 10);
-      tassel.translate(lx, yT - 0.02, zc - 0.015);
-      b.add(tassel, pal.wand);
+      const wx = x0 + 0.045, wTop = yHead0 - 0.002, wz = zc - 0.045;
+      const hook = new THREE.CylinderGeometry(0.0025, 0.0025, 0.03, 8);
+      hook.translate(wx, wTop - 0.015, wz + 0.002);
+      b.add(hook, pal.darkMetal);
+      const sleeve = new THREE.CylinderGeometry(0.0065, 0.0065, 0.02, 10);
+      sleeve.translate(wx, wTop - 0.036, wz);
+      b.add(sleeve, pal.slatCap);
+      const wand = new THREE.CylinderGeometry(0.006, 0.006, 0.5, 12);
+      wand.translate(wx, wTop - 0.046 - 0.25, wz);
+      b.add(wand, pal.wand);
+      const tip = new THREE.CylinderGeometry(0.0065, 0.004, 0.014, 12);
+      tip.translate(wx, wTop - 0.046 - 0.5 - 0.006, wz);
+      b.add(tip, pal.slatCap);
+    }
+    // Pull cords (two, 1.3 mm) out of the cord lock at the right jamb, hanging 35 mm in front
+    // of the slats, through a cord equaliser into one tassel whose tip stops 15 mm above the
+    // sill stool — so it hangs BELOW the bottom rail instead of hiding inside it (rev 1 bug).
+    {
+      const lx = x1 - 0.08, yT = WINDOW.sill + fw + 0.068, zp = zc - 0.035;
+      const yEq = yT + 0.06;
+      for (const dx of [-0.003, 0.003]) {
+        const cord = new THREE.CylinderGeometry(cordR, cordR, yHead0 - yEq, 6);
+        cord.translate(lx + dx, (yHead0 + yEq) / 2, zp);
+        b.add(cord, pal.cord);
+      }
+      b.rbox(pal.slatCap, [lx - 0.008, yEq - 0.012, zp - 0.004], [lx + 0.008, yEq + 0.004, zp + 0.004], 0.0015, 2); // equaliser
+      const single = new THREE.CylinderGeometry(cordR, cordR, yEq - 0.012 - yT, 6);
+      single.translate(lx, (yEq - 0.012 + yT) / 2, zp);
+      b.add(single, pal.cord);
+      // Acorn tassel, turned wood: 20 mm Ø × 50 mm with a waist and a rounded tip
+      const tassel = new THREE.LatheGeometry(
+        // bottom → top (LatheGeometry needs increasing y for outward normals)
+        [[0, -0.053], [0.003, -0.052], [0.008, -0.044], [0.0105, -0.03], [0.0085, -0.02], [0.01, -0.006], [0.007, 0], [0, 0]].map(([r, y]) => new THREE.Vector2(r, y)),
+        16,
+      );
+      tassel.translate(lx, yT, zp);
+      b.add(tassel, pal.tassel);
     }
   }
   slats.instanceMatrix.needsUpdate = true;

@@ -16,7 +16,7 @@
  */
 import * as THREE from "three";
 import { makeRng } from "../core/rng";
-import { apertureGlsl, apertureUniforms, MAX_APERTURES, sampleBeamPoints, shadowGlsl, sunDirectionOf } from "./beams";
+import { apertureGlsl, apertureUniforms, MAX_APERTURES, sampleBeamPoints, setSunUniforms, shadowGlsl, sunRaysOf, type ApertureUniforms, type SunLight, type SunRays } from "./beams";
 import type { PostSettings } from "./settings";
 
 const vertexShader = /* glsl */ `
@@ -104,21 +104,23 @@ const fragmentShader = /* glsl */ `
 export class SunDust {
   readonly points: THREE.Points;
   private readonly material: THREE.ShaderMaterial;
-  private readonly sun: THREE.DirectionalLight;
+  private readonly sun: SunLight;
   private readonly settings: PostSettings["dust"];
   private geometry: THREE.BufferGeometry;
   private spawnedCount = 0;
-  private readonly sunDir = new THREE.Vector3();
+  private readonly rays: SunRays = { dir: new THREE.Vector3(), apex: null };
+  private readonly ap: ApertureUniforms;
 
-  constructor(sun: THREE.DirectionalLight, settings: PostSettings["dust"], pixelRatio: number) {
+  /** `sun` is the building sun (`Diner.sun`, a SpotLight since System 3 rev 2; a DirectionalLight also works). */
+  constructor(sun: SunLight, settings: PostSettings["dust"], pixelRatio: number) {
     this.sun = sun;
     this.settings = settings;
-    const ap = apertureUniforms();
+    this.ap = apertureUniforms();
     this.material = new THREE.ShaderMaterial({
       vertexShader,
       fragmentShader,
       uniforms: {
-        ...ap,
+        ...this.ap,
         uTime: { value: 0 },
         uPixelRatio: { value: pixelRatio },
         uBokeh: { value: settings.bokeh },
@@ -151,8 +153,8 @@ export class SunDust {
   private buildGeometry(): THREE.BufferGeometry {
     const count = Math.max(1, Math.round(this.settings.count));
     const rng = makeRng(8801 + count);
-    sunDirectionOf(this.sun, this.sunDir);
-    const pos = sampleBeamPoints(count, this.sunDir, rng);
+    sunRaysOf(this.sun, this.rays);
+    const pos = sampleBeamPoints(count, this.rays, rng);
     const seed = new Float32Array(count * 4);
     const kind = new Float32Array(count * 2);
     for (let i = 0; i < count; i++) {
@@ -198,8 +200,10 @@ export class SunDust {
     u.uTwinkle.value = s.twinkle;
     u.uIntensity.value = s.intensity;
     u.uCamPos.value.setFromMatrixPosition(camera.matrixWorld);
-    u.uSunDir.value.copy(sunDirectionOf(this.sun, this.sunDir));
+    setSunUniforms(this.ap, sunRaysOf(this.sun, this.rays));
     (u.uSunRadiance.value as THREE.Color).copy(this.sun.color).multiplyScalar(this.sun.intensity);
+    // Shadow-once (Diner.ts): the map is rendered at boot and on invalidateShadows(); the
+    // depth texture object persists between renders, so this is the live map every frame.
     const shadow = this.sun.shadow;
     u.uShadowMap.value = shadow.map?.depthTexture ?? null;
     u.uShadowMatrix.value.copy(shadow.matrix);

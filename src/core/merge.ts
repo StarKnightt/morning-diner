@@ -71,7 +71,11 @@ export class MergedBuilder {
     this.colliders.push({ min: new THREE.Vector3(...min), max: new THREE.Vector3(...max) });
   }
 
-  /** Build meshes; every merged mesh casts and receives shadows unless told otherwise. */
+  /**
+   * Build meshes; every merged mesh casts and receives shadows unless told otherwise.
+   * A material with `userData.noCast` never casts (coplanar overlays, lamp lenses, thin
+   * trim) — each such bucket would otherwise cost one draw per shadow map per frame.
+   */
   build(parent: THREE.Object3D, opts: { castShadow?: boolean; receiveShadow?: boolean; name?: string } = {}): THREE.Mesh[] {
     const out: THREE.Mesh[] = [];
     for (const [material, list] of this.buckets) {
@@ -83,7 +87,7 @@ export class MergedBuilder {
       merged.computeBoundingBox();
       merged.computeBoundingSphere();
       const mesh = new THREE.Mesh(merged, material);
-      mesh.castShadow = opts.castShadow ?? true;
+      mesh.castShadow = (opts.castShadow ?? true) && material.userData.noCast !== true;
       mesh.receiveShadow = opts.receiveShadow ?? true;
       if (opts.name) mesh.name = `${opts.name}:${material.name || material.uuid.slice(0, 6)}`;
       parent.add(mesh);

@@ -1,11 +1,20 @@
 /**
- * System 8 pipeline. One call from main.ts:
+ * System 8 pipeline. One call from main.ts, after `await diner.build()`:
  *
- *   const post = createPostPipeline(renderer, scene, camera);
+ *   const post = createPostPipeline(renderer, scene, camera, { sun: diner.sun });
  *   ...
  *   post.render();            // instead of renderer.render(scene, camera)
  *
  * `?post=0` (or settings.enabled = false) makes render() a plain renderer.render.
+ *
+ * Two suns / shadow-once (System 3 rev 2 + loader): the dust and haze read the
+ * BUILDING sun's shadow map — `diner.sun`, a SpotLight with a perspective 4096²
+ * map (the slat stripes); `diner.sunLot`'s ortho map never contains the room.
+ * Both maps are rendered once at boot and again only after
+ * `diner.invalidateShadows()`; the scene pass below goes through
+ * `renderer.render`, so the `installShadowMasks` wrapper runs (and re-renders
+ * both maps when `needsUpdate` is set) before the opaque pass, and the haze /
+ * composite passes that follow read a map that is current for this frame.
  *
  * Pass order (all targets HalfFloat, linear; sizes at the drawing-buffer size):
  *   1. scene      → sceneRT (MSAA n× + resolved float depth). Dust motes and steam are
@@ -24,7 +33,7 @@ import * as THREE from "three";
 import { FullScreenQuad } from "three/examples/jsm/postprocessing/Pass.js";
 import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
 import { ROOM } from "../scene/layout";
-import { apertureUniforms, beamBounds, findSun, sunDirectionOf } from "./beams";
+import { apertureUniforms, beamBounds, findSun, setSunUniforms, sunRaysOf, type SunLight, type SunRays } from "./beams";
 import { SunDust } from "./Dust";
 import { GpuTimer } from "./GpuTimer";
 import { applyUrlOverrides, defaultSettings, type AAMode, type PostSettings, type ToneMap } from "./settings";
@@ -74,7 +83,16 @@ function toneMapIndex(t: ToneMap | null, renderer: THREE.WebGLRenderer): number 
   return t === "agx" ? 1 : t === "neutral" ? 2 : t === "none" ? 3 : 0;
 }
 
-export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera): PostPipeline {
+export interface PostPipelineOptions {
+  /**
+   * The building sun whose shadow map lights the dust and haze (`Diner.sun`). When
+   * omitted the scene is searched for a shadow-casting SpotLight, then a DirectionalLight
+   * — but pass it: the lot sun is also a shadow-casting DirectionalLight.
+   */
+  sun?: SunLight | null;
+}
+
+export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, options: PostPipelineOptions = {}): PostPipeline {
   const settings = applyUrlOverrides(defaultSettings());
   const DEBUG = new URLSearchParams(location.search).has("debug");
 
@@ -98,8 +116,9 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
   if (DEBUG) console.log(`[post] timer queries ${timer.available ? "available" : "UNAVAILABLE"}`);
   renderer.info.autoReset = false;
 
-  const sun = findSun(scene);
-  if (!sun) console.warn("[post] no shadow-casting DirectionalLight found: dust and haze disabled");
+  const sun = options.sun ?? findSun(scene);
+  if (!sun) console.warn("[post] no shadow-casting sun light found: dust and haze disabled");
+  else if (DEBUG) console.log(`[post] sun = ${(sun as THREE.SpotLight).isSpotLight ? "SpotLight (perspective map)" : "DirectionalLight (ortho map)"} ${sun.shadow.mapSize.x}²  shadow map ${sun.shadow.map ? "rendered" : "NOT YET RENDERED"}`);
 
   /* ---------------- scene-side objects ---------------- */
   const dust = sun ? new SunDust(sun, settings.dust, renderer.getPixelRatio()) : null;
@@ -208,6 +227,7 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
   };
   const bounds = new THREE.Box3();
   const boundsDir = new THREE.Vector3(NaN, NaN, NaN);
+  const rays: SunRays = { dir: new THREE.Vector3(), apex: null };
 
   const hazeMat = new THREE.ShaderMaterial({
     vertexShader: fsVertex,
@@ -341,7 +361,6 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
   const t0 = performance.now();
   let frame = 0;
   let lastLog = 0;
-  const sunDir = new THREE.Vector3();
   const probeBuf = new Float32Array(4);
 
   const render = () => {
@@ -384,7 +403,9 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
       steam.update(time);
     }
 
-    // 1. scene
+    // 1. scene. renderer.render runs the shadow pass first (through the installShadowMasks
+    // wrapper: both maps, only when shadowMap.needsUpdate is set) and restores sceneRT
+    // as the target before the opaque pass, so the map the haze reads below is current.
     timer.begin("scene");
     renderer.setRenderTarget(sceneRT);
     renderer.render(scene, camera);
@@ -397,8 +418,10 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
     depthUniforms.uNear.value = camera.near;
     depthUniforms.uFar.value = camera.far;
     if (sun) {
-      sunDirectionOf(sun, sunDir);
-      ap.uSunDir.value.copy(sunDir);
+      sunRaysOf(sun, rays);
+      setSunUniforms(ap, rays); // `ap` objects are shared by hazeMat and compositeMat
+      // Persistent depth texture of the one-shot shadow map (same object every frame until
+      // the map is re-allocated, e.g. a mapSize change); matrix = bias × proj × view.
       shadowUniforms.uShadowMap.value = sun.shadow.map?.depthTexture ?? null;
       shadowUniforms.uShadowMatrix.value.copy(sun.shadow.matrix);
       shadowUniforms.uShadowBias.value = sun.shadow.bias;
@@ -408,10 +431,10 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
     const hazeOn = s.haze.enabled && !!sun && shadowReady;
     if (hazeOn) {
       timer.begin("haze");
-      if (!boundsDir.equals(sunDir)) {
+      if (!boundsDir.equals(rays.dir)) {
         // Only when System 4 moves the sun (or once at start): the box is otherwise static.
-        boundsDir.copy(sunDir);
-        bounds.copy(beamBounds(sunDir));
+        boundsDir.copy(rays.dir);
+        bounds.copy(beamBounds(rays));
       }
       (hazeMat.uniforms.uBoxMin.value as THREE.Vector3).copy(bounds.min);
       (hazeMat.uniforms.uBoxMax.value as THREE.Vector3).copy(bounds.max);

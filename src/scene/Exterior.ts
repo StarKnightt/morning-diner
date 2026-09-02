@@ -14,7 +14,8 @@ import * as THREE from "three";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { makeRng, makeFbm } from "../core/rng";
-import * as ext from "../procedural/exterior";
+import type { TextureBank } from "../core/textureBank";
+import * as extModule from "../procedural/exterior";
 import { ROOM } from "./layout";
 
 const T = ROOM.wallThickness;
@@ -41,6 +42,9 @@ export interface ExteriorResult {
 
 function skyFill(mat: THREE.MeshStandardMaterial, k: number): THREE.MeshStandardMaterial {
   // Diffuse sky fill approximation: emissive = albedo × k (placeholder until System 4).
+  // Rev 2: scaled down ×0.45 — the hemisphere light already supplies most of the sky term,
+  // and the extra emissive was flattening the lot shadows to ~1.5:1 (real 8 AM sun ≈ 5:1).
+  k *= 0.45;
   if (mat.map) { mat.emissiveMap = mat.map; mat.emissive.setScalar(k); }
   else mat.emissive.copy(mat.color).multiplyScalar(k);
   return mat;
@@ -71,6 +75,12 @@ function buildSky(sunDir: THREE.Vector3): THREE.Mesh {
         float h = clamp(d.y, 0.0, 1.0);
         // Washed-out morning sky: the horizon band stays near white for the first ~12°.
         vec3 col = mix(horizon, zenith, pow(h, 0.55));
+        // Brighter toward the sun's azimuth all the way down to the horizon (forward scatter)
+        vec2 az = normalize(d.xz), sAz = normalize(sunDir.xz);
+        float azc = clamp(dot(az, sAz), 0.0, 1.0);
+        col = mix(col, vec3(0.985, 0.975, 0.955), pow(azc, 3.0) * (1.0 - h) * (1.0 - h) * 0.55);
+        // Dust haze band sitting on the horizon: 0–2.5° above the horizon reads lighter and warmer
+        col = mix(col, vec3(0.94, 0.93, 0.915), smoothstep(0.045, 0.0, h) * 0.6);
         float c = clamp(dot(d, sunDir), 0.0, 1.0);
         float glow = pow(c, 6.0) * 0.18 + pow(c, 40.0) * 0.45 + pow(c, 400.0) * 1.5;
         float disc = smoothstep(0.999975, 0.999992, c) * 40.0;
@@ -90,63 +100,55 @@ function buildSky(sunDir: THREE.Vector3): THREE.Mesh {
   return sky;
 }
 
-/** Far terrain: a ring of low rises with one mesa and a serrated ridge, hazed toward the sky. */
+/**
+ * Far terrain: two rings. Near ring (135 m) — low rises, one mesa, a serrated ridge;
+ * far ring (175 m) — a taller, smoother range behind it. Both fade toward the sky
+ * in their vertex colours and the scene fog (40 → 200 m) does the rest, so the
+ * far range is a ghost and the near ridge's foot melts into the haze band.
+ */
 function buildHorizon(parent: THREE.Group): void {
-  const R = 135, segs = 360;
-  const noise = makeFbm(7101, 24, 3);
-  const pos: number[] = [], col: number[] = [], idx: number[] = [];
   const haze = new THREE.Color(0.86, 0.87, 0.89);
-  const rock = new THREE.Color(0.36, 0.3, 0.28);
-  const tmp = new THREE.Color();
-  const profile = (a: number) => {
-    // a in radians, 0 = +z (straight out the windows). Mesa 20°–58° left of centre, ridge elsewhere.
+  const ring = (R: number, segs: number, seed: number, rock: THREE.Color, baseFade: number, name: string, profile: (a: number, noise: (u: number, v: number) => number) => number) => {
+    const noise = makeFbm(seed, 24, 3);
+    const pos: number[] = [], col: number[] = [], idx: number[] = [];
+    const tmp = new THREE.Color();
+    for (let i = 0; i <= segs; i++) {
+      const a = (i / segs) * Math.PI * 2 - Math.PI;
+      const x = Math.sin(a) * R, z = Math.cos(a) * R;
+      const h = profile(a, noise);
+      const fade = baseFade + 0.15 * (1 - Math.min(1, h / 16));
+      pos.push(x, -0.35, z, x, h - 0.35, z);
+      tmp.copy(rock).lerp(haze, Math.min(1, fade + 0.1)); // foot is hazier than the top
+      col.push(tmp.r, tmp.g, tmp.b);
+      tmp.copy(rock).lerp(haze, fade);
+      col.push(tmp.r, tmp.g, tmp.b);
+    }
+    for (let i = 0; i < segs; i++) {
+      const p = i * 2;
+      idx.push(p, p + 2, p + 1, p + 2, p + 3, p + 1);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(idx);
+    const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+    m.name = name;
+    m.frustumCulled = false;
+    parent.add(m);
+  };
+  ring(135, 360, 7101, new THREE.Color(0.36, 0.3, 0.28), 0.3, "horizon", (a, noise) => {
+    // a in radians, 0 = +z (straight out the windows). Mesa 24°–62° left of centre, ridge elsewhere.
     const deg = THREE.MathUtils.radToDeg(a);
     const mesaL = deg > -62 && deg < -24 ? 1 : 0;
     const mesaEdge = mesaL ? Math.min(1, Math.min(deg + 62, -24 - deg) / 6) : 0;
     const mesa = 16 * Math.pow(mesaEdge, 0.6);
     const ridge = 3.5 + 5 * noise(a / (Math.PI * 2), 0.3) + 2.5 * Math.abs(Math.sin(deg * 0.35)) * noise(a / (Math.PI * 2) + 0.5, 0.7);
     return Math.max(mesa, ridge);
-  };
-  for (let i = 0; i <= segs; i++) {
-    const a = (i / segs) * Math.PI * 2 - Math.PI;
-    const x = Math.sin(a) * R, z = Math.cos(a) * R;
-    const h = profile(a);
-    const fade = 0.45 + 0.15 * (1 - Math.min(1, h / 16));
-    pos.push(x, -0.35, z, x, h - 0.35, z);
-    tmp.copy(rock).lerp(haze, fade);
-    // Foot is hazier than the top.
-    col.push(tmp.r * 0.97 + haze.r * 0.06, tmp.g * 0.97 + haze.g * 0.06, tmp.b * 0.97 + haze.b * 0.06);
-    tmp.copy(rock).lerp(haze, fade - 0.06);
-    col.push(tmp.r, tmp.g, tmp.b);
-  }
-  for (let i = 0; i < segs; i++) {
-    const p = i * 2;
-    idx.push(p, p + 2, p + 1, p + 2, p + 3, p + 1);
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-  g.setIndex(idx);
-  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
-  m.name = "horizon";
-  m.frustumCulled = false;
-  parent.add(m);
-}
-
-/** Radial falloff alpha for the vehicles' contact shadows. */
-function contactShadowAlpha(size: number): THREE.Texture {
-  const c = document.createElement("canvas");
-  c.width = c.height = size;
-  const ctx = c.getContext("2d")!;
-  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  g.addColorStop(0, "rgba(255,255,255,0.72)");
-  g.addColorStop(0.55, "rgba(255,255,255,0.45)");
-  g.addColorStop(1, "rgba(255,255,255,0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.NoColorSpace;
-  return t;
+  });
+  ring(175, 240, 7102, new THREE.Color(0.4, 0.36, 0.36), 0.42, "horizon-far", (a, noise) => {
+    const u = a / (Math.PI * 2);
+    return 12 + 14 * noise(u * 1.3 + 0.2, 0.55) + 6 * noise(u * 4 + 0.7, 0.2);
+  });
 }
 
 /** Boxy vehicle from a side profile (z along length, nose at z = 0) extruded across x. */
@@ -159,6 +161,9 @@ interface CarSpec {
   track: number;
   beltY: number;
   paint: THREE.Material;
+  /** Door shut lines (z) and roof pillars between side lights (z). */
+  doors: number[];
+  pillars: number[];
   glass: Array<{ z0: number; z1: number; y0: number; y1: number; side: "L" | "R" | "F" | "B"; slope?: [number, number] }>;
   bed?: { z0: number; z1: number; y: number };
 }
@@ -221,10 +226,30 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
       arch.translate(sx * (flank + 0.002), spec.wheelR, wz);
       place(arch, mats.dark);
     }
+  // Body form on the flanks: flared wheel arches in paint (a 40 mm lip 14 mm proud), a dark
+  // rocker panel along the sill, door shut lines, painted mirror housings with a chrome face,
+  // pillars between the side lights, and a chrome drip rail along the roof edge.
+  for (const sx of [-1, 1]) {
+    for (const wz of spec.wheelZ) {
+      const flare = new THREE.RingGeometry(spec.wheelR + 0.075, spec.wheelR + 0.125, 28, 1, 0, Math.PI);
+      flare.rotateY(sx > 0 ? Math.PI / 2 : -Math.PI / 2);
+      flare.translate(sx * (flank + 0.014), spec.wheelR, wz);
+      place(flare, spec.paint);
+      const lip = new THREE.CylinderGeometry(spec.wheelR + 0.125, spec.wheelR + 0.125, 0.014, 28, 1, true, 0, Math.PI);
+      lip.rotateZ(Math.PI / 2); // upper half over the wheel
+      lip.translate(sx * (flank + 0.007), spec.wheelR, wz);
+      place(lip, spec.paint);
+    }
+    sbox(mats.dark, sx, -0.004, 0.003, 0.36, 0.46, 0.55, spec.length - 0.55); // rocker
+    for (const dz of spec.doors) sbox(mats.dark, sx, 0.0, 0.002, 0.42, spec.beltY + 0.22, dz - 0.002, dz + 0.002); // shut lines
+    for (const pz of spec.pillars) sbox(mats.dark, sx, 0.004, 0.009, spec.glass[0].y0 - 0.01, spec.glass[0].y1 + 0.01, pz - 0.03, pz + 0.03); // B/C pillars
+    sbox(mats.chrome, sx, -0.01, 0.004, spec.glass[0].y1 + 0.012, spec.glass[0].y1 + 0.03, spec.glass[0].z0 - 0.05, spec.glass[0].z1 + 0.1); // drip rail
+  }
   // Chrome belt line, mirrors, door handles
   for (const sx of [-1, 1]) {
     sbox(mats.chrome, sx, -0.002, 0.005, spec.beltY - 0.012, spec.beltY + 0.012, 0.35, spec.length - 0.3);
-    sbox(mats.chrome, sx, 0.0, 0.1, spec.beltY + 0.25, spec.beltY + 0.33, spec.glass[0].z0 - 0.04, spec.glass[0].z0 + 0.12); // mirror
+    sbox(spec.paint, sx, 0.0, 0.1, spec.beltY + 0.25, spec.beltY + 0.33, spec.glass[0].z0 - 0.04, spec.glass[0].z0 + 0.12); // mirror housing
+    sbox(mats.chrome, sx, 0.1, 0.104, spec.beltY + 0.26, spec.beltY + 0.32, spec.glass[0].z0 - 0.03, spec.glass[0].z0 + 0.11); // mirror face
     sbox(mats.chrome, sx, 0.0, 0.006, spec.beltY - 0.11, spec.beltY - 0.08, spec.glass[0].z0 + 0.2, spec.glass[0].z0 + 0.36); // handle
   }
   box(mats.chrome, [-hw - 0.05, 0.4, nose - 0.08], [hw + 0.05, 0.52, nose + 0.05]); // front bumper
@@ -249,7 +274,13 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
   parent.add(dm);
 }
 
-export function buildExterior(parent: THREE.Group, pal: Palette, sunDir: THREE.Vector3): ExteriorResult {
+export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Vector3, bank?: TextureBank): ExteriorResult {
+  const ext = bank ? bank.proxy(extModule, "ext") : extModule; // canvases in workers when a bank is given
+  // Own group: everything in it is flagged `userData.lotCaster` at the end so Diner.ts
+  // lets it cast into the lot sun's shadow map (interior objects are masked out of it).
+  const parent = new THREE.Group();
+  parent.name = "exterior";
+  diner.add(parent);
   const rng = makeRng(3302);
   const b = new MergedBuilder();
   const envMaterials: THREE.Material[] = [];
@@ -268,7 +299,7 @@ export function buildExterior(parent: THREE.Group, pal: Palette, sunDir: THREE.V
   /* ---------------- lot: detailed near plane + plain surround ---------------- */
   const stallLinesX: number[] = [];
   for (let x = -13.5; x <= 13.5 + 1e-6; x += LOT.stallPitch) stallLinesX.push(x);
-  const layout: ext.LotLayout = { x0: LOT.x0, z0: LOT.kerbZ, w: LOT.w, d: LOT.d, stallLinesX, stallDepth: LOT.stallDepth };
+  const layout: extModule.LotLayout = { x0: LOT.x0, z0: LOT.kerbZ, w: LOT.w, d: LOT.d, stallLinesX, stallDepth: LOT.stallDepth };
   const lotTex = ext.lotSurface(2048, layout, 3310);
   const detail = ext.asphaltDetail(512, 3311);
   const asphalt = skyFill(new THREE.MeshStandardMaterial({
@@ -307,13 +338,19 @@ export function buildExterior(parent: THREE.Group, pal: Palette, sunDir: THREE.V
     if (i % 2 === 1 && rng() < 0.5) continue;
     const cx = (stallLinesX[i] + stallLinesX[i + 1]) / 2 + (rng() - 0.5) * 0.08;
     const z = LOT.kerbZ + 0.55 + (rng() - 0.5) * 0.05;
-    b.rbox(stopMat, [cx - 0.9, yLot, z - 0.08], [cx + 0.9, yLot + 0.14, z + 0.08], 0.02, 3);
+    // Precast wheel stop: 1.8 m bar, trapezoid section 220 mm at the base → 140 mm top, 130 mm high
+    const sh = new THREE.Shape();
+    sh.moveTo(-0.11, 0); sh.lineTo(0.11, 0); sh.lineTo(0.07, 0.13); sh.lineTo(-0.07, 0.13); sh.closePath();
+    const bar = new THREE.ExtrudeGeometry(sh, { depth: 1.8, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.008, bevelSegments: 2 });
+    bar.rotateY(Math.PI / 2); // extrusion (z) → x; profile x → −z
+    bar.translate(cx - 0.9, yLot, z);
+    b.add(bar, stopMat);
   }
 
   /* ---------------- CMU wall at the far edge, with a cap and a gap for the entrance ---------------- */
-  const wallTex = ext.blockWall(512, 3312);
+  const wallTex = ext.blockWall(2048, 3312);
   const cmu = skyFill(new THREE.MeshStandardMaterial({ map: wallTex.map, roughnessMap: wallTex.roughnessMap, roughness: 1, metalness: 0 }), 0.22);
-  wallTex.map.repeat.set(1 / 1.2, 1 / 0.6);
+  wallTex.map.repeat.set(1 / 3.2, 1 / 0.8);
   wallTex.roughnessMap.repeat.copy(wallTex.map.repeat);
   for (const [xa, xb] of [[-40, -6], [1, 40]] as Array<[number, number]>) {
     b.box(cmu, [xa, yLot - 0.05, LOT.wallZ], [xb, yLot + 0.85, LOT.wallZ + 0.2], { metric: true });
@@ -339,15 +376,18 @@ export function buildExterior(parent: THREE.Group, pal: Palette, sunDir: THREE.V
 
   /* ---------------- vehicles ---------------- */
   const carMats = {
-    glass: new THREE.MeshPhysicalMaterial({ color: 0x0f1518, roughness: 0.08, metalness: 0.2, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.2 }),
+    glass: new THREE.MeshPhysicalMaterial({ color: 0x141c22, roughness: 0.04, metalness: 0.55, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.8 }),
     chrome: new THREE.MeshStandardMaterial({ color: 0xb9bcc0, roughness: 0.25, metalness: 1 }),
     tyre: new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.95, metalness: 0 }),
     hub: new THREE.MeshStandardMaterial({ color: 0x9a9ea2, roughness: 0.35, metalness: 0.9 }),
     dark: new THREE.MeshStandardMaterial({ color: 0x0c0c0c, roughness: 0.9, metalness: 0 }),
     lamp: new THREE.MeshStandardMaterial({ color: 0xaeb4b8, roughness: 0.08, metalness: 0.6 }),
     tail: new THREE.MeshStandardMaterial({ color: 0x8a1212, roughness: 0.2, metalness: 0 }),
-    shadow: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, alphaMap: contactShadowAlpha(128), depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }),
+    shadow: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, alphaMap: ext.contactShadowAlpha(128), depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }),
   };
+  // Trim buckets sit inside the body's silhouette (hubs behind tyres, lamps in the nose,
+  // chrome strips on the flanks): no shadow of their own, so skip their depth draws in both maps.
+  for (const m of [carMats.chrome, carMats.hub, carMats.lamp, carMats.tail]) m.userData.noCast = true;
   carMats.glass.side = THREE.DoubleSide;
   const whitePaint = skyFill(new THREE.MeshPhysicalMaterial({ color: 0xd6d3c8, roughness: 0.55, metalness: 0, clearcoat: 0.25, clearcoatRoughness: 0.45, envMapIntensity: 0.6 }), 0.2);
   const maroonPaint = skyFill(new THREE.MeshPhysicalMaterial({ color: 0x4d161c, roughness: 0.42, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.25, envMapIntensity: 0.9 }), 0.2);
@@ -361,6 +401,7 @@ export function buildExterior(parent: THREE.Group, pal: Palette, sunDir: THREE.V
       [5.16, 1.08], [5.2, 1.0], [5.2, 0.44], [4.7, 0.4], [0.5, 0.4],
     ],
     width: 1.82, length: 5.2, wheelR: 0.37, wheelZ: [0.95, 4.05], track: 1.62, beltY: 0.95, paint: whitePaint,
+    doors: [2.25, 3.3], pillars: [],
     glass: [
       { side: "L", z0: 1.75, z1: 3.3, y0: 1.12, y1: 1.66 },
       { side: "R", z0: 1.75, z1: 3.3, y0: 1.12, y1: 1.66 },
@@ -377,6 +418,7 @@ export function buildExterior(parent: THREE.Group, pal: Palette, sunDir: THREE.V
       [4.85, 0.96], [4.9, 0.88], [4.9, 0.44], [4.4, 0.4], [0.5, 0.4],
     ],
     width: 1.78, length: 4.9, wheelR: 0.33, wheelZ: [0.9, 3.75], track: 1.5, beltY: 0.86, paint: maroonPaint,
+    doors: [1.92, 2.85, 3.66], pillars: [2.85],
     glass: [
       { side: "L", z0: 1.95, z1: 3.6, y0: 1.0, y1: 1.3 },
       { side: "R", z0: 1.95, z1: 3.6, y0: 1.0, y1: 1.3 },
@@ -410,37 +452,65 @@ export function buildExterior(parent: THREE.Group, pal: Palette, sunDir: THREE.V
     }
     base.computeVertexNormals();
     const mat = skyFill(new THREE.MeshStandardMaterial({ color: 0x8a8870, roughness: 1, metalness: 0 }), 0.22);
-    const N = 420;
+    const N = 520;
     const scrub = new THREE.InstancedMesh(base, mat, N);
+    // Contact shadows: one instanced ellipse decal per bush, offset down-sun (the lot light's
+    // frustum stops at the CMU wall, so the desert gets its ground contact this way).
+    const decalGeo = new THREE.CircleGeometry(0.5, 14);
+    decalGeo.rotateX(-Math.PI / 2);
+    const decals = new THREE.InstancedMesh(decalGeo, new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.42, alphaMap: ext.contactShadowAlpha(64), depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }), N);
+    const shadowDir = new THREE.Vector3(-sunDir.x, 0, -sunDir.z).normalize();
+    const shadowLen = 1 / Math.tan(Math.asin(sunDir.y)); // shadow length per metre of height
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), pos = new THREE.Vector3(), c = new THREE.Color();
+    const yAxis = new THREE.Vector3(0, 1, 0);
     let placed = 0, tries = 0;
-    while (placed < N && tries < 5000) {
+    while (placed < N && tries < 6000) {
       tries++;
       const r = 22 + Math.pow(rng(), 0.7) * 100, a = rng() * Math.PI * 2;
       const x = Math.sin(a) * r, z = Math.cos(a) * r;
       if (z < LOT.wallZ + 1.5 && Math.abs(x) < 42) continue; // not in the lot
       if (z < ROOM.zBack - 4 && Math.abs(x) < 12) continue; // not behind the kitchen
-      const sc = 0.6 + rng() * 1.0;
-      s.set(sc * (0.9 + rng() * 0.4), sc * (0.6 + rng() * 0.5), sc * (0.9 + rng() * 0.4));
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rng() * Math.PI * 2);
+      // Three size classes: rabbitbrush clumps, sage, the odd big saltbush
+      const cls = rng();
+      const sc = cls < 0.35 ? 0.35 + rng() * 0.3 : cls < 0.88 ? 0.65 + rng() * 0.55 : 1.25 + rng() * 0.7;
+      s.set(sc * (0.9 + rng() * 0.4), sc * (0.55 + rng() * 0.5), sc * (0.9 + rng() * 0.4));
+      q.setFromAxisAngle(yAxis, rng() * Math.PI * 2);
       pos.set(x, yLot - 0.03, z);
       m.compose(pos, q, s);
       scrub.setMatrixAt(placed, m);
-      c.setRGB(0.5 + rng() * 0.14, 0.5 + rng() * 0.12, 0.36 + rng() * 0.1);
+      // Tones: grey-green sage / olive rabbitbrush / straw (dead)
+      const tone = rng();
+      if (tone < 0.45) c.setRGB(0.5 + rng() * 0.1, 0.54 + rng() * 0.1, 0.42 + rng() * 0.08);
+      else if (tone < 0.8) c.setRGB(0.46 + rng() * 0.1, 0.5 + rng() * 0.1, 0.3 + rng() * 0.08);
+      else c.setRGB(0.66 + rng() * 0.1, 0.6 + rng() * 0.08, 0.42 + rng() * 0.08);
       scrub.setColorAt(placed, c);
+      // Decal: ellipse of the blob's footprint stretched down-sun by the shadow length
+      const hgt = s.y * 0.55;
+      const len = s.x * 0.5 + hgt * shadowLen;
+      const cx = x + shadowDir.x * (len - s.x * 0.5) * 0.5, cz = z + shadowDir.z * (len - s.x * 0.5) * 0.5;
+      q.setFromAxisAngle(yAxis, Math.atan2(shadowDir.x, shadowDir.z));
+      pos.set(cx, yLot - 0.035, cz);
+      m.compose(pos, q, new THREE.Vector3(s.z * 0.9, 1, len));
+      decals.setMatrixAt(placed, m);
       placed++;
     }
     scrub.count = placed;
+    decals.count = placed;
     scrub.instanceMatrix.needsUpdate = true;
+    decals.instanceMatrix.needsUpdate = true;
     if (scrub.instanceColor) scrub.instanceColor.needsUpdate = true;
     scrub.name = "scrub";
     scrub.frustumCulled = false;
-    parent.add(scrub);
+    decals.name = "scrub-shadows";
+    decals.frustumCulled = false;
+    decals.renderOrder = 1;
+    parent.add(scrub, decals);
   }
   buildHorizon(parent);
   const sky = buildSky(sunDir);
   parent.add(sky);
 
   b.build(parent, { name: "exterior" });
+  parent.traverse((o) => { o.userData.lotCaster = true; });
   return { envMaterials, sky };
 }

@@ -8,10 +8,14 @@ code. The target is a paused frame that reads as a photograph.
 
 ```
 src/
-  main.ts                 renderer, 37° camera, frame-capped loop, resize, ?debug logging
+  main.ts                 boot pipeline (loader → staged build → probes → post pipeline → first
+                          frames → enter), renderer, 37° camera, frame-capped loop, resize, ?debug logging
+  ui/Loader.ts            the loading overlay (#loader in index.html): bar, stage label, Click to enter
   scene/
     layout.ts             THE floor plan: every dimension and position, in metres
-    Diner.ts              composes the room, owns colliders and per-frame animation
+    Diner.ts              composes the room in yielding stages (`build()`), issues every shader
+                          program in parallel, bakes the three probes once, owns colliders and
+                          per-frame animation, `invalidateShadows()`
     Shell.ts              floor, 250 mm walls with punched openings (reveals show),
                           window frames + transom + glass stops, sill boards/aprons/casings,
                           full-depth door frame with stops + closer bracket + saddle,
@@ -45,7 +49,10 @@ src/
                           decals), desert dirt with instanced scrub, fBm mesa/ridge ring, shader
                           sky dome (horizon → zenith gradient + sun glare on the REFERENCE bearing)
     Lighting.ts           PLACEHOLDER lighting; System 4 replaces this file. Exports `sunDirection()`
-                          (az 38° / el 35° from REFERENCE) so the sky glare and the shadows agree
+                          (az 38° / el 35° from REFERENCE) so the sky glare and the shadows agree.
+                          Sun = spot (building, 3.5 mm shadow texels) + directional (lot) tiled by a
+                          caster-only cone; `installShadowMasks` gives each map its own caster list
+                          and re-raises `shadowMap.needsUpdate` per light so shadow-once renders both
   player/FirstPerson.ts   pointer-lock look, WASD at 1.4 m/s, eye 1.62 m, AABB sliding collision
   core/
     materials.ts          shared material palette: vinyl (plain + crazed), boomerang / speckle
@@ -57,7 +64,13 @@ src/
     upholstery.ts         pillowed cushions (analytic normals, edge-wear vertex colours),
                           welt piping along seams, channel-tufted back panels
     rng.ts                deterministic PRNG, tileable value/fBm noise
+    scheduler.ts          yieldToPaint / sleep, weighted Progress model, BootTimeline (marks)
+    textureBank.ts        worker pool for the canvas generators: proxies textures.ts / exterior.ts,
+                          hands out placeholder textures, fills them from ImageBitmaps; main-thread fallback
+    texProtocol.ts        worker message types + `propsOf` / `applyProps` (sampler state round-trip)
+    compile.ts            parallel shader link: issueCompile / waitForPrograms (KHR_parallel_shader_compile)
   procedural/
+    texWorker.ts          Web Worker entry: runs any generator below on an OffscreenCanvas, posts bitmaps
     textures.ts           canvas textures: checker floor, painted wall, acoustic tile, asphalt,
                           concrete, vinyl micro-grain + crazing (normal/roughness only), boomerang
                           and speckle laminate, wood grain (map/rough/normal), glaze speckle,
@@ -69,7 +82,7 @@ src/
     environment.ts        procedural emissive room used ONLY during the startup CubeCamera pass;
                           Diner.ts then PMREMs a 256 px capture of the real interior from counter
                           height and that becomes `scene.environment`
-  capture/pose.ts         window.__setPose / __SCENE_READY / __stats for the harness
+  capture/pose.ts         window.__ready / __SCENE_READY / __setPose / __stats / __perf for the harness
   post/                   System 8 (see "System 8 — post-processing & atmosphere" below)
     PostPipeline.ts       createPostPipeline(): MSAA scene target → haze → composite (shimmer)
                           → bloom → finish (CA, vignette, tone map, grain) [→ SMAA]; GPU timers
@@ -81,7 +94,7 @@ src/
     GpuTimer.ts           EXT_disjoint_timer_query_webgl2 per-pass timings
 tools/
   shoot.mjs               headless capture harness (build → serve :5210 → shoot poses;
-                          SHOOT_PORT=… for a parallel worktree)
+                          `--port=N` / SHOOT_PORT=… for a parallel worktree)
   post-bench.mjs          System 8 bench: per-pass GPU ms + frames for a list of ?configs
   gpu.mjs                 Chromium GPU flags and software-rasteriser assertion
 ```
@@ -124,7 +137,83 @@ shallow dim kitchen box behind the pass-through and a black void elsewhere.
   merged per material (`MergedBuilder`); stools (11 parts), mugs and 184 tiles are
   `InstancedMesh`.
   Textures ≤ 2048 px, pixel ratio capped at 1.5. The loop is capped at ~120 fps
-  and drops to ~10 fps when the tab is hidden or the window loses focus.
+  and drops to ~10 fps when the tab is hidden or the window loses focus. The
+  two shadow maps (interior spot + lot directional) are rendered once at boot
+  (`shadowMap.autoUpdate = false`; call `diner.invalidateShadows()` whenever
+  anything sunlit moves — door leaf, blinds, decanter, the sun itself; both maps
+  re-render on the next frame) — those passes were ~110 draw calls and ~6 ms of
+  GPU time per frame.
+
+## Startup
+
+`main.ts` boots in stages behind a DOM overlay (`index.html` `#loader`,
+`src/ui/Loader.ts`): title, a thin bar with a percentage, a one-line stage
+label, and at the end "Click to enter" — the click is forwarded to the canvas so
+FirstPerson takes pointer lock and the AudioContext starts on the same gesture.
+With `?shoot` (the harness) the overlay is removed as soon as the scene is
+ready and no click is needed. `window.__ready` (a Promise) and
+`window.__SCENE_READY` are installed before any work starts and settle after the
+second rendered frame; `window.__perf()` returns the boot timeline.
+
+Order, and where the time goes on the RTX 4060 / 7600X (cold, headless, DPR 1):
+
+```
+  0.2 s  renderer + palette   createPalette() calls the generators through TextureBank.proxy():
+                              every canvas generator returns a placeholder texture immediately
+                              and the job goes to a pool of 8 Workers (OffscreenCanvas, same
+                              code, same PRNG → byte-identical pixels)
+  0.7 s  geometry             Shell, Booths, Counter, Ceiling, Door, Props, Blinds, Exterior —
+                              one stage per painted frame so the bar moves
+  1.2 s  environment          procedural room map (buildEnvironment)
+  1.6 s  stand-in + compile   a blank 512 px cubemap PMREM'd to the probes' size stands in as
+                              scene.environment while ALL ~98 programs are issued at once:
+                              A render-target + room env (probe pass), B canvas + probe env
+                              (main pass), C render-target + probe env (transmission pass).
+                              Programs key on the env map's PMREM height, not its content.
+  ~7.5 s textures             workers finish (≈ 33 s of generator CPU across 25 jobs; the
+                              driver's link threads share the same six cores)
+  ~8.3 s shaders              all programs linked (ANGLE links on a thread pool;
+                              WebGLProgram.isReady() polled every 20 ms)
+  ~9.2 s probes               room / prop / lot CubeCamera captures, PMREM'd, assigned;
+                              both shadow maps render once inside the first probe face
+  +5 ms  post                 createPostPipeline(): MSAA target + post materials allocated; the
+                              8 post programs (dust, steam, 6 screen passes) link on the first
+                              frame (~0.15 s more before first-frames than with ?post=0)
+  ~9.8 s first frames         → __ready, overlay fades / Click to enter (the first two frames
+                              go through post.render(), so the overlay never lifts on a
+                              frame the pipeline has not drawn)
+```
+
+Measured with `tools/shoot.mjs` (`[shoot] boot:` line): **9.5–9.9 s to ready**
+on the loader branch; 10.8–12.3 s after the merge with System 3 rev 2 (98
+programs, two shadow maps, three other worktrees building on the same cores);
+was 34–49 s before (43 s of that was one-at-a-time synchronous shader links —
+the canvases were only ~7 s). Main-thread fallback (`?workers=0`, or when
+Workers/OffscreenCanvas are missing): 12.7 s. Frame time at the spawn pose:
+GPU 5.8 ms median (was 11.9), 124 draw calls (was 233), 1.4 M triangles (was
+2.2 M) — the difference is the per-frame shadow pass. The bar's weights
+(`main.ts`) follow the shares above: geometry 12, textures 25, shaders 40,
+probes 18, first frame 5.
+
+The remaining floor is CPU: ~33 s of canvas generation plus the D3D compile of
+94 physical-material programs on six cores. Cutting further means cheaper
+generators (`lotSurface` 2048², `glassDust`, `paintedWall`, `woodVeneer` ×3 and
+`concrete` are 2–3 s each) or fewer program variants — both change
+`src/procedural/*` / material parameters and were out of scope for the loader.
+
+Worker rules: generators are dispatched through `TextureBank.proxy(module)`;
+only functions listed in `SHAPES` (textureBank.ts) go to a worker — the entry
+says which fields of the result are textures. The proxy returns real
+`THREE.Texture` placeholders with the generator's sampler state applied when the
+bitmap lands, so call sites can keep doing `t.repeat.set(...)` / `t.wrapS = …`
+right after the call (call-site values win over the generator's, exactly as in
+the synchronous path). A texture that is re-drawn at runtime must NOT be listed
+in `SHAPES` — it needs a live canvas on the main thread. Bitmaps are created
+with `imageOrientation: "flipY"` and `premultiplyAlpha: "none"` and the texture
+is marked `flipY = false`: WebGL ignores UNPACK_FLIP_Y / UNPACK_PREMULTIPLY_ALPHA
+for ImageBitmap sources, so the flip has to be baked in (without it every
+texture was upside down — the checker floor inverted and every surface differed
+by a few LSB). `?workers=N` overrides the pool size for profiling.
 
 ## Pose / capture API
 
@@ -132,13 +221,18 @@ Installed on `window` by `src/capture/pose.ts`:
 
 | Global | Meaning |
 |---|---|
-| `__SCENE_READY` | `true` after the second rendered frame |
+| `__ready` | Promise, resolves after the second rendered frame (probes baked). Installed before any boot work |
+| `__SCENE_READY` | `true` at the same moment (what `tools/shoot.mjs` polls) |
+| `__perf()` | boot timeline `{ marks: [{name, ms, dt}], textures: { workers, wallMs, jobs }, programs, parallelCompile }` |
 | `__setPose({x, y?, z, yaw, pitch})` | teleport the camera. Metres; angles in **degrees**. `yaw 0` looks toward −z (the kitchen wall), positive turns left (toward −x). `pitch` positive looks up. `y` defaults to eye height 1.62 |
 | `__stats()` | `{ calls, triangles, renderer }` from the live WebGL context |
 | `__APP` | `{ renderer, scene, camera }` for ad-hoc inspection |
 
-URL flags: `?debug` logs the GPU adapter and draw calls every 5 s; `?nofill`
-renders the sun alone (diagnostic).
+URL flags: `?debug` logs the GPU adapter, boot timeline, per-job texture times
+and draw calls every 5 s; `?shoot` removes the loader without a click (the
+harness sets it); `?workers=N` sets the texture worker count (0 = main thread);
+`?nofill` renders the sun alone; `?nospot` / `?nolot` drop one of the two sun
+lights (diagnostics for the two-light split).
 
 ## Running the capture
 
@@ -155,8 +249,9 @@ Always look at the crops before reporting a feature as done: a 4 mm welt cord
 or a 2 mm groove is 2–3 px at 1080p and only reads in a crop — and then ask
 whether the crop *reads* as the thing, not just whether the mesh is present.
 
-Options: `--no-build` (reuse `dist/`), `--poses=door,aisle`, `--query=nofill`.
-The harness serves `dist/` on `127.0.0.1:5210`, launches full Chromium
+Options: `--no-build` (reuse `dist/`), `--poses=door,aisle`, `--query=nofill`,
+`--port=5211` or `SHOOT_PORT=5211` (the machine is shared with other worktrees' harnesses; 5210 is
+the default). The harness serves `dist/` on `127.0.0.1:<port>`, launches full Chromium
 (`channel: "chromium"`, new headless) with ANGLE/D3D11 flags so it lands on the
 RTX 4060, prints `[gpu] <renderer>` from the live three.js context and exits
 non-zero on SwiftShader or on any shader compile/link error. Browser and server
@@ -201,6 +296,17 @@ at a booth seat and table under the slat shadows.
   it to the few glass props and never on the window glass.
 - r185 deprecates `PCFSoftShadowMap` (it silently maps to PCF). Use
   `PCFShadowMap` + `shadow.radius`.
+- **Shader links were the cold start.** On ANGLE/D3D11 every three.js program
+  is an HLSL compile (~0.3 s); this room has 94 across three output/env
+  variants, and first-use linking is synchronous. `renderer.compile()` per
+  variant issues them all and Chromium's KHR_parallel_shader_compile links on a
+  thread pool. Two traps: a *synchronous* link (PMREMGenerator's own materials,
+  anything that reads LINK_STATUS) queued behind the batch waits for the whole
+  batch (~2 s), so make the stand-in PMREM before issuing; and programs key on
+  the environment map's PMREM *height*, so the main-pass variants can be
+  compiled against a blank cubemap of the probes' size before the probes exist.
+- ImageBitmap textures ignore `flipY` / `premultiplyAlpha` at upload; bake the
+  flip into `createImageBitmap(..., { imageOrientation: "flipY" })` (texWorker.ts).
 - D3D emits `X4122` precision *warnings* in the program info log for the
   RectAreaLight LTC code. They are benign; the harness fails only on errors.
 - `mergeGeometries` needs a consistent index state; `ExtrudeGeometry` is
@@ -309,11 +415,81 @@ at a booth seat and table under the slat shadows.
   (the whitish forward-scatter that makes a print visible against a bright lot).
 - **Slat shadows need a tight sun frustum.** With the System 2 shadow camera
   (18 m, 4.4 mm texels, normalBias 20 mm) the 22 mm-pitch slats self-shadowed
-  into a flat sheet and the stripes on the booths were soft. The shadow frustum
-  now hugs the building + the two cars (13.4 × 10.4 m, 3.3 mm texels) with
-  normalBias 14 mm / bias −0.0002 / radius 1; that is the smallest bias that keeps
-  the sunlit floor acne-free at this texel size. System 4 should keep the
-  frustum this tight (or cascade) — the stripes are the window relationship.
+  into a flat sheet and the stripes on the booths were soft. Rev 1 hugged the
+  building + the two cars (13.4 × 10.4 m, 3.3 mm texels, normalBias 14 mm /
+  bias −0.0002 / radius 1) — and that is exactly why the lot lost its shadows
+  (rev 1 critic A3): the pole, wall and far stalls were outside the map, and
+  three.js lights anything outside an ortho shadow frustum as *unshadowed*.
+- **Two suns, split by region (System 3 rev 2) — the System 4 decision.** One
+  frustum cannot hold both 3.5 mm stripe texels and a 31 × 20 m lot; a CSM costs
+  a full extra depth pass per cascade and the < 350 draw-call budget has no room.
+  So `Lighting.ts` has (a) `sun`, a **SpotLight** 150 m out along the sun vector,
+  `decay 0`, cone just wide enough for the building (rays vary ±2.3° across the
+  room — invisible), 4096² perspective map ≈ 3.5 mm at the floor; the spot
+  contributes nothing outside its cone, which is the mask; and (b) `sunLot`, a
+  **DirectionalLight** with the same colour/intensity and a wide ortho frustum
+  over the lot (≈ 8 mm texels). An invisible **caster-only cone** (colorWrite
+  off, DoubleSide shadowSide) sits exactly on the spot cone so `sunLot` is
+  shadowed wherever `sun` shines: the two lights tile the world and the seam is
+  a shadow-map edge, not a lit/dark step (checked in a top-down `?nofill` frame
+  — no ring on the lot). three.js cannot mask a light per object (layers are
+  tested against the *render* camera even in the shadow pass), so
+  `installShadowMasks` wraps `renderer.shadowMap.render`, renders one light at a
+  time and flips `castShadow` between maps: cone → lot map only, interior →
+  spot map only, exterior (`userData.lotCaster`) → both. A first attempt with
+  `geometry.drawRange = 0` did not help: `renderer.info.render.calls` counts the
+  draw even when it draws nothing. Net: lot shadows everywhere (pole shadow
+  10.7 m long ≈ 1.43 × height at el 35°, cars, stops, wall) at 231–338 calls.
+- **Shadow-once × per-light wrapper: re-raise `needsUpdate` per light (loader
+  merge).** `WebGLShadowMap.render` returns early when `autoUpdate` is off and
+  `needsUpdate` is clear, and *clears* `needsUpdate` at the end of a pass. The
+  two-sun wrapper calls the original once per light, so after the loader's
+  `shadowMap.autoUpdate = false` the first light's pass would have cleared the
+  flag and the second map (whichever three.js listed second) would never have
+  rendered — no lot shadows or no stripes, depending on order. The wrapper now
+  mirrors the early return, sets `needsUpdate = true` before each light's pass
+  and clears it once at the end; `Diner.invalidateShadows()` therefore always
+  re-renders both maps. Verified by pixel-diffing the merged build against the
+  rev 2 frames (per-frame shadows): `window`, `stripes`, `door-glass`,
+  `macro-warmer` identical (max 1 LSB), `length` differs only on the spinning fan
+  blades. Casters are listed once in `installShadowMasks` (after every builder
+  ran); a mesh added later casts into both maps, which is harmless because the
+  cone already blacks the building out of the lot light.
+- **Exterior fill was flattening the lot shadows.** `skyFill` emissive (0.2–0.22
+  × albedo) on top of the hemisphere light gave lit:shadow ≈ 1.5:1 on the
+  asphalt; 8 AM sun over a clear sky is ≈ 5:1. Emissive is now scaled ×0.45;
+  the hemisphere carries the sky term.
+- **Shadow-pass draw calls are the budget.** Every caster is one depth draw per
+  shadow map per frame, and with `transmission` glass in the scene the opaque
+  set is also drawn a second time into the transmission target. So: ceiling and
+  fan never cast (the sun enters below them heading down — 13 draws saved),
+  coplanar overlays (`userData.noCast`, read by `MergedBuilder.build`) never
+  cast, car trim buckets (chrome, hubs, lamps) never cast. Worst pose went
+  361 → 338.
+- **Rev 1 critic A1/A2 were mis-reads, verified not assumed.** A1 "sun on the
+  wall under the sill": the striped surface at `sys3-table` x 0–330 / y 350–480
+  is the **sill stool top** (horizontal, 0.95 m, lit through the bottom of the
+  pane); the vertical wall face under it is uniform (`crop-wall-under-sill`).
+  A2 "stripes not parallel to the wall": re-projecting the `table` frame onto
+  the tabletop plane (y = 0.75, known camera pose, `crop-stripes-rectified`,
+  cyan lines = x axis) and cross-correlating the stripe profile across 24 cm
+  gives 0.0–0.6° from the window-wall axis (sub-pixel; the structure-tensor
+  method is useless here because the boomerang pattern and the shadows of the
+  props dominate). Slats are only ever rotated about x (`Blinds.ts` Euler
+  `(rx, 0, ±0.1°)`), so their shadows on any horizontal plane are x-parallel by
+  construction; the visual "25–40°" is the perspective of x-parallel lines at
+  different depths converging on the x vanishing point (≈ (2411, −78) px in
+  that frame). Also confirmed: with a point-like spot the shadow of a horizontal
+  line on a horizontal plane is still parallel to it (the plane through apex
+  and line contains x̂).
+- **LatheGeometry points must run bottom → top** (increasing y) or the surface is
+  inside-out and back-face culled — the rev 2 tassel vanished for exactly that.
+- **Hardware needs contrast, not just geometry.** A clear acrylic tilt wand
+  16 mm off almond slats and an almond tassel at bottom-rail height were both
+  present in the mesh and invisible in every frame. Now: 12 mm tan glossy wand
+  45 mm in front of the slats (right jamb from inside, `x0`), 1.3 mm pull cords
+  35 mm in front with an equaliser and a turned-wood acorn tassel ending 15 mm
+  above the stool (left jamb from inside, `x1`).
 - **Exterior probe.** Car paint, glass and chrome sample a third CubeCamera
   (`lotEnv`, 8 m out on the lot at 1.4 m) — the room probes would put the
   ceiling grid on the hood. Materials must be assigned to exactly one probe.
@@ -332,8 +508,58 @@ at a booth seat and table under the slat shadows.
 Everything is procedural, scene-linear until the finish pass, and expressed
 relative to the sun light where it can be (`sun.color × sun.intensity`), so
 System 4 re-lighting scales dust and haze for free. Hook: one call in
-`main.ts` (`createPostPipeline(renderer, scene, camera)` → `post.render()`);
-`?post=0` makes `render()` a plain `renderer.render`, nothing allocated.
+`main.ts` after `await diner.build()` resolves
+(`createPostPipeline(renderer, scene, camera, { sun: diner.sun })` →
+`post.render()` in the loop); `?post=0` makes `render()` a plain
+`renderer.render`, nothing allocated.
+
+### Integration with the two-sun split and shadow-once (merge with System 3 rev 2 + loader)
+
+- **Which sun.** The dust and haze light themselves from the *building* sun's
+  shadow map, and since rev 2 that is `Diner.sun`, a **SpotLight** (perspective
+  camera, 4096², near 130 / far 172 m, ≈ 3.5 mm texels — the map that draws the
+  slat stripes). `Diner.sunLot` is a shadow-casting DirectionalLight too, but its
+  ortho map never contains the room (the caster-only cone blacks the building out
+  of it), so `main.ts` passes `diner.sun` explicitly; `findSun()` is only the
+  fallback (spot first, then directional) and would otherwise have picked the lot
+  light. `beams.ts` accepts either type (`SunLight`).
+- **Perspective map.** `sunVisible()` already did `sc.xyz /= sc.w` — exactly
+  what three's `getShadow` does for a spot (for an ortho map `w = 1`), and the
+  compared depth is the shadow camera's non-linear NDC depth in both cases, the
+  same quantity the map stores; `sun.shadow.matrix` is bias × proj × view for
+  both light types. No shader change was needed for the fetch.
+- **Converging rays.** A spot 150 m out has rays that differ from the mean
+  `sunDirection()` by ±2.3° across the room — a 12 cm shift of a prism edge over
+  a 3 m beam. The analytic aperture test now uses the ray through the point being
+  tested (`SunRays { dir, apex }`, GLSL `sunRay(p)`, uniform `uSunApex` w = 1 for
+  a spot / 0 for a directional): mote spawn positions (`sampleBeamPoints`), the
+  haze march bounds (`beamBounds`) and `inBeam()` all follow the same ray the
+  shadow camera used, so the prism edge and the frame shadow coincide. The mean
+  direction still feeds the phase functions (±2.3° is nothing to HG) and equals
+  `Lighting.sunDirection()`.
+- **Shadow-once.** The maps render once inside the first probe face (before the
+  pipeline exists) and again only after `diner.invalidateShadows()`. The dust and
+  haze bind `sun.shadow.map.depthTexture` every frame; it is the same texture
+  object after the one-shot render (checked in-page: `dust.uShadowMap ===
+  sun.shadow.map.depthTexture`, `autoUpdate false`, `needsUpdate false`), never a
+  cleared target. `post.render()` goes through `renderer.render(scene, camera)`
+  for the scene pass, so the `installShadowMasks` wrapper runs inside it — both
+  maps re-render when `needsUpdate` is set, before the opaque pass and therefore
+  before the haze/composite passes read the map; three restores `sceneRT` as the
+  target after the shadow pass. The door swinging (System 7) therefore only has
+  to call `invalidateShadows()`; the dust in the door beam follows on the same
+  frame.
+- **Staged build / loader.** The pipeline is created after `build()` (lights and
+  the named `coffeePot` exist, the dust samples its spawn volume from the live
+  light), the first two frames render through it, and only then does `__ready`
+  settle / the overlay fade. MSAA target size follows
+  `renderer.getDrawingBufferSize()` (pixel ratio ≤ 1.5, `setSize` on resize) and
+  is re-allocated lazily on the first frame after a change.
+- **Steam duplication (to clean up when System 7 lands).** `origin/interactions`
+  carries its own `src/interactions/Steam.ts` for the pour; `src/post/Steam.ts`
+  exports the `SteamEmitter` used for the decanter (and intended for the pour —
+  see `steam` below). Both compile side by side; unify on one emitter after that
+  merge.
 
 ### Pipeline order (1920 × 1080, all HalfFloat, no per-frame allocations)
 
@@ -404,8 +630,12 @@ lazily, once).
 
 `aa` **"msaa4"** — see above. `debug.view` **0**.
 
-### Verification (rev 1, `shots/sys8-*.png` vs `shots/sys8-*-off.png`)
+### Verification (rev 1, `shots/sys8-*.png` vs `shots/sys8-*-off.png`; re-shot after the merge with the spot sun + shadow-once)
+- `?post=0` frames vs the committed `shots/sys3-*.png` from main (per-frame → once shadows, spot sun): `stripes` identical (0 px), `window` 628 px at ≤ 1 LSB, `door-glass` 2 px at 1 LSB, `length` differs only in the ceiling-fan cells (6.2 k px, blades spinning). The pipeline's bypass path is the plain renderer.
+- Motes, counted as pixels changed vs a `dust=0` frame with grain/shimmer/steam/bloom/haze off (same page, same pose): `beam` 425 with the shadow-map test / 1252 with it skipped (`debug.view=5`) / 1381 with every mote lit (`6`); `beam-low` 96 / 290 / 331. The map removes ~⅔ of the in-prism motes (45° half-open slats ≈ ½ duty, plus frames and booth backs); the analytic prism itself culls ~10 % more (penumbra + drift at the edges). Frame-to-frame changes in the default state (862 / 210 px) are ≈ 2 × the mote count — each drifting mote leaves and arrives, nothing else moves.
 - Motes: only inside the beam prisms, gone in the slat shadow bands and behind booth backs (checked with `debug.view=5/6` against the default); brightest looking toward the windows (`beam`, `beam-low` bench poses), nearly invisible looking away (`stripes`).
+- Shimmer, mapped as pixels changed by toggling `shimmer.enabled` in-page (everything else off): `door-glass` 3.5 k px, all inside the pane in the horizon / wall / pole / sedan-roof band (px 480–1440 × 120–480); frame, push bar and the near asphalt (< `minDepth`) untouched. `window` 13.8 k px in the lot/horizon band between the slats (rows 420–780); sky, slats and sill untouched.
+- Haze `debug.view=2` at `beam-low`: prisms with booth-back shadows, the sill/frame shadow band and the fine slat modulation, read from the spot's perspective map.
 - Haze: beam prisms read in the `debug.view=2` buffer with booth-back shadows and soft stripe averaging (the 3-tap slat-pitch average removed the moiré a 24-step march produced against 22 mm stripes); at 0.012 it is a hint, as intended.
 - Shimmer: only the exterior through the door/window glass wobbles (car edge, pole, lot lines in `door-glass`); frame, slats and interior identical to the off frame.
 - Steam: a faint grey wisp above the decanter in `warmer` / `macro-warmer`.
@@ -416,7 +646,8 @@ lazily, once).
 - **`+` in a query string decodes to a space** — `?aa=msaa4+smaa` arrives as `"msaa4 smaa"`; the parser normalises whitespace back to `+`.
 - **Phase-function normalisation matters more than g.** Normalising HG to its exact-forward peak made motes 3 % bright at 45° off-sun (the closest the slats ever let you look) — invisible. Normalise at the nearest viewable angle (25°) and let the far side fall off.
 - **Sparse ray marches alias against slat stripes.** 24 steps over a 22 mm-pitch shadow pattern → moiré. Average the shadow over one pitch per step instead of adding steps.
-- **Scene cost is the elephant.** The scene pass is 6–11 ms at 1080p before any post; MSAA and the whole post chain together add ≈ 2.6 ms. System 4/5 should look at the shadow-map pass and draw-call count before worrying about post.
+- **Scene cost is the elephant.** The scene pass is 6–11 ms at 1080p before any post; MSAA and the whole post chain together add ≈ 2.6 ms. System 4/5 should look at the shadow-map pass and draw-call count before worrying about post. (Post-merge bench: post total 1.35–1.41 ms at `beam` / `length` / `window` — haze 1.00, composite 0.10, bloom 0.15–0.17, finish 0.13–0.14 — unchanged; the scene numbers that run (7.3 / 12.5–13.4 / 25 ms) were taken while other worktrees were shooting on the same GPU and are not a measurement.)
+- **A scene can have more than one shadow-casting "sun".** `findSun()` looked for the first shadow-casting DirectionalLight; after the two-sun split that is the *lot* light, whose map never sees the room — every mote would have read "lit" (or "shadowed" by the cone). Take the light from `Diner` rather than searching the graph, and keep the search as a typed fallback only.
 
 ## System status
 
@@ -424,12 +655,12 @@ lazily, once).
 |---|---|---|
 | 1 | Interior geometry and floor plan | **done** (rev 4 close-out: empty L-return, footrail at 200 mm on cast brackets, bell pedestals, head bulkhead + 25 mm wall angle, 60 × 40 caps, 100 mm saddle + stepped exterior slab) |
 | 2 | Booth and counter detail | **PASSED at rev 7 (`9adefff`)**; System 3 rev 1 polish: 3 condiment sets on 9 stools (centred between stool pairs), boomerangs in two classes (32–38 mm + 15–20 mm) with a few outline-only shapes, channels pillowed 4 mm outward with the 1–2 mm valley at the welt, stool seats with a 17 mm crown + 10 mm roll over the band, near-white granular sugar. Rev 7 was: flicker audit + fixes (see Lessons); stools built per stool into the merged buckets (no instancing): ±6 mm column height, any yaw with the welt junction + boxing seam travelling with it, ±5 % squash, 250 × 200 mm sit-hollow 6–9 mm deep in its own shade, one 2.5° worn swivel, three chrome wear grades (roughness 0.07/0.12/0.17), four bolt caps per base; glass `transmission 1`/roughness 0/thin, granular sugar top tilted 7° at 75 %, grey-blue granular salt standing in front of the pepper; black SplashGard funnel (Ø 178 × 100, paddle handle) in the rails, stainless fill lid so one black warmer disc tops the hood, 7 mugs staggered ±15 mm on the mat; napkin tip with folded leaf + crease, domed cast pedestal with collar, pass-through surround in wall-trim paint. Rev 6 was: A1 veneer at true scale (lines 1.5–2.5 mm, one decaying cathedral per 0.5 m, ≤ 9 % contrast, per-panel UV jitter + flips; oak caps / walnut panels + die / maple cabinets + fan blades kept); A2 cords proud of the channels (centre +1 mm over the crowns, 6 mm, baked line shadows, 6 puckers in the last 30 mm at both tucks), 6 mm piped head-roll seam, seat welt + boxing seam + dark top-stitch line at the nose, 6 mm welt torus round every stool seat over a 1" band; vinyl roughness ≈ 0.32–0.5, grain normal 1.25, clearcoat 0.1. B1 boomerangs as straight-armed 100–130° elbows with rounded tapered tips, 28–52 mm, ~3.5 / 100 cm², three tones, on a 2048 px / 1.2 m tile (no repeat on a table). B2 one fluted jar (14 cos² ribs, 2.5 mm) in `glassFluted` (10 mm refraction thickness) with the sugar at 97 % of the bore to 65 %, full-diameter 12 mm lid with 1" side-hinged flap; S&P 1.5 mm glass walls, fills at 97 % of the bore to 60 %, opaque `salt`. B3 hood in light `stainlessCool` (albedo 0.6, roughness 0.3, anisotropic, room probe) with black control band + black 150 mm warmer discs top and base, stainless base plate over a black base, 25 × 14 mm lit rocker switches with pivot line. B4 mug 7–8 mm walls / 13 mm floor / 6.5 mm rim, dark `bisque` foot ring, stubby handle; 8 spares inverted on a ribbed rubber bar mat, 2 upright, saucers only at the two stools. B5 stools: seat parts pivot on the column top with ±1.2° tilt, ±10 mm height, ±5 % cushion squash, ±10 mm pitch with two nudged 22–30 mm. C: 2" fluted T-mould with 4 grooves on the counter, 28 mm push bar on cast rose/post/saddle standoffs, 4.5" × ½" five-rib saddle threshold, 5 mm dark-steel spider plate with 4 screws on a dark-sealed underside, ½" troffer recess in a 1" frame, shaped cast fan irons with bosses, 1.8 mm rolled dispenser lid edge. Rev 5 was: mugs are `MeshPhysicalMaterial` ivory china (opaque, roughness 0.15, clearcoat 0.6, env 0.45; runtime probe confirmed transmission/transparent were never set — the rev 4 "frosted" read was a shaded white body mirroring the counter); Skylark laminate as sparse (~30 %) round-capped stroked chevrons, three tones pulled toward cream, non-touching; Tablecraft-221 dispenser in smooth `stainlessBrushed` (roughness 0.2, anisotropy 0.4 — at 1.0 the sun lobe whited the face) with 70 × 22 slots on both long faces, napkin fans, flange lid, rubber feet; BUNN tower in matte `blackPowder` with brushed stainless side panels and a Ø 190 × 110 stainless funnel with forward handle; channel depth 20 mm with 6 mm cords riding 2 mm under the crowns, vinyl #A8141C roughness ≈ 0.3–0.4, 0.4 mm grain, clearcoat 0.15; veneer ridge pitch 1–4 mm with ~300 mm cathedral figure at ≤ 12 % contrast (caps satin 0.3, laminates 0.5); shaker fill fitted to the glass, half-moon side-hinged sugar flap, 13 mm troffer reveal. Rev 4 was: prop-side reflection probe (no checker in glassware), opaque #2A1408 coffee at 55 % with fill line/meniscus/tide line, 12 mm D-handle facing the aisle, 100 mm-deep funnel; opaque ivory mugs (roughness 0.14, env 0.2) inverted on 140 mm saucers on the drip tray + 3 loose uprights + `pourMug`; Skylark boomerangs as bent chevrons (62/72 mm, 12–15 mm, tan/grey-blue/white, ~40 %); three grain sources via `woodVeneer` (oak caps, walnut panels/die, maple cabinets); seat boxing seam 25 mm below the crown, brighter valley cords, ±3–4 mm puckers; stools ±8 mm height/±10 mm pitch/±25 mm off-line, concave rim band mirrors the checker; Tablecraft-221 dispenser with 52 × 42 arch, napkin tip, lid seam; bright 4" saddle; kitchen box with its own emissive ambient. Rev 3 was: — 5 mm welt cords proud in every channel valley + 7 mm roll-seam and boxing-seam welts, puckers at both tucks, broad sheen (roughness map 0.35–0.55, clearcoat 0.25); 512 px interior-capture PMREM; irregular vertical veneer grain on end panels/counter die/cabinets (contrast 0.10), horizontal cap grain; T-mould with 3 real 2 mm grooves + returned lip, 38 mm tops with sparse two-tone boomerang; counter sheet seams every 3.6 m; steep-rimmed bell stool bases that mirror the floor, per-stool rim seam, ±12 mm height/±25 mm offset; footrail elbow + return flange; 300 mm brushed spider plate; BUNN VPR brewer with one lower + one upper warmer, deep SplashGard funnel, brushed body; 173 × 178 decanter with opaque 55 % coffee, fill line, tide line, black collar/handle, stainless base ring; closed 98 × 117 × 184 dispenser with recessed faceplates and one napkin tip; 12-flute sugar pourer at 65 %; glass shakers with visible fill; glossy waisted mugs (roughness 0.1); 6 mm prism troffer lens; 14 mm fan blades; alu threshold plate |
-| 3 | Windows, blinds, exterior view | **built, rev 1 (proof crops in `shots/crops/`)** — venetian blinds on all five windows (none on the door: the reference diners keep the door pane clear for the OPEN sign and the view of who is coming), instanced curved 1" slats at 22 mm pitch / 45°, ±0.5° tilt, ±0.3 mm sag, a kinked slat per window, ±4 % tone, dust streaks on the up-faces, rails, two ladders + lift cords + wand each; slats cast the hard stripe shadows through the existing sun (tight 3.3 mm shadow texels). Window/door glass `MeshPhysicalMaterial` T = 1 with the 12 % loss in the colour, IOR 1.52, 6 mm, green-grey attenuation, room-probe reflection, dust haze heavier at the lower edge/corners, wipe streaks, five handprints at push-bar height (roughness patch + haze decal). Exterior: 150 mm kerb + 1.5 m sidewalk, 12 stalls of re-striped asphalt (drift, tyre polish, sealcoat patches, alligator + long cracks with dusty/sealed fills, oil drips, old + new lines) over a plain surround, kerb stops, 1.2 m CMU wall at the far edge, two 7 m light standards on concrete bases, dusty white pickup (5.3 m, 2.9 m wheelbase, 0.71 m tyres) and maroon sedan (4.9 m, faded clearcoat) with dark glass, chrome bumpers/trim, recessed headlamps with chrome bezels, contact-shadow decals, `lotEnv` probe; desert dirt with 900 instanced scrub patches, fBm mesa/ridge ring fading into the sky, shader sky dome (near-white horizon → pale desaturated blue, sun glare on az 38° / el 35°), linear fog 45–260 m for atmospheric perspective. Draw calls 181–335 (worst: `length`). |
+| 3 | Windows, blinds, exterior view | **built, rev 2 (proof crops in `shots/crops/`)**. Rev 2: two-light sun split (spot for the building, directional + caster-only cone for the lot — see Lessons) so poles, cars, stops and the CMU wall cast onto the lot; exterior fill ×0.45; A1/A2 measured and documented as critic mis-reads (`crop-wall-under-sill`, `crop-stripes-rectified`); blinds: 1.3 mm ladders front + rear with a rung under every slat, 10 × 6 mm route slots with the lift cord through them, ±2.5° tilt jitter + 3–4 kinked slats, ±4 % tone, enamel crown highlight (smooth 0.3 roughness base + sparse dust streaks to 0.6, metalness 0.1, env 0.7), 1" × ½" bottom rail with end caps, headrail + valance lip, 12 mm tan tilt wand (0.5 m, right jamb), two pull cords + equaliser + turned-wood acorn tassel (left jamb, ending 15 mm over the stool); cars re-bodied (lofted profile with sloped hood/trunk, raked pillars, flared arches, rocker, door shut lines, B/C pillars, drip rails, chrome bumpers/belt line/mirrors, sky-reflecting glass, recessed lamps); 1.8 × 0.15 m trapezoid concrete wheel stops; 3 more branching cracks with 3–4 cm black filler, oil blotch at a stall head, tyre scuffs; CMU tones randomised per block on an 8 × 4 tile; satin stainless push-bar mounts; sky brightened toward the sun azimuth with a haze band at the ridge foot and a fainter second range; scrub in three size classes / three tones with down-sun contact-shadow decals; ceiling/fan/overlays/car trim no longer cast (draw calls 179–338, worst `length`, with the per-frame shadow passes; lower since the shadow maps are rendered once at boot — see Startup). Rev 1 was: venetian blinds on all five windows (none on the door: the reference diners keep the door pane clear for the OPEN sign and the view of who is coming), instanced curved 1" slats at 22 mm pitch / 45°, ±0.5° tilt, ±0.3 mm sag, a kinked slat per window, ±4 % tone, dust streaks on the up-faces, rails, two ladders + lift cords + wand each; slats cast the hard stripe shadows through the existing sun (tight 3.3 mm shadow texels). Window/door glass `MeshPhysicalMaterial` T = 1 with the 12 % loss in the colour, IOR 1.52, 6 mm, green-grey attenuation, room-probe reflection, dust haze heavier at the lower edge/corners, wipe streaks, five handprints at push-bar height (roughness patch + haze decal). Exterior: 150 mm kerb + 1.5 m sidewalk, 12 stalls of re-striped asphalt (drift, tyre polish, sealcoat patches, alligator + long cracks with dusty/sealed fills, oil drips, old + new lines) over a plain surround, kerb stops, 1.2 m CMU wall at the far edge, two 7 m light standards on concrete bases, dusty white pickup (5.3 m, 2.9 m wheelbase, 0.71 m tyres) and maroon sedan (4.9 m, faded clearcoat) with dark glass, chrome bumpers/trim, recessed headlamps with chrome bezels, contact-shadow decals, `lotEnv` probe; desert dirt with 900 instanced scrub patches, fBm mesa/ridge ring fading into the sky, shader sky dome (near-white horizon → pale desaturated blue, sun glare on az 38° / el 35°), linear fog 45–260 m for atmospheric perspective. Draw calls 181–335 (worst: `length`). |
 | 4 | Lighting | pending (placeholder sun/hemi/troffers in `Lighting.ts`) |
 | 5 | Materials and textures | pending (placeholder palette in `materials.ts`) |
 | 6 | Sound design | pending |
 | 7 | The 3 interactions (sit, pour coffee, open door) | pending — door is already a hinged Group; door leaf has no collider yet |
-| 8 | Post-processing and final polish | **built, rev 1** (`src/post/`, section above) — MSAA 4× scene target, sun-beam dust (5 k shadow-map-lit motes), half-res volumetric haze through the beam prisms, exterior-only heat shimmer, ambient decanter steam (`SteamEmitter` shared with System 7), high-threshold bloom, CA 0.5 px, 0.3 EV vignette, corner softness, ACES/AgX/Neutral tone map, luminance-dependent procedural grain; ~1.3 ms post + ~1.3 ms MSAA at 1080p on the 4060; `?post=0` bypasses everything |
+| 8 | Post-processing and final polish | **built, rev 1** (`src/post/`, section above), merged with the loader + System 3 rev 2 (spot sun, shadow-once — see "Integration" above) — MSAA 4× scene target, sun-beam dust (5 k shadow-map-lit motes), half-res volumetric haze through the beam prisms, exterior-only heat shimmer, ambient decanter steam (`SteamEmitter` shared with System 7), high-threshold bloom, CA 0.5 px, 0.3 EV vignette, corner softness, ACES/AgX/Neutral tone map, luminance-dependent procedural grain; ~1.3 ms post + ~1.3 ms MSAA at 1080p on the 4060; `?post=0` bypasses everything |
 
 Known simplifications after System 3: no heat shimmer (System 8 post), no
 chain fence, the cars have no interiors (dark glass hides it at 10–30 m), the
