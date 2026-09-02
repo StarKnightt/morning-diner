@@ -44,8 +44,10 @@ export const BLIND = {
   headrail: { h: 0.038, d: 0.025 },
   /** Closed steel channel, 1.5× the slat's tilted height (≈ 12.5 mm) so it reads as a rail, not another slat. */
   bottomRail: { h: 0.019, d: 0.027 },
-  /** Three ladders: the slats are 49.5" — 1" blinds go to four ladders above 52". */
-  ladderOffsets: [-0.42, 0, 0.42],
+  /** Three ladders: the slats are 49.5" — 1" blinds go to four ladders above 52". The outer
+   *  pair sits 3" from the ends as on the real thing; rev 4's 8" read as a second pair of
+   *  frame verticals from the lot. */
+  ladderOffsets: [-0.55, 0, 0.55],
   /** Route hole: oval, long axis along the slat, cord centred. */
   hole: { along: 0.012, across: 0.006 },
 } as const;
@@ -213,9 +215,10 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
   const yStopFull = WINDOW.sill + fw + 0.03; // fully lowered: bottom rail clear of the sill frame
   const countFull = Math.floor((yFirst - yStopFull) / BLIND.pitch) + 1;
 
-  const rung = new THREE.CylinderGeometry(0.00035, 0.00035, BLIND.slatWidth - 0.002, 5);
+  // Rev 6: 0.5 mm rungs and 1.1 mm ladder cords (1.3 / 0.7 read as chunky "N" loops in blind-macro)
+  const rung = new THREE.CylinderGeometry(0.00025, 0.00025, BLIND.slatWidth - 0.002, 5);
   rung.rotateX(Math.PI / 2);
-  const cordR = 0.00065; // 1.3 mm braided ladder / lift cord
+  const cordR = 0.00055; // 1.1 mm braided ladder / lift cord
   const q = new THREE.Quaternion(), e = new THREE.Euler(), one = new THREE.Vector3(1, 1, 1);
   const meshes: THREE.Mesh[] = [];
 
@@ -237,15 +240,21 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
     // One creased slat per blind (bent by a hand or a mop handle 15–25 cm from one end): the
     // part past the crease twists 14–25° and its tip droops 8–15 mm — a visible discontinuity.
     // Plus one slat that lost its ladder tension and sags 6–10 mm between ladders.
-    // Both sit 66–94 % down the drop (y ≈ 1.05–1.5 m on a 2.53 → 0.92 blind) — random heights,
-    // but always in the band a seated (1.15 m) or standing (1.65 m) eye sees through the glass;
-    // rev 3 put them anywhere and the `window` pose (bottom 25 slats) never caught one.
+    // Both sit in the bottom 4–20 hanging slats (y ≈ 1.0–1.35 m) — random heights, but always
+    // in the band the `window` pose (bottom ~22 slats) and a seated eye see through the glass;
+    // rev 4's 66–94 % band still put the crease just above that frame.
     const kinks = new Map<number, SlatShape["kink"]>();
-    const bandK = () => Math.min(hanging - 2, Math.max(2, Math.floor(hanging * (0.66 + rng() * 0.28))));
+    const bandK = () => Math.min(hanging - 4, Math.max(2, hanging - 4 - Math.floor(rng() * 16)));
     const kinkK = bandK();
     {
-      const side = rng() < 0.5 ? -1 : 1;
-      kinks.set(kinkK, { x: side * (0.38 + rng() * 0.1), dTilt: THREE.MathUtils.degToRad((rng() < 0.5 ? -1 : 1) * (14 + rng() * 11)), drop: 0.008 + rng() * 0.007 });
+      // Crease 11–19 cm from one end: the part past it twists 22–34° and its tip BENDS UP
+      // 20–28 mm (the outer ladder rung holds the slat from below, so a bent end rises off it
+      // toward the slat above — the way abused mini-blinds actually look).
+      // Always the −x end: the `window` pose (yaw 180, camera 0.1 m off the window's −x side)
+      // clips the +x end at the frame edge, so a crease there is never in frame (rev 4/5 WIP).
+      rng(); // keep the per-blind sequence (sag slat, tones) stable
+      const side = -1;
+      kinks.set(kinkK, { x: side * (0.43 + rng() * 0.08), dTilt: THREE.MathUtils.degToRad((rng() < 0.5 ? -1 : 1) * (22 + rng() * 12)), drop: -(0.02 + rng() * 0.008) });
     }
     let sagK = bandK();
     if (Math.abs(sagK - kinkK) < 3) sagK = kinkK + 4 < hanging - 1 ? kinkK + 4 : Math.max(2, kinkK - 4);
@@ -347,20 +356,19 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
       const lx = x1 - 0.08, zp = zc - 0.035, pullR = 0.001;
       const yT = Math.max(WINDOW.sill + fw + 0.02, WINDOW.sill + fw + 0.068 - raised * 0.6);
       const yEq = yT + 0.065;
+      // The PAIR runs the whole way from the cord lock into the acorn (both cords are knotted
+      // inside it); the equaliser is a small slide on the pair a hand's width above the tassel.
       for (const dx of [-0.003, 0.003]) {
-        const cord = new THREE.CylinderGeometry(pullR, pullR, yHead0 - yEq, 6);
-        cord.translate(lx + dx, (yHead0 + yEq) / 2, zp);
+        const cord = new THREE.CylinderGeometry(pullR, pullR, yHead0 - yT, 6);
+        cord.translate(lx + dx, (yHead0 + yT) / 2, zp);
         b.add(cord, pal.cord);
       }
       b.rbox(pal.slatCap, [lx - 0.009, yEq - 0.014, zp - 0.0045], [lx + 0.009, yEq + 0.004, zp + 0.0045], 0.0015, 2); // equaliser
-      const single = new THREE.CylinderGeometry(pullR, pullR, yEq - 0.014 - yT, 6);
-      single.translate(lx, (yEq - 0.014 + yT) / 2, zp);
-      b.add(single, pal.cord);
-      // Cream acorn tassel: 17 mm Ø × 50 mm — a ribbed cap over a fuller body that tapers to a
-      // domed tip, with a waisted neck under the cord. Big enough to be read as an acorn at 2 m.
+      // Cream acorn tassel: 20 mm Ø × 56 mm — a narrow neck under the cords flaring into a
+      // full body, then tapering to a domed tip. Big enough to be read as an acorn at 2 m.
       const tassel = new THREE.LatheGeometry(
         // bottom → top (LatheGeometry needs increasing y for outward normals)
-        [[0, -0.05], [0.004, -0.049], [0.0065, -0.045], [0.0082, -0.036], [0.0085, -0.026], [0.0075, -0.02], [0.0085, -0.019], [0.0085, -0.011], [0.0065, -0.007], [0.0045, -0.005], [0.0045, -0.002], [0.003, 0], [0, 0]].map(([r, y]) => new THREE.Vector2(r, y)),
+        [[0, -0.056], [0.004, -0.055], [0.007, -0.05], [0.0095, -0.04], [0.01, -0.028], [0.0095, -0.02], [0.008, -0.015], [0.0055, -0.012], [0.0045, -0.008], [0.0045, -0.003], [0.0035, 0], [0, 0]].map(([r, y]) => new THREE.Vector2(r, y)),
         16,
       );
       tassel.translate(lx, yT, zp);

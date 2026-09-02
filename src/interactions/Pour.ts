@@ -89,6 +89,9 @@ export const POUR_STREAM_START = TL.stream[0];
 export const POUR_END = TL.end;
 
 const BOB_DURATION = 0.22;
+/** Below this fill fraction the mug reads as empty: "Pour" is offered again (System 9 Drink.ts). */
+export const EMPTY_FILL = 0.15;
+export { MUG_H, MUG_FLOOR, MUG_FULL };
 
 export interface PourAudio {
   clink(at: THREE.Vector3): void;
@@ -112,6 +115,8 @@ function flowAt(t: number): number {
 /** Steam at the mug rim: the shared `SteamEmitter`, driven off the pour clock so seeks are exact. */
 class MugSteam {
   readonly emitter: SteamEmitter;
+  /** Multiplier on the plume (System 9: Drink.ts scales it with what is left in the mug). */
+  level = 1;
   /** Seconds since the first splash, or −1 when off. */
   private started = -1;
   private time = 0;
@@ -165,10 +170,11 @@ class MugSteam {
     const build = 1 - Math.pow(1 - clamp01(s / 1.5), 2);
     const fade = 1 - THREE.MathUtils.smoothstep(s, 18, 30);
     const p = this.emitter.params;
-    p.strength = 1.3 * build * fade;
-    p.rise = lerp(0.06, 0.28, build);
-    p.size[0] = lerp(0.012, 0.022, build);
-    p.size[1] = lerp(0.03, 0.075, build);
+    const lv = this.level;
+    p.strength = 1.3 * build * fade * lv;
+    p.rise = lerp(0.06, 0.28, build) * lerp(0.6, 1, lv);
+    p.size[0] = lerp(0.012, 0.022, build) * lerp(0.7, 1, lv);
+    p.size[1] = lerp(0.03, 0.075, build) * lerp(0.7, 1, lv);
     this.emitter.update(this.time);
     if (s > 30) this.stop();
   }
@@ -181,6 +187,8 @@ export class PourInteraction {
   private bobT = -1;
   private potLevel = POT_LEVEL0;
   private moved = false;
+  /** Volume fraction in the mug before this pour (System 9: what the sips left; a pour tops it up). */
+  private baseFill = 0;
 
   private readonly pot: THREE.Group;
   private readonly mug: THREE.Mesh;
@@ -415,9 +423,72 @@ export class PourInteraction {
       focus: (out) => out.copy(this.focusPoint),
       reach: 1.25,
       halfAngleDeg: 22,
-      available: () => this.state !== "pouring",
+      // System 9: once the mug holds more than EMPTY_FILL the target is Drink.ts's "Drink".
+      available: () => this.state !== "pouring" && this.fill < EMPTY_FILL,
       interact: () => (this.state === "idle" ? this.start() : this.bob()),
     };
+  }
+
+  /* ---- System 9 (Drink.ts) ---- */
+
+  /** Volume fraction in the mug right now, 0..1. */
+  get fill(): number {
+    return this.state === "pouring" ? this.totalFill(this.landedFraction(this.t)) : this.baseFill;
+  }
+
+  /**
+   * Set the mug's contents (a sip took some): re-poses the liquid disc and scales the steam. Below
+   * EMPTY_FILL the pour is offered again (state back to idle). Only meaningful when not pouring.
+   */
+  setFill(fraction: number): void {
+    if (this.state === "pouring") return;
+    this.baseFill = clamp01(fraction);
+    this.state = this.baseFill < EMPTY_FILL ? "idle" : "full";
+    this.poseLiquid(this.baseFill);
+    this.steam.level = this.baseFill;
+    this.moved = true;
+  }
+
+  /** Liquid height over the mug foot for a volume fraction (the same LUT the pour fills through). */
+  levelFor(fraction: number): number {
+    return mugLevelForVolume(fraction);
+  }
+
+  /** Draw the mug at `fraction` without changing state (Drink.ts, every frame of the sip). */
+  setFillVisual(fraction: number): void {
+    this.poseLiquid(fraction);
+    this.steam.level = clamp01(fraction);
+  }
+
+  /** The meniscus disc (child of the mug) — Drink.ts keeps it world-horizontal while the mug tilts. */
+  get liquid(): THREE.Mesh {
+    return this.mugLiquid;
+  }
+
+  /** The rim steam emitter's object; Drink.ts carries it with the mug and puts it back. */
+  get steamObject(): THREE.Object3D {
+    return this.steam.emitter.object;
+  }
+
+  /** Mug rim centre at rest (world). */
+  get rim(): THREE.Vector3 {
+    return this.mugTop;
+  }
+
+  private totalFill(landed: number): number {
+    return this.baseFill + (1 - this.baseFill) * landed;
+  }
+
+  private poseLiquid(fill: number): void {
+    if (fill <= 0) {
+      this.mugLiquid.visible = false;
+      return;
+    }
+    const level = mugLevelForVolume(fill);
+    this.mugLiquid.visible = true;
+    this.mugLiquid.position.y = level;
+    const k = mugInnerRadius(level) / MUG_LATHE_R;
+    this.mugLiquid.scale.set(k, 1, k);
   }
 
   /**
@@ -467,10 +538,13 @@ export class PourInteraction {
     this.t = 0;
     this.bobT = -1;
     this.potLevel = POT_LEVEL0;
+    this.baseFill = 0;
+    this.steam.level = 1;
     this.pot.position.copy(this.potRest);
     this.pot.quaternion.copy(this.potRestQ);
     this.setPotSurface(0);
     this.mugLiquid.visible = false;
+    this.mugLiquid.quaternion.identity();
     this.stream.visible = false;
     for (const d of this.drips) d.visible = false;
     this.mug.position.y = this.mugRestY;
@@ -518,6 +592,8 @@ export class PourInteraction {
 
   private settleFull(): void {
     this.state = "full";
+    this.baseFill = 1;
+    this.steam.level = 1;
     this.moved = true;
     this.pot.position.copy(this.potRest);
     this.pot.quaternion.copy(this.potRestQ);
@@ -594,8 +670,10 @@ export class PourInteraction {
 
   /** Pose every animated piece for pour-time `t`. */
   private applyFrame(t: number): void {
-    const fill = this.landedFraction(t);
-    this.potLevel = POT_LEVEL0 - POT_DROP * fill;
+    const landed = this.landedFraction(t);
+    // Topping up a part-full mug: the pot gives up only what the mug takes.
+    this.potLevel = POT_LEVEL0 - POT_DROP * (1 - this.baseFill) * landed;
+    const fill = this.totalFill(landed);
     const level = mugLevelForVolume(fill);
     const flow = flowAt(t);
     const lipTilt = Math.atan((POT_H - this.potLevel) / LIP_R);

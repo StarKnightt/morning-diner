@@ -579,6 +579,67 @@ export function desertDirt(size: number, seed: number): THREE.Texture {
   return finish(c, true, 8);
 }
 
+/**
+ * Precast concrete (wheel stops, rev 6): a smooth steel-mould face — cement paste with a
+ * faint float grain, dust films and grey-brown water stains running down from the pin holes,
+ * a yellow rebar-rust bleed, and exposed aggregate ONLY where the surface is broken: a few
+ * chipped patches where the paste has spalled to the stones (rev 5's all-over speckle read as
+ * terrazzo — real precast shows aggregate at breaks, not on the mould face). Tile = 1 m.
+ */
+export function precast(size: number, seed: number): THREE.Texture {
+  const { c, ctx } = canvas(size, size);
+  const rng = makeRng(seed);
+  const fbm = makeFbm(seed + 3, 5, 3);
+  const grain = makeFbm(seed + 4, 160, 2);
+  const stain = makeFbm(seed + 5, 3, 3);
+  const img = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const u = x / size, v = y / size;
+      const n = (fbm(u, v) - 0.5) * 0.1 + (grain(u, v) - 0.5) * 0.05;
+      // Dust/stain film: darker, warmer blotches stretched along v (water runs)
+      const st = Math.max(0, stain(u * 3, v) - 0.55) * 0.9;
+      const o = (y * size + x) * 4;
+      img.data[o] = 176 * (1 + n) * (1 - st * 0.35); img.data[o + 1] = 171 * (1 + n) * (1 - st * 0.4); img.data[o + 2] = 162 * (1 + n * 1.05) * (1 - st * 0.5); img.data[o + 3] = 255;
+    }
+  ctx.putImageData(img, 0, 0);
+  const px = size / 1000; // px per mm at 1 m tile
+  // Runs down from the pin holes / cracks: 3 narrow grey-brown streaks
+  for (let i = 0; i < 3; i++) {
+    const x = rng() * size, y0 = rng() * size * 0.4, len = (150 + rng() * 300) * px, w = (6 + rng() * 10) * px;
+    const gr = ctx.createLinearGradient(0, y0, 0, y0 + len);
+    gr.addColorStop(0, "rgba(90,80,66,0.35)"); gr.addColorStop(1, "rgba(90,80,66,0)");
+    ctx.fillStyle = gr; ctx.fillRect(x - w / 2, y0, w, len);
+  }
+  // Chipped patches: irregular blobs of exposed aggregate (dark paste shadow + stones)
+  for (let i = 0; i < 6; i++) {
+    const cx = rng() * size, cy = rng() * size, r = (12 + rng() * 26) * px;
+    ctx.fillStyle = "rgba(120,114,104,0.9)";
+    ctx.beginPath();
+    for (let k = 0; k <= 14; k++) { const a = (k / 14) * Math.PI * 2, rr = r * (0.7 + rng() * 0.5); ctx.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.8); }
+    ctx.closePath(); ctx.fill();
+    for (let k = 0; k < 40; k++) {
+      const a = rng() * Math.PI * 2, d = Math.sqrt(rng()) * r * 0.85, sr = (1 + rng() * 2.5) * px, dark = rng() < 0.6;
+      const t = dark ? 55 + rng() * 40 : 185 + rng() * 40;
+      ctx.fillStyle = "rgba(" + (t | 0) + "," + ((t * 0.97) | 0) + "," + ((t * 0.92) | 0) + "," + (0.6 + rng() * 0.3).toFixed(2) + ")";
+      ctx.beginPath(); ctx.ellipse(cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.8, sr * (0.8 + rng() * 0.6), sr, rng() * Math.PI, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  // A few small pits (bug holes) in the mould face and one rust bleed
+  for (let i = 0; i < 14; i++) {
+    const r = (2 + rng() * 4) * px;
+    ctx.fillStyle = "rgba(90,86,80," + (0.3 + rng() * 0.3).toFixed(2) + ")";
+    ctx.beginPath(); ctx.arc(rng() * size, rng() * size, r, 0, Math.PI * 2); ctx.fill();
+  }
+  for (let i = 0; i < 2; i++) {
+    const x = rng() * size, y = rng() * size, r = (40 + rng() * 60) * px;
+    const gr = ctx.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, "rgba(150,105,60,0.3)"); gr.addColorStop(1, "rgba(150,105,60,0)");
+    ctx.fillStyle = gr; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  return finish(c, true, 8);
+}
+
 /** CMU block wall: 400 × 200 mm blocks with recessed mortar joints; tiles every 3.2 × 0.8 m (8 × 4 blocks). */
 export function blockWall(size: number, seed: number): { map: THREE.Texture; roughnessMap: THREE.Texture } {
   const w = size, h = size / 4;
@@ -614,6 +675,40 @@ export function blockWall(size: number, seed: number): { map: THREE.Texture; rou
   for (let i = 0; i < w * h; i++) { const o = i * 4; rimg.data[o + 1] = rimg.data[o]; rimg.data[o + 2] = rimg.data[o]; }
   rctx.putImageData(rimg, 0, 0);
   return { map: finish(c, true, 8), roughnessMap: finish(rc, false, 8) };
+}
+
+/**
+ * Tyre tread (rev 6): a greyscale multiplier map, u around the tyre, v across the section
+ * (sidewall → tread → sidewall). The tread band (v 0.17–0.83) is 72 blocks around in three
+ * ribs with dark cross-grooves and a hairline sipe per block; the shoulder rows are wider
+ * blocks; the sidewalls are plain with a faint mould grain. The lathe's circumferential
+ * grooves are geometry — this adds the blocks between them.
+ */
+export function tyreTread(size: number, seed: number): THREE.Texture {
+  const w = size, h = size / 4;
+  const { c, ctx } = canvas(w, h);
+  const rng = makeRng(seed);
+  ctx.fillStyle = "#f4f4f4"; ctx.fillRect(0, 0, w, h);
+  const grain = makeFbm(seed + 1, 40, 2);
+  const img = ctx.getImageData(0, 0, w, h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const o = (y * w + x) * 4, n = 235 + (grain(x / w, y / h) - 0.5) * 30; img.data[o] = img.data[o + 1] = img.data[o + 2] = n; }
+  ctx.putImageData(img, 0, 0);
+  const v0 = 0.17 * h, v1 = 0.83 * h, gap = Math.max(2, w / 340);
+  const rows = [[v0, 0.31 * h, 36], [0.31 * h, 0.5 * h, 72], [0.5 * h, 0.69 * h, 72], [0.69 * h, v1, 36]] as Array<[number, number, number]>;
+  for (const [ya, yb, n] of rows) {
+    const bw = w / n, off = rng() * bw;
+    for (let i = 0; i < n; i++) {
+      const x = (i * bw + off) % w;
+      ctx.fillStyle = "#3a3a3a"; ctx.fillRect(x, ya, gap, yb - ya); // cross groove
+      ctx.fillStyle = "#7a7a7a"; ctx.fillRect(x + gap, ya, 1, yb - ya); // lit groove edge
+      const sx = x + gap + rng() * (bw - 2 * gap);
+      ctx.fillStyle = "#8a8a8a"; ctx.fillRect(sx, ya + (yb - ya) * 0.15, 1, (yb - ya) * 0.7); // sipe
+      ctx.fillStyle = `rgba(0,0,0,${(rng() * 0.08).toFixed(3)})`; ctx.fillRect(x + gap, ya, bw - gap, yb - ya); // block tone
+    }
+  }
+  // Rib edges (the geometry grooves sit here; a darker seam either side keeps them crisp)
+  for (const y of [v0, 0.31 * h, 0.5 * h, 0.69 * h, v1]) { ctx.fillStyle = "#5a5a5a"; ctx.fillRect(0, y - 1, w, 2); }
+  return finish(c, false, 8);
 }
 
 /**
