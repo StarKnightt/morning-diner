@@ -37,7 +37,10 @@ export class RoomTone extends AmbientLayer {
 
     // ---- floor ------------------------------------------------------------------
     const floorGain = ctx.createGain();
-    floorGain.gain.value = dbToGain(opts.floorDb ?? -55) / 0.25; // buffers are -12 dBFS RMS
+    // Rev 3 live-mix calibration: floor −47 / air −49 ⇒ ≈ −44 LUFS (was −55 / −56 ⇒ −52; the
+    // brief's "silence" is ≈ −45, and the bed the spatial sources sit on has to be audible as a room).
+    const floorDb = opts.floorDb ?? -47;
+    floorGain.gain.value = dbToGain(floorDb) / 0.25; // buffers are -12 dBFS RMS
     const merger = ctx.createChannelMerger(2);
     for (let ch = 0; ch < 2; ch++) {
       const brown = engine.noiseSource("brown", ch === 0 ? 1 : 0.94, t0);
@@ -56,8 +59,8 @@ export class RoomTone extends AmbientLayer {
     merger.connect(floorGain);
     floorGain.connect(this.bus);
     this.wander(floorGain.gain, {
-      min: (dbToGain(opts.floorDb ?? -55) / 0.25) * 0.8,
-      max: (dbToGain(opts.floorDb ?? -55) / 0.25) * 1.2,
+      min: (dbToGain(floorDb) / 0.25) * 0.8,
+      max: (dbToGain(floorDb) / 0.25) * 1.2,
       minHold: 10,
       maxHold: 30,
       tau: 8,
@@ -66,7 +69,7 @@ export class RoomTone extends AmbientLayer {
     // ---- room air: 4–16 kHz, L/R correlation ≈ 0.3 -----------------------------------
     // L = c·common + s·own, R = c·common + s·own' with c² = 0.65 (the other
     // decorrelated HF sources pull the band's total correlation down to ≈ 0.3).
-    const airBase = dbToGain(opts.airDb ?? -56) / 0.25;
+    const airBase = dbToGain(opts.airDb ?? -49) / 0.25;
     const airLevel = ctx.createGain();
     airLevel.gain.value = airBase;
     const airMerger = ctx.createChannelMerger(2);

@@ -839,7 +839,7 @@ async function runCalib(page, LAY) {
     // Fan hub overhead; walk away along the aisle at its z.
     { bus: "fan", src: P.fan, ref: 1, roll: 0.55, dists: [1, 1.5, 2, 4], place: (d) => ({ x: P.fan.x + Math.sqrt(Math.max(0, d * d - (P.fan.y - 1.62) ** 2)), y: 1.62, z: P.fan.z }) },
     // Warmer plate on the back bar; walk along the service aisle (z −1.6).
-    { bus: "coffee", src: P.coffeeWarmer, ref: 1, roll: 0.55, dists: [1, 1.5, 2, 3], place: (d) => ({ x: P.coffeeWarmer.x - Math.sqrt(Math.max(0, d * d - (P.coffeeWarmer.y - 1.62) ** 2 - (P.coffeeWarmer.z + 1.6) ** 2)), y: 1.62, z: -1.6 }) },
+    { bus: "coffee", src: P.coffeeWarmer, ref: 0.7, roll: 1.4, dists: [1, 1.5, 2, 3], place: (d) => ({ x: P.coffeeWarmer.x - Math.sqrt(Math.max(0, d * d - (P.coffeeWarmer.y - 1.62) ** 2 - (P.coffeeWarmer.z + 1.6) ** 2)), y: 1.62, z: -1.6 }) },
   ];
   const report = {};
   console.log(`\nCALIBRATION  (solo bus taps, listener facing the source; predicted = PannerNode inverse model, refDistance/rolloff as attached)`);
@@ -913,7 +913,11 @@ async function runScenario(page, LAY, which) {
     const pourLufs = loudness(sfx.L, sfx.R, fs_, onset, offset).integrated;
     const mixPourLufs = loudness(r.mix.L, r.mix.R, fs_, onset, offset).integrated;
     const bedLufs = loudness(r.mix.L, r.mix.R, fs_, 0.2, t0 - 0.05).integrated;
-    const clinkPeak = (t) => balanceCrest(r.mix.L, r.mix.R, Math.round(t * fs_), Math.round((t + 0.2) * fs_)).peakDb;
+    // Peak of the clink itself (sfx tap, pre-master) and of the mix in the same 200 ms.
+    const clinkPeak = (t) => ({
+      sfx: balanceCrest(sfx.L, sfx.R, Math.round(t * fs_), Math.round((t + 0.2) * fs_)).peakDb,
+      mix: balanceCrest(r.mix.L, r.mix.R, Math.round(t * fs_), Math.round((t + 0.2) * fs_)).peakDb,
+    });
     const clicks = clickScan(r.mix.L, r.mix.R, fs_);
     const clicksAround = [
       ["clink-lift", tl["clink-lift"]],
@@ -942,7 +946,9 @@ async function runScenario(page, LAY, which) {
     console.log(`  splash onset ${onset.toFixed(3)} s = pour() + ${((onset - pourCall) * 1000).toFixed(0)} ms   (stream reaches the mug at + ${(fall * 1000).toFixed(0)} ms free fall; Pour.ts ripples at +170 ms, fills from +120 ms)`);
     console.log(`  splash ends  ${offset.toFixed(3)} s → audible ${(offset - onset).toFixed(2)} s for a ${streamDur} s stream (tail rings ${((offset - onset - streamDur) * 1000).toFixed(0)} ms)`);
     console.log(`  cavity peak (600–2600 Hz): ${track.map((p) => `+${p.t.toFixed(2)}s ${p.hz.toFixed(0)} Hz`).join("  ")}`);
-    console.log(`  loudness: pour bus ${lu(pourLufs)} LUFS   mix during pour ${lu(mixPourLufs)}   bed before ${lu(bedLufs)}   clink peaks lift ${fmt(report.clinkPeaks.lift, 6)} / set ${fmt(report.clinkPeaks.set, 6)} dBFS`);
+    const cp = report.clinkPeaks;
+    console.log(`  loudness: pour bus ${lu(pourLufs)} LUFS   mix during pour ${lu(mixPourLufs)}   bed before ${lu(bedLufs)}`);
+    console.log(`  clink peaks (200 ms window): lift ${fmt(cp.lift.mix, 6)} dBFS in the mix / ${fmt(cp.lift.sfx, 6)} on the sfx tap;  set ${fmt(cp.set.mix, 6)} / ${fmt(cp.set.sfx, 6)}`);
     console.log(`  discontinuities: max step ${clicks.maxStep.toFixed(4)} FS @ ${clicks.maxStepAt.toFixed(3)} s; max step/localRMS ${clicks.maxRatio.toFixed(1)} @ ${clicks.maxRatioAt.toFixed(3)} s`);
     for (const c of clicksAround) console.log(`    ${c.name.padEnd(11)} @ ${c.t.toFixed(3)} s  step ${c.maxStep.toFixed(4)} FS  step/local ${c.maxRatio.toFixed(1)}`);
   } else if (which === "door") {
@@ -960,9 +966,11 @@ async function runScenario(page, LAY, which) {
     const holdFrom = tOpen + 1.6, holdTo = tOpen + 5.0;
     const holdSlice = Array.from(env.slice(at(holdFrom), at(holdTo))).sort((a, b) => a - b);
     const holdDb = holdSlice[Math.floor(holdSlice.length / 2)];
-    // Rise: first 50 ms block within 0.9 dB (≈ 90 % amplitude) of the hold level.
-    let t90 = NaN;
+    // Rise: first 50 ms block within 0.9 dB (≈ 90 % amplitude) of the hold level, and the
+    // half-power (−3 dB) point. The bed itself breathes ±1.5 dB, so read these to ±50 ms.
+    let t90 = NaN, t50 = NaN;
     for (let i = at(tOpen); i < at(holdTo); i++) if (env[i] >= holdDb - 0.9) { t90 = i * hopS; break; }
+    for (let i = at(tOpen); i < at(holdTo); i++) if (env[i] >= holdDb - 3) { t50 = i * hopS; break; }
     // Leaf passes 30°.
     let t30 = NaN;
     for (let u = 0; u < TL.open[1]; u += 0.001) if (doorLeafDeg(u, TL) >= 30) { t30 = tOpen + u; break; }
@@ -973,6 +981,7 @@ async function runScenario(page, LAY, which) {
       const i = at(tOpen + u);
       return { a, tLeaf: u, relDb: env[i] - holdDb, equalPowerDb: 20 * Math.log10(Math.sin((Math.PI / 2) * a)), pow06Db: 20 * Math.log10(Math.pow(a, 0.6)) };
     });
+    const holdPeak = balanceCrest(r.mix.L, r.mix.R, Math.round(holdFrom * fs_), Math.round(holdTo * fs_));
     const outsideLufs = loudness(outside.L, outside.R, fs_, holdFrom, holdTo).integrated;
     const mixHoldLufs = loudness(r.mix.L, r.mix.R, fs_, holdFrom, holdTo).integrated;
     const intBefore = loudness(interior.L, interior.R, fs_, 0.2, tOpen - 0.05).integrated;
@@ -996,14 +1005,14 @@ async function runScenario(page, LAY, which) {
       ["latch", tLatch],
     ].map(([name, t]) => ({ name, t, ...clickScan(r.mix.L, r.mix.R, fs_, Math.round((t - 0.05) * fs_), Math.round((t + 0.45) * fs_)) }));
     Object.assign(report, {
-      pose, calls: tl, holdDb, t90, t30, riseAfter30: t90 - t30, shape, outsideLufs, mixHoldLufs, mixBefore,
+      pose, calls: tl, holdDb, holdPeakDb: holdPeak.peakDb, holdCrestDb: holdPeak.crestDb, t90, t50, t30, riseAfter30: t90 - t30, shape, outsideLufs, mixHoldLufs, mixBefore,
       interior: { before: intBefore, hold: intHold, after: intAfter, duckDb: intHold - intBefore, restoreDb: intAfter - intBefore },
       outsideAfterLufs: outAfter, sweepMidDb: sweepMid - holdDb, at8DegDb: at8 - holdDb, openClick, openMixPeak, latchClick, clicks, clicksAround,
     });
     console.log(`\nDOOR  listener inside the door facing the leaf (${pose.x.toFixed(2)}, ${pose.z.toFixed(2)}, yaw ${pose.yawDeg}°); DoorSwing clock starts at t0 = ${t0} s`);
     console.log(`  doorOpen() at ${tOpen.toFixed(3)} s; leaf 30° at +${((t30 - tOpen) * 1000).toFixed(0)} ms, 85° at +1100 ms; hold to +5100; sweep to 8° by +6900; latch +7150 ms`);
-    console.log(`  heat wall: hold ${fmt(holdDb, 6)} dBFS (50 ms env median) = ${lu(outsideLufs)} LUFS on the outside bus; mix during hold ${lu(mixHoldLufs)} LUFS (was ${lu(mixBefore)} before the door)`);
-    console.log(`  rise: reaches hold −0.9 dB at +${((t90 - tOpen) * 1000).toFixed(0)} ms → ${((t90 - t30) * 1000).toFixed(0)} ms after the leaf passed 30°`);
+    console.log(`  heat wall: hold ${fmt(holdDb, 6)} dBFS (50 ms env median) = ${lu(outsideLufs)} LUFS on the outside bus; mix during hold ${lu(mixHoldLufs)} LUFS, peak ${fmt(holdPeak.peakDb, 6)} dBFS, crest ${fmt(holdPeak.crestDb, 5)} dB (was ${lu(mixBefore)} LUFS before the door)`);
+    console.log(`  rise: half power (−3 dB) at +${((t50 - tOpen) * 1000).toFixed(0)} ms; within 0.9 dB of hold at +${((t90 - tOpen) * 1000).toFixed(0)} ms → ${((t90 - t30) * 1000).toFixed(0)} ms after the leaf passed 30° (±50 ms)`);
     console.log(`  crossfade shape (outside env rel. hold at leaf fraction a): ${shape.map((s) => `a=${s.a}: ${fmt(s.relDb, 5)} dB (equal-power ${fmt(s.equalPowerDb, 5)}, a^0.6 ${fmt(s.pow06Db, 5)})`).join(";  ")}`);
     console.log(`  interior bed: before ${lu(intBefore)}  while open ${lu(intHold)} (duck ${fmt(intHold - intBefore, 5)} dB)  after latch ${lu(intAfter)} (${fmt(intAfter - intBefore, 5)} dB vs before)`);
     console.log(`  closing: outside at mid-sweep ${fmt(sweepMid - holdDb, 5)} dB rel. hold, at 8° ${fmt(at8 - holdDb, 5)} dB; after latch ${lu(outAfter)} LUFS`);

@@ -13,6 +13,18 @@
  * jambs with independent noise so it has width at the threshold and still
  * localises to the door from across the room. The spectrum of the room tilts
  * UP when the door opens — that's the heat.
+ *
+ * Rev 3 (live-mix calibration, tools/audio-harness.mjs --scenario=door):
+ *   - the crossfade is equal-power in shape: exterior gain sin(π/2·a), and the
+ *     room (engine.interior) ducks along the complementary curve to −3 dB at
+ *     full open, so the wall replaces the room instead of stacking on it;
+ *   - per-frame calls are smoothed with a 0.22 s time constant on the way open
+ *     (the wall arrives ~0.6 s after the leaf clears 30°, as a swell) and
+ *     0.07 s on the way shut, so the latch cuts it;
+ *   - when the amount returns to 0 after having been open, the latch clicks
+ *     (`doorClose()`; DoorSwing.ts only calls open() + outside(p), and the
+ *     leaf reaching 0° *is* the latch);
+ *   - the bed sits ≈ −26 LUFS at the threshold when fully open (was −22).
  */
 import { AudioEngine, type Vec3 } from "../AudioEngine";
 import { dbToGain } from "../dsp";
@@ -59,7 +71,8 @@ export class DoorSfx {
     this.outside.gain.value = 0;
     const bedLevel = ctx.createGain();
     // Cicada chain below sits ≈ -26 dBFS per jamb at full swell before this trim.
-    bedLevel.gain.value = dbToGain((opts.outsideDb ?? -36) + 26);
+    // −40 ⇒ ≈ −26 LUFS at the threshold, fully open (rev 3; was −36 ⇒ −22).
+    bedLevel.gain.value = dbToGain((opts.outsideDb ?? -40) + 26);
     one.connect(this.outside);
     this.outside.connect(bedLevel);
 
@@ -183,26 +196,107 @@ export class DoorSfx {
   }
 
   /**
-   * 0 = door shut, 1 = wide open. Ramps over `rampSeconds` (default 0.1 s for
-   * per-frame calls) and holds. The critic's ear: rise in ≤ 0.7 s when the
-   * door swings, and stay there — level — while it is open.
+   * 0 = door shut, 1 = wide open, holds at whatever it is given. Equal-power
+   * crossfade against the room: exterior gain sin(π/2·a), interior gain
+   * √(1 − ½·sin²(π/2·a)) (−3 dB at full open).
+   *
+   * Without `rampSeconds` (the per-frame DoorSwing call) the params follow the
+   * leaf through a first-order lag: τ = 0.22 s opening — the wall arrives as a
+   * swell ≈ 0.6 s after the leaf clears 30° — and τ = 0.07 s closing, so the
+   * latch cuts it. With `rampSeconds` it is a linear ramp (scripted use).
+   *
+   * Returning to 0 after having been open plays the latch (`doorClose()`).
    */
-  setOutside(amount: number, rampSeconds = 0.1): void {
+  setOutside(amount: number, rampSeconds?: number): void {
     const a = Math.max(0, Math.min(1, amount));
     if (a === this.outsideAmount) return;
+    const wasOpen = this.outsideAmount > 0;
+    const opening = a > this.outsideAmount;
     this.outsideAmount = a;
-    // Perceptual-ish curve: the first few degrees let a lot of sound in.
-    const target = Math.pow(a, 0.6);
-    const g = this.outside.gain;
+    const s = Math.sin((Math.PI / 2) * a);
+    const outsideTarget = s;
+    const interiorTarget = Math.sqrt(1 - 0.5 * s * s);
     const now = this.engine.now;
-    const current = g.value;
-    g.cancelScheduledValues(now);
-    g.setValueAtTime(current, now);
-    g.linearRampToValueAtTime(target, now + Math.max(0.02, rampSeconds));
+    const drive = (g: AudioParam, target: number): void => {
+      const current = g.value;
+      g.cancelScheduledValues(now);
+      g.setValueAtTime(current, now);
+      if (rampSeconds !== undefined) g.linearRampToValueAtTime(target, now + Math.max(0.02, rampSeconds));
+      else g.setTargetAtTime(target, now, opening ? DoorSfx.SWELL_TAU : DoorSfx.SHUT_TAU);
+    };
+    drive(this.outside.gain, outsideTarget);
+    drive(this.engine.interior.gain, interiorTarget);
+    if (a === 0 && wasOpen) this.doorClose();
   }
+
+  /** Opening swell / closing cut time constants (seconds) for per-frame setOutside(). */
+  static readonly SWELL_TAU = 0.22;
+  static readonly SHUT_TAU = 0.07;
 
   getOutside(): number {
     return this.outsideAmount;
+  }
+
+  /**
+   * The leaf meeting the frame: strike-plate click, the tongue dropping into
+   * the keeper a few ms later, and a short body thud from the leaf. Peaks
+   * ≈ 4 dB under the opening latch. Fired by setOutside(0) after an opening;
+   * public for scripted use.
+   */
+  doorClose(at: Vec3 = this.position): void {
+    const engine = this.engine;
+    const ctx = engine.ctx;
+    const rng = engine.rng;
+    const t = engine.now + 0.01;
+    engine.logEvent("sfx.door-close", t, 0.4);
+    const out = ctx.createGain();
+    out.gain.value = this.level * dbToGain(-4);
+    const spatial = engine.attach(out, at, this.bus, { model: "equalpower" });
+    const noise = engine.noiseSource("white", 1, t);
+
+    // Leaf meets the stop: a dull 300–900 Hz thump.
+    const thudBp = ctx.createBiquadFilter();
+    thudBp.type = "bandpass";
+    thudBp.frequency.value = rng.range(420, 560);
+    thudBp.Q.value = 1.1;
+    const thud = ctx.createGain();
+    thud.gain.setValueAtTime(0, t);
+    thud.gain.linearRampToValueAtTime(0.9, t + 0.003);
+    thud.gain.setTargetAtTime(0, t + 0.006, 0.02);
+    noise.connect(thudBp);
+    thudBp.connect(thud);
+    thud.connect(out);
+
+    // Strike plate: 2.5–3.5 kHz, ~8 ms.
+    const clickBp = ctx.createBiquadFilter();
+    clickBp.type = "bandpass";
+    clickBp.frequency.value = rng.range(2600, 3400);
+    clickBp.Q.value = 0.9;
+    const click = ctx.createGain();
+    click.gain.setValueAtTime(0, t);
+    click.gain.linearRampToValueAtTime(0.7, t + 0.001);
+    click.gain.setTargetAtTime(0, t + 0.002, 0.0025);
+    noise.connect(clickBp);
+    clickBp.connect(click);
+    click.connect(out);
+
+    // Tongue into the keeper: brighter, later, smaller.
+    const t2 = t + rng.range(0.03, 0.045);
+    const tongueBp = ctx.createBiquadFilter();
+    tongueBp.type = "bandpass";
+    tongueBp.frequency.value = rng.range(3800, 4600);
+    tongueBp.Q.value = 1.4;
+    const tongue = ctx.createGain();
+    tongue.gain.setValueAtTime(0, t2);
+    tongue.gain.linearRampToValueAtTime(0.45, t2 + 0.001);
+    tongue.gain.setTargetAtTime(0, t2 + 0.002, 0.003);
+    noise.connect(tongueBp);
+    tongueBp.connect(tongue);
+    tongue.connect(out);
+
+    const stopAt = t + 0.4;
+    noise.stop(stopAt);
+    scheduleCleanup(noise, stopAt, spatial, engine);
   }
 
   doorOpen(at: Vec3 = this.position): void {
