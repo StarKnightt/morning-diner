@@ -102,7 +102,18 @@ export class AirConditioner extends AmbientLayer {
     breathe.connect(breatheDepth);
     breatheDepth.connect(noiseGain.gain);
     breathe.start(t0);
-    noiseGain.connect(out);
+    // Compressor/fan noise stops at ~1 kHz; the band above belongs to the radio.
+    const noiseLp = ctx.createBiquadFilter();
+    noiseLp.type = "lowpass";
+    noiseLp.frequency.value = 950;
+    noiseLp.Q.value = 0.707;
+    const noiseLp2 = ctx.createBiquadFilter();
+    noiseLp2.type = "lowpass";
+    noiseLp2.frequency.value = 1100;
+    noiseLp2.Q.value = 0.707;
+    noiseGain.connect(noiseLp);
+    noiseLp.connect(noiseLp2);
+    noiseLp2.connect(out);
 
     // ---- rattle -----------------------------------------------------------
     const rattleSrc = engine.noiseSource("white", 1.03, t0);

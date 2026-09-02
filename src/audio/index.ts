@@ -58,8 +58,8 @@ export interface DinerSfx {
   pourCoffee(durationSeconds?: number, at?: Vec3): void;
   mugClink(at?: Vec3): void;
   doorOpen(): void;
-  /** 0 = shut, 1 = wide open. Crossfades the exterior heat wall in. */
-  setOutside(amount: number): void;
+  /** 0 = shut, 1 = wide open. Crossfades the exterior heat wall in over `rampSeconds` (default 0.1) and holds. */
+  setOutside(amount: number, rampSeconds?: number): void;
 }
 
 export interface DinerAudio {
@@ -118,9 +118,9 @@ class DinerAudioImpl implements DinerAudio {
       pourCoffee: (d = 3.5, at) => this.coffee?.pourCoffee(d, at),
       mugClink: (at) => this.coffee?.mugClink(at),
       doorOpen: () => this.door?.doorOpen(),
-      setOutside: (a) => {
+      setOutside: (a, ramp) => {
         this.pendingOutside = a;
-        this.door?.setOutside(a);
+        this.door?.setOutside(a, ramp);
       },
     };
   }

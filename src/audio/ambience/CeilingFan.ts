@@ -1,10 +1,12 @@
 /**
  * Ceiling fan on low: a slow, rounded whoosh overhead.
  *
- * Pink noise, low-passed, with both level and filter cutoff modulated at the
- * blade-pass rate (rev/s × blades). The modulator is a sine, not a pulse, so
- * it breathes rather than chops, and its depth and the fan's rate drift very
- * slightly so it never sounds mechanical. Underneath, a tiny 120 Hz motor hum.
+ * Pink noise confined to 200 Hz–1 kHz (24 dB/oct each side, so the AC's drone
+ * below 150 Hz, the radio's speech band and the room air above 2 kHz are untouched), with level and a
+ * little cutoff modulated at the blade-pass rate (rev/s × blades). The
+ * modulator is a sine, not a pulse — about 2 dB p90–p10 — so it breathes
+ * rather than chops, and the rate wanders ±3 % over 5–10 s so it never sounds
+ * mechanical. Underneath, a tiny unmodulated 120 Hz motor hum.
  */
 import { AudioEngine, type Vec3 } from "../AudioEngine";
 import { dbToGain } from "../dsp";
@@ -19,7 +21,7 @@ export interface CeilingFanOptions {
 }
 
 /** Measured with the harness: internal RMS is this far below the `out` gain at 1 m. */
-const CAL_DB = 17;
+const CAL_DB = 14;
 
 export class CeilingFan extends AmbientLayer {
   constructor(engine: AudioEngine, position: Vec3, opts: CeilingFanOptions = {}) {
@@ -35,43 +37,60 @@ export class CeilingFan extends AmbientLayer {
 
     // ---- whoosh -----------------------------------------------------------
     const noise = engine.noiseSource("pink", 0.93, t0);
-    const lp = ctx.createBiquadFilter();
-    lp.type = "lowpass";
-    lp.frequency.value = 900;
-    lp.Q.value = 0.5;
-    const hp = ctx.createBiquadFilter();
-    hp.type = "highpass";
-    hp.frequency.value = 160;
-    hp.Q.value = 0.6;
+    // 200 Hz–2 kHz, two 2nd-order stages each side (24 dB/oct).
+    const hp1 = ctx.createBiquadFilter();
+    hp1.type = "highpass";
+    hp1.frequency.value = 220;
+    hp1.Q.value = 0.707;
+    const hp2 = ctx.createBiquadFilter();
+    hp2.type = "highpass";
+    hp2.frequency.value = 220;
+    hp2.Q.value = 0.707;
+    const lp1 = ctx.createBiquadFilter();
+    lp1.type = "lowpass";
+    lp1.frequency.value = 850;
+    lp1.Q.value = 0.707;
+    const lp2 = ctx.createBiquadFilter();
+    lp2.type = "lowpass";
+    lp2.frequency.value = 1000;
+    lp2.Q.value = 0.707;
+    // Body of the whoosh sits 300–700 Hz.
+    const tilt = ctx.createBiquadFilter();
+    tilt.type = "lowshelf";
+    tilt.frequency.value = 700;
+    tilt.gain.value = 4;
     const whoosh = ctx.createGain();
-    whoosh.gain.value = 0.7;
-    noise.connect(hp);
-    hp.connect(lp);
-    lp.connect(whoosh);
+    whoosh.gain.value = 0.75;
+    noise.connect(hp1);
+    hp1.connect(hp2);
+    hp2.connect(tilt);
+    tilt.connect(lp1);
+    lp1.connect(lp2);
+    lp2.connect(whoosh);
 
-    // Blade-pass modulator: sine into level (±30 %) and cutoff (±350 Hz), with a
-    // 90° offset between them so the brightening leads the loudness a touch.
+    // Blade-pass modulator: sine into level (±6 %, ≈ 1 dB peak-to-peak) and a touch
+    // of cutoff (±80 Hz), 90° apart so the brightening leads the loudness.
     const mod = ctx.createOscillator();
     mod.type = "sine";
     mod.frequency.value = bladePass;
     const modGain = ctx.createGain();
-    modGain.gain.value = 0.3;
+    modGain.gain.value = 0.06;
     mod.connect(modGain);
     modGain.connect(whoosh.gain);
     const modCut = ctx.createOscillator();
     modCut.type = "sine";
     modCut.frequency.value = bladePass;
     const modCutGain = ctx.createGain();
-    modCutGain.gain.value = 350;
+    modCutGain.gain.value = 80;
     modCut.connect(modCutGain);
-    modCutGain.connect(lp.frequency);
+    modCutGain.connect(lp1.frequency);
     mod.start(t0);
     modCut.start(t0 + 0.25 / bladePass);
-    // The fan hunts a little: rate ±1.5 %, depth wanders. Never a metronome.
-    this.wander(mod.frequency, { min: bladePass * 0.985, max: bladePass * 1.015, minHold: 6, maxHold: 15, tau: 5 });
-    this.wander(modCut.frequency, { min: bladePass * 0.985, max: bladePass * 1.015, minHold: 6, maxHold: 15, tau: 5 });
-    this.wander(modGain.gain, { min: 0.22, max: 0.36, minHold: 8, maxHold: 20, tau: 4 });
-    this.wander(whoosh.gain, { min: 0.6, max: 0.8, minHold: 10, maxHold: 30, tau: 6 });
+    // The fan hunts: rate ±3 % over 5–10 s, depth wanders. Never a metronome.
+    this.wander(mod.frequency, { min: bladePass * 0.97, max: bladePass * 1.03, minHold: 5, maxHold: 10, tau: 3 });
+    this.wander(modCut.frequency, { min: bladePass * 0.97, max: bladePass * 1.03, minHold: 5, maxHold: 10, tau: 3 });
+    this.wander(modGain.gain, { min: 0.045, max: 0.075, minHold: 8, maxHold: 20, tau: 4 });
+    this.wander(whoosh.gain, { min: 0.7, max: 0.8, minHold: 10, maxHold: 30, tau: 6 });
     whoosh.connect(out);
 
     // ---- motor ------------------------------------------------------------

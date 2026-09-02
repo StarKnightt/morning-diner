@@ -1,18 +1,24 @@
 #!/usr/bin/env node
 /**
- * Offline audio render + level report.
+ * Offline audio render + level / spectral report.
  *
  *   node tools/audio-harness.mjs                  # 10 s of ambience -> shots/audio-mix.wav
  *   node tools/audio-harness.mjs --sfx            # also fire the one-shots -> shots/audio-sfx.wav
  *   node tools/audio-harness.mjs --seconds=30 --seed=7 --listener=3.15,0.8,62
  *   node tools/audio-harness.mjs --solo=radio --out=radio   # one layer alone -> shots/radio.wav
+ *   node tools/audio-harness.mjs --analyze=shots/audio-mix.wav[,shots/audio-sfx.wav]
+ *                                                 # analysis only, no render (optionally --events=name:t:dur,...)
  *
  * Serves the repo with Vite on :5220 (the visual harness owns :5210), opens
  * audio-harness.html?offline=1 in headless Chromium, and asks the page to
  * render the whole graph through an OfflineAudioContext with every bus tapped
- * to its own channel pair. Prints RMS/peak/DC per bus and writes the stereo mix
- * as 16-bit WAV. Teardown (browser + server) is wired to every exit path before
- * anything starts and the process always ends with an explicit exit.
+ * to its own channel pair. Writes the stereo mix as 16-bit WAV, then analyses
+ * it here in Node: per-bus RMS/peak/DC, band energies, envelope-modulation
+ * shares (fan blade-pass vs speech syllables), L/R correlation around every
+ * scheduled event, tonal-line detection, and the event list with timestamps.
+ *
+ * Teardown (browser + server) is wired to every exit path before anything
+ * starts and the process always ends with an explicit exit.
  */
 
 import { fileURLToPath } from "node:url";
@@ -33,6 +39,14 @@ const SFX = argv.includes("--sfx");
 const MASTER_DB = arg("master", null);
 const OUT = arg("out", "audio-mix");
 const SOLO = arg("solo", "").split(",").filter(Boolean);
+const ANALYZE = arg("analyze", "").split(",").filter(Boolean);
+const MANUAL_EVENTS = arg("events", "")
+  .split(",")
+  .filter(Boolean)
+  .map((e) => {
+    const [name, t, dur] = e.split(":");
+    return { name, t: Number(t), dur: Number(dur ?? 0.5) };
+  });
 // --listener=x,z[,yawDeg[,y]]  (yaw 0 looks toward -z, positive turns left, as in the scene)
 const listenerArg = arg("listener", "0,0.9,90").split(",").map(Number);
 const LISTENER = { x: listenerArg[0], y: listenerArg[3] ?? 1.62, z: listenerArg[1], yawDeg: listenerArg[2] ?? 90 };
@@ -100,9 +114,308 @@ function wavFromPcm16(pcm, sampleRate, channels = 2) {
   return Buffer.concat([header, pcm]);
 }
 
+/** Reads a 16-bit stereo WAV written by this tool. Returns { L, R, sampleRate }. */
+async function readWav(file) {
+  const buf = await fs.readFile(file);
+  if (buf.toString("ascii", 0, 4) !== "RIFF") throw new Error(`${file}: not a WAV`);
+  const channels = buf.readUInt16LE(22);
+  const sampleRate = buf.readUInt32LE(24);
+  const bits = buf.readUInt16LE(34);
+  if (bits !== 16) throw new Error(`${file}: expected 16-bit PCM`);
+  // Find the data chunk.
+  let off = 12;
+  while (off < buf.length) {
+    const id = buf.toString("ascii", off, off + 4);
+    const size = buf.readUInt32LE(off + 4);
+    if (id === "data") {
+      off += 8;
+      const frames = Math.floor(size / (2 * channels));
+      const L = new Float64Array(frames);
+      const R = new Float64Array(frames);
+      for (let i = 0; i < frames; i++) {
+        L[i] = buf.readInt16LE(off + i * 2 * channels) / 32768;
+        R[i] = channels > 1 ? buf.readInt16LE(off + i * 2 * channels + 2) / 32768 : L[i];
+      }
+      return { L, R, sampleRate };
+    }
+    off += 8 + size;
+  }
+  throw new Error(`${file}: no data chunk`);
+}
+
+/* ------------------------------------------------------------------ */
+/* analysis                                                            */
 /* ------------------------------------------------------------------ */
 
-const fmt = (v, w = 7) => (Number.isFinite(v) ? v.toFixed(1) : "-inf").padStart(w);
+const db = (x) => 10 * Math.log10(Math.max(x, 1e-24));
+const fmt = (v, w = 7, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : "-inf").padStart(w);
+
+/** In-place iterative radix-2 complex FFT (re, im are Float64Array of length 2^k). */
+function fft(re, im, inverse = false) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      [re[i], re[j]] = [re[j], re[i]];
+      [im[i], im[j]] = [im[j], im[i]];
+    }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = ((inverse ? 2 : -2) * Math.PI) / len;
+    const wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let j = 0; j < len / 2; j++) {
+        const a = i + j, b = i + j + len / 2;
+        const tr = re[b] * cr - im[b] * ci;
+        const ti = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - tr;
+        im[b] = im[a] - ti;
+        re[a] += tr;
+        im[a] += ti;
+        const ncr = cr * wr - ci * wi;
+        ci = cr * wi + ci * wr;
+        cr = ncr;
+      }
+    }
+  }
+  if (inverse) for (let i = 0; i < n; i++) (re[i] /= n), (im[i] /= n);
+}
+
+const nextPow2 = (n) => 1 << Math.ceil(Math.log2(Math.max(2, n)));
+
+/** Welch one-sided power spectrum (mean-square per bin) of x, Hann, 50 % overlap. */
+function welch(x, N = 8192) {
+  const win = new Float64Array(N);
+  let wsum = 0;
+  for (let i = 0; i < N; i++) {
+    win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N);
+    wsum += win[i] * win[i];
+  }
+  const acc = new Float64Array(N / 2 + 1);
+  const re = new Float64Array(N), im = new Float64Array(N);
+  let frames = 0;
+  for (let s = 0; s + N <= x.length; s += N / 2) {
+    for (let i = 0; i < N; i++) (re[i] = x[s + i] * win[i]), (im[i] = 0);
+    fft(re, im);
+    for (let k = 0; k <= N / 2; k++) acc[k] += (re[k] * re[k] + im[k] * im[k]) * (k === 0 || k === N / 2 ? 1 : 2);
+    frames++;
+  }
+  const scale = 1 / (Math.max(1, frames) * N * wsum);
+  for (let k = 0; k <= N / 2; k++) acc[k] *= scale;
+  return acc; // Σ acc ≈ mean-square of x
+}
+
+/** Band-limit x to [lo, hi] Hz via FFT brick-wall (fine for analysis). */
+function bandpassFFT(x, sampleRate, lo, hi) {
+  const n = nextPow2(x.length);
+  const re = new Float64Array(n), im = new Float64Array(n);
+  re.set(x);
+  fft(re, im);
+  const binHz = sampleRate / n;
+  for (let k = 0; k <= n / 2; k++) {
+    const f = k * binHz;
+    if (f < lo || f > hi) {
+      re[k] = im[k] = 0;
+      if (k > 0 && k < n / 2) re[n - k] = im[n - k] = 0;
+    }
+  }
+  fft(re, im, true);
+  return re.subarray(0, x.length);
+}
+
+/** RMS envelope in hops of `hop` samples. */
+function envelope(x, hop) {
+  const out = new Float64Array(Math.floor(x.length / hop));
+  for (let i = 0; i < out.length; i++) {
+    let s = 0;
+    for (let j = i * hop; j < (i + 1) * hop; j++) s += x[j] * x[j];
+    out[i] = Math.sqrt(s / hop);
+  }
+  return out;
+}
+
+function percentile(arr, p) {
+  const a = Array.from(arr).sort((a, b) => a - b);
+  return a[Math.min(a.length - 1, Math.floor(p * a.length))];
+}
+
+/** Share of envelope-modulation energy in [a,b] Hz relative to 0.5–20 Hz. */
+function modulationShares(env, envRate, ranges) {
+  const n = nextPow2(env.length);
+  const re = new Float64Array(n), im = new Float64Array(n);
+  let mean = 0;
+  for (const v of env) mean += v;
+  mean /= env.length;
+  for (let i = 0; i < env.length; i++) re[i] = (env[i] - mean) * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / env.length));
+  fft(re, im);
+  const binHz = envRate / n;
+  const power = (lo, hi) => {
+    let s = 0;
+    for (let k = 1; k <= n / 2; k++) {
+      const f = k * binHz;
+      if (f >= lo && f <= hi) s += re[k] * re[k] + im[k] * im[k];
+    }
+    return s;
+  };
+  const total = power(0.5, 20) || 1e-30;
+  return ranges.map(([lo, hi]) => power(lo, hi) / total);
+}
+
+const BANDS = [
+  [20, 80],
+  [80, 250],
+  [250, 900],
+  [900, 3000],
+  [2000, 6000],
+  [5000, 8000],
+  [8000, 20000],
+];
+
+function pearson(a, b, from, to) {
+  let sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0, n = 0;
+  for (let i = from; i < to; i++) {
+    sa += a[i];
+    sb += b[i];
+    saa += a[i] * a[i];
+    sbb += b[i] * b[i];
+    sab += a[i] * b[i];
+    n++;
+  }
+  if (n < 2) return NaN;
+  const cov = sab / n - (sa / n) * (sb / n);
+  const va = saa / n - (sa / n) ** 2;
+  const vb = sbb / n - (sb / n) ** 2;
+  return cov / Math.sqrt(Math.max(va * vb, 1e-30));
+}
+
+function analyse({ L, R, sampleRate }, events) {
+  const n = L.length;
+  const mono = new Float64Array(n);
+  for (let i = 0; i < n; i++) mono[i] = 0.5 * (L[i] + R[i]);
+
+  // --- band energies (average of both channels' power) ------------------
+  const pL = welch(L), pR = welch(R);
+  const binHz = sampleRate / ((pL.length - 1) * 2);
+  const bands = BANDS.map(([lo, hi]) => {
+    let s = 0;
+    for (let k = 0; k < pL.length; k++) {
+      const f = k * binHz;
+      if (f >= lo && f < hi) s += 0.5 * (pL[k] + pR[k]);
+    }
+    return { lo, hi, dbfs: db(s) };
+  });
+
+  // --- tonal lines: bins > 6 dB over the local median (±250 Hz), 150–8000 Hz ----
+  const psd = pL.map((v, k) => db(0.5 * (v + pR[k])));
+  const half = Math.round(250 / binHz);
+  const tonal = [];
+  for (let k = Math.round(150 / binHz); k < Math.round(8000 / binHz); k++) {
+    const win = Array.from(psd.subarray(Math.max(0, k - half), k + half)).sort((a, b) => a - b);
+    const med = win[Math.floor(win.length / 2)];
+    if (psd[k] - med > 6 && psd[k] >= psd[k - 1] && psd[k] >= psd[k + 1]) tonal.push({ hz: Math.round(k * binHz), excess: psd[k] - med });
+  }
+
+  // --- envelope modulation per band -----------------------------------------------
+  const hop = Math.round(sampleRate * 0.01); // 100 Hz envelope
+  const envRate = sampleRate / hop;
+  const modulation = [
+    [900, 3000],
+    [250, 900],
+    [2000, 6000],
+    [5000, 8000],
+  ].map(([lo, hi]) => {
+    const band = bandpassFFT(mono, sampleRate, lo, hi);
+    const env = envelope(band, hop);
+    const [fan, speech] = modulationShares(env, envRate, [
+      [2.3, 3.1],
+      [3.2, 6.0],
+    ]);
+    // AM depth as p90/p10 of a 50 ms envelope (fan blade-pass metric).
+    const env20 = envelope(band, Math.round(sampleRate * 0.05));
+    const depth = 20 * Math.log10(percentile(env20, 0.9) / Math.max(percentile(env20, 0.1), 1e-9));
+    // Bursts: 50 ms envelope segments rising > 6 dB above the floor (p10);
+    // pauses: ≥ 250 ms sitting > 6 dB below the loud level (p90).
+    const env50 = envelope(band, Math.round(sampleRate * 0.05));
+    const floorDb = 20 * Math.log10(percentile(env50, 0.1) + 1e-9);
+    const loudDb = 20 * Math.log10(percentile(env50, 0.9) + 1e-9);
+    let bursts = 0, pauses = 0, run = 0, above = false;
+    for (const v of env50) {
+      const d = 20 * Math.log10(v + 1e-9);
+      if (d > floorDb + 6) {
+        if (!above) bursts++;
+        above = true;
+      } else above = false;
+      if (d < loudDb - 6) {
+        run++;
+        if (run === 5) pauses++;
+      } else run = 0;
+    }
+    return { lo, hi, fan, speech, depth, bursts, pauses };
+  });
+
+  // --- events: peak, RMS and L/R correlation over each region ------------------------
+  // Correlation is taken on the 800 Hz–6 kHz band (where the one-shots live)
+  // so the correlated LF bed can't mask an anti-phase one-shot, nor the HRTF
+  // emitters' decorrelated highs dilute it.
+  const corrL = events.length ? bandpassFFT(L, sampleRate, 800, 6000) : L;
+  const corrR = events.length ? bandpassFFT(R, sampleRate, 800, 6000) : R;
+  const eventRows = events.map((e) => {
+    const from = Math.max(0, Math.floor(e.t * sampleRate));
+    const to = Math.min(n, Math.ceil((e.t + Math.max(0.03, e.dur)) * sampleRate));
+    let peak = 0, sq = 0;
+    for (let i = from; i < to; i++) {
+      const a = Math.abs(L[i]), b = Math.abs(R[i]);
+      if (a > peak) peak = a;
+      if (b > peak) peak = b;
+      sq += L[i] * L[i] + R[i] * R[i];
+    }
+    const rms = Math.sqrt(sq / Math.max(1, 2 * (to - from)));
+    const lDb = db(sq > 0 ? sumSq(L, from, to) / (to - from) : 0);
+    const rDb = db(sq > 0 ? sumSq(R, from, to) / (to - from) : 0);
+    return { ...e, peakDb: 20 * Math.log10(peak + 1e-9), rmsDb: 20 * Math.log10(rms + 1e-9), corr: pearson(corrL, corrR, from, to), lrDiff: rDb - lDb };
+  });
+
+  // --- whole-file L/R correlation of the 5–8 kHz air ---------------------------------------
+  const airL = bandpassFFT(L, sampleRate, 5000, 8000);
+  const airR = bandpassFFT(R, sampleRate, 5000, 8000);
+  const airCorr = pearson(airL, airR, 0, n);
+
+  return { bands, tonal, modulation, events: eventRows, airCorr };
+}
+
+function sumSq(x, from, to) {
+  let s = 0;
+  for (let i = from; i < to; i++) s += x[i] * x[i];
+  return s;
+}
+
+function printAnalysis(a) {
+  console.log(`  bands (dBFS)  ${a.bands.map((b) => `${b.lo}-${b.hi}`.padStart(10)).join("")}`);
+  console.log(`                ${a.bands.map((b) => fmt(b.dbfs, 10)).join("")}`);
+  console.log(`  modulation     band        fan 2.3-3.1  speech 3.2-6   AM p90-p10   bursts  pauses(>=250ms)   [50 ms env; burst > p10+6 dB, pause < p90-6 dB]`);
+  for (const m of a.modulation) {
+    console.log(
+      `                 ${`${m.lo}-${m.hi}`.padEnd(11)} ${fmt(m.fan * 100, 9, 0)}% ${fmt(m.speech * 100, 12, 0)}% ${fmt(m.depth, 11)} dB ${String(m.bursts).padStart(6)} ${String(m.pauses).padStart(7)}`,
+    );
+  }
+  console.log(`  5-8 kHz L/R correlation (whole file): ${fmt(a.airCorr, 5, 2)}`);
+  console.log(
+    `  tonal lines (>6 dB over ±250 Hz median): ${a.tonal.length ? a.tonal.map((t) => `${t.hz} Hz (+${t.excess.toFixed(1)})`).join(", ") : "none"}`,
+  );
+  if (a.events.length) {
+    console.log(`  events         t(s)   dur    peak dBFS  RMS dBFS  L/R corr  R-L dB   (corr on 0.8-6 kHz band)`);
+    for (const e of a.events) {
+      console.log(
+        `    ${e.name.padEnd(12)} ${fmt(e.t, 5, 2)} ${fmt(e.dur, 5, 2)} ${fmt(e.peakDb, 10)} ${fmt(e.rmsDb, 9)} ${fmt(e.corr, 9, 2)} ${fmt(e.lrDiff, 7)}`,
+      );
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ */
 
 function printReport(title, result) {
   console.log(`\n${title}  (${result.seconds} s @ ${result.sampleRate} Hz, listener x=${LISTENER.x} z=${LISTENER.z} yaw=${LISTENER.yawDeg}°)`);
@@ -127,7 +440,18 @@ function verdict(result, { sfx }) {
   return issues;
 }
 
+async function analyzeOnly() {
+  for (const file of ANALYZE) {
+    const abs = path.resolve(ROOT, file);
+    const wav = await readWav(abs);
+    console.log(`\nANALYSIS ${path.relative(ROOT, abs)}  (${(wav.L.length / wav.sampleRate).toFixed(1)} s @ ${wav.sampleRate} Hz)`);
+    printAnalysis(analyse(wav, MANUAL_EVENTS));
+  }
+  process.exit(0);
+}
+
 async function main() {
+  if (ANALYZE.length) return analyzeOnly();
   const tStart = Date.now();
   const { createServer } = await import("vite");
   const { chromium } = await import("playwright");
@@ -172,11 +496,13 @@ async function main() {
     printReport(run.sfx ? "AMBIENCE + ONE-SHOTS" : "AMBIENCE", result);
     const issues = verdict(result, run);
     console.log(`  -> ${path.relative(ROOT, file)}  (${((Date.now() - t0) / 1000).toFixed(1)} s render)`);
+    const events = [...(result.events ?? []), ...MANUAL_EVENTS].sort((a, b) => a.t - b.t);
+    printAnalysis(analyse(await readWav(file), events));
     if (issues.length) {
       console.log(`  ISSUES: ${issues.join("; ")}`);
       allIssues.push(...issues.map((i) => `${run.name}: ${i}`));
     } else {
-      console.log("  OK: within targets");
+      console.log("  OK: within level targets");
     }
   }
 

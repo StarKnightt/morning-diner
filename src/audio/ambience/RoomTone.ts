@@ -3,7 +3,10 @@
  *
  * 1. A near-inaudible noise floor (~-55 dBFS): brown/pink noise, decorrelated
  *    left/right, not spatialised — it's the room's own hush and the ear's.
- * 2. The outside pressing on the glass: a very sparse, very quiet insect
+ * 2. Room air: the hiss of a large quiet room — 4–16 kHz noise, partially
+ *    correlated left/right (≈0.3), drifting 0.1–0.3 Hz. Without it the bed
+ *    ends at 5 kHz and reads as a closed box.
+ * 3. The outside pressing on the glass: a very sparse, very quiet insect
  *    shimmer in the 5–8 kHz band, amplitude-modulated at a cicada-ish 40–70 Hz
  *    buzz inside slow swells that come and go every 10–30 s. It is emitted at
  *    the windows and the door so it gets louder as you approach the glass.
@@ -17,6 +20,8 @@ export interface RoomToneOptions {
   floorDb?: number;
   /** Shimmer at 1 m from a window during a swell, dBFS RMS. */
   shimmerDb?: number;
+  /** Room air (4–16 kHz hiss), dBFS RMS. */
+  airDb?: number;
   /** Where the outside leaks in (window centres, the door). */
   openings: Vec3[];
 }
@@ -57,6 +62,49 @@ export class RoomTone extends AmbientLayer {
       maxHold: 30,
       tau: 8,
     });
+
+    // ---- room air: 4–16 kHz, L/R correlation ≈ 0.3 -----------------------------------
+    // L = c·common + s·own, R = c·common + s·own' with c² = 0.65 (the other
+    // decorrelated HF sources pull the band's total correlation down to ≈ 0.3).
+    const airBase = dbToGain(opts.airDb ?? -56) / 0.25;
+    const airLevel = ctx.createGain();
+    airLevel.gain.value = airBase;
+    const airMerger = ctx.createChannelMerger(2);
+    const common = engine.noiseSource("white", 1.03, t0);
+    for (let ch = 0; ch < 2; ch++) {
+      const own = engine.noiseSource("white", ch === 0 ? 0.97 : 1.09, t0);
+      const mixIn = ctx.createGain();
+      const cg = ctx.createGain();
+      cg.gain.value = Math.sqrt(0.65);
+      const sg = ctx.createGain();
+      sg.gain.value = Math.sqrt(0.35);
+      common.connect(cg);
+      own.connect(sg);
+      cg.connect(mixIn);
+      sg.connect(mixIn);
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = 3800;
+      hp.Q.value = 0.6;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 9500;
+      lp.Q.value = 0.5;
+      mixIn.connect(hp);
+      hp.connect(lp);
+      lp.connect(airMerger, 0, ch);
+    }
+    airMerger.connect(airLevel);
+    airLevel.connect(this.bus);
+    // 0.1–0.3 Hz drift: a slow sine ±1 dB plus a random wander.
+    const airLfo = ctx.createOscillator();
+    airLfo.frequency.value = 0.17;
+    const airLfoDepth = ctx.createGain();
+    airLfoDepth.gain.value = airBase * 0.12;
+    airLfo.connect(airLfoDepth);
+    airLfoDepth.connect(airLevel.gain);
+    airLfo.start(t0);
+    this.wander(airLevel.gain, { min: airBase * 0.8, max: airBase * 1.2, minHold: 4, maxHold: 9, tau: 3 });
 
     // ---- outside: insect shimmer at the glass ------------------------------------------
     const noise = engine.noiseSource("white", 1.02, t0);

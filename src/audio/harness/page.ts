@@ -23,7 +23,7 @@ export interface OfflineRequest {
   seed?: number;
   sampleRate?: number;
   listener?: { x: number; y: number; z: number; yawDeg: number };
-  /** Also fire the one-shots at fixed times (pour 1 s, clink 5 s, door 6 s). */
+  /** Also fire the one-shots at fixed times (pour 1 s, clink 5 s, door 6 s; outside opens over 1.5 s and holds). */
   sfx?: boolean;
   /** Bus names to keep; everything else is muted (the mix then contains only these). */
   solo?: string[];
@@ -44,6 +44,8 @@ export interface OfflineResult {
   sampleRate: number;
   seconds: number;
   stats: ChannelStats[];
+  /** Every discrete event the layers scheduled inside the render. */
+  events: { name: string; t: number; dur: number }[];
   /** Stereo mix as interleaved 16-bit PCM, base64. */
   pcm16: string;
 }
@@ -108,9 +110,12 @@ async function renderOffline(req: OfflineRequest = {}): Promise<OfflineResult> {
         const now = ctx.currentTime;
         if (now >= 1.0) once("pour", () => audio.sfx.pourCoffee(3));
         if (now >= 5.0) once("clink", () => audio.sfx.mugClink());
-        if (now >= 6.0) once("door", () => audio.sfx.doorOpen());
-        if (now >= 6.0 && now < 7.6) audio.sfx.setOutside((now - 6.0) / 1.5);
-        if (now >= 8.5) audio.sfx.setOutside(Math.max(0, 1 - (now - 8.5) / 1.2));
+        if (now >= 6.0) {
+          once("door", () => {
+            audio.sfx.doorOpen();
+            audio.sfx.setOutside(1, 1.5); // swings open over 1.5 s and stays open
+          });
+        }
       }
       void ctx.resume();
     });
@@ -120,7 +125,8 @@ async function renderOffline(req: OfflineRequest = {}): Promise<OfflineResult> {
   const buffer = await ctx.startRendering();
   const stats: ChannelStats[] = BUS_ORDER.map((name, i) => channelStats(name, buffer, i * 2));
   const pcm16 = encodePcm16(buffer.getChannelData(0), buffer.getChannelData(1));
-  return { sampleRate, seconds, stats, pcm16 };
+  const events = engine.events.filter((e) => e.t < seconds).map((e) => ({ name: e.name, t: e.t, dur: e.dur }));
+  return { sampleRate, seconds, stats, events, pcm16 };
 }
 
 function channelStats(name: string, buffer: AudioBuffer, first: number): ChannelStats {

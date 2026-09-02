@@ -96,7 +96,7 @@ export class EventClock {
   ) {}
 
   tick(now: number, lookahead: number): void {
-    if (this.next < 0) this.next = now + this.firstDelay + this.rng.range(0, this.minGap);
+    if (this.next < 0) this.next = now + this.firstDelay + this.rng.range(0, this.minGap * 0.7);
     while (this.next < now + lookahead) {
       this.fire(this.next);
       this.next += this.rng.range(this.minGap, this.maxGap);

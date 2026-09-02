@@ -1,20 +1,22 @@
 /**
  * One-shots for pouring coffee (System 7 calls these).
  *
- * pourCoffee(seconds): liquid into ceramic. Band-passed noise whose resonance
- * climbs 400 → 1400 Hz as the mug fills (a shorter air column rings higher),
- * with a burbling 6–11 Hz modulation, a soft "glug" as the pot tips, and a
- * decaying ring when the stream stops.
+ * pourCoffee(seconds): liquid into ceramic. A 1–5 kHz splash bed with an
+ * 8–15 Hz burble, plus the mug's cavity resonance (Q ≈ 10, ~+10 dB) sweeping
+ * 800 Hz → 1.8 kHz as the air column shortens; 300 ms taper, then the last
+ * resonance rings down. Nothing below 250 Hz — a pour has no thump.
  *
- * mugClink(): a tiny inharmonic ceramic ping, 150 ms.
+ * mugClink(): a tiny inharmonic ceramic ping, 150 ms, ~-30 dBFS at arm's length.
  *
- * Every call builds a handful of nodes that stop and are garbage collected.
+ * Near one-shots use equal-power panning (not HRTF): at arm's length the HRTF's
+ * interaural delay decorrelates L/R and reads as phasey. Every call builds a
+ * handful of nodes that stop and are garbage collected.
  */
 import { AudioEngine, type SpatialHandle, type Vec3 } from "../AudioEngine";
 import { dbToGain } from "../dsp";
 
 export interface CoffeeSfxOptions {
-  /** Peak of a pour at 1 m, dBFS. */
+  /** Splash bed RMS at 1 m during a pour, dBFS. */
   levelDb?: number;
   reverbDb?: number;
 }
@@ -28,8 +30,9 @@ export class CoffeeSfx {
   constructor(engine: AudioEngine, position: Vec3, opts: CoffeeSfxOptions = {}) {
     this.engine = engine;
     this.position = { ...position };
-    this.level = dbToGain(opts.levelDb ?? -12);
-    this.bus = engine.createBus("sfx-coffee", opts.reverbDb ?? -12);
+    // Splash bed after HP/LP is ≈ -20 dBFS; this trim lands it at levelDb.
+    this.level = dbToGain((opts.levelDb ?? -39) + 20);
+    this.bus = engine.createBus("sfx-coffee", opts.reverbDb ?? -14);
   }
 
   /** Where the mug is (call before a pour if it moved). */
@@ -37,105 +40,102 @@ export class CoffeeSfx {
     this.position = { ...p };
   }
 
-  pourCoffee(durationSeconds = 3.5, at: Vec3 = this.position): void {
+  pourCoffee(durationSeconds = 3.0, at: Vec3 = this.position): void {
     const engine = this.engine;
     const ctx = engine.ctx;
     const rng = engine.rng;
     const t = engine.now + 0.02;
-    const dur = Math.max(0.6, durationSeconds);
+    const dur = Math.max(0.8, durationSeconds);
     const end = t + dur;
+    engine.logEvent("sfx.pour", t, dur + 0.3);
+
     const out = ctx.createGain();
     out.gain.value = this.level;
-    const spatial = engine.attach(out, at, this.bus);
+    // Nothing below 250 Hz leaves a mug: two 2nd-order high-passes at 320 Hz.
+    const hpA = ctx.createBiquadFilter();
+    hpA.type = "highpass";
+    hpA.frequency.value = 320;
+    hpA.Q.value = 0.707;
+    const hpB = ctx.createBiquadFilter();
+    hpB.type = "highpass";
+    hpB.frequency.value = 320;
+    hpB.Q.value = 0.707;
+    out.connect(hpA);
+    hpA.connect(hpB);
+    const spatial = engine.attach(hpB, at, this.bus, { model: "equalpower" });
 
-    // ---- stream: noise through a resonance that rises as the mug fills ----------------
     const noise = engine.noiseSource("white", 1, t);
-    const body = ctx.createBiquadFilter();
-    body.type = "bandpass";
-    body.frequency.setValueAtTime(400, t);
-    body.frequency.exponentialRampToValueAtTime(1400, end);
-    body.Q.value = 3.5;
-    const splash = ctx.createBiquadFilter();
-    splash.type = "bandpass";
-    splash.frequency.value = 3200;
-    splash.Q.value = 0.8;
-    const splashGain = ctx.createGain();
-    splashGain.gain.value = 0.25;
-    const stream = ctx.createGain();
-    stream.gain.setValueAtTime(0, t);
-    stream.gain.linearRampToValueAtTime(0.9, t + 0.12);
-    stream.gain.setValueAtTime(0.9, end - 0.15);
-    stream.gain.linearRampToValueAtTime(0, end + 0.02);
-    noise.connect(body);
-    noise.connect(splash);
-    splash.connect(splashGain);
-    body.connect(stream);
-    splashGain.connect(stream);
 
-    // Burble: irregular AM. Two LFOs at non-related rates beat against each other.
-    const lfo1 = ctx.createOscillator();
-    lfo1.frequency.value = rng.range(6, 8);
-    const lfo2 = ctx.createOscillator();
-    lfo2.frequency.value = rng.range(9, 11.5);
-    const lfoDepth1 = ctx.createGain();
-    lfoDepth1.gain.value = 0.25;
-    const lfoDepth2 = ctx.createGain();
-    lfoDepth2.gain.value = 0.15;
-    lfo1.connect(lfoDepth1);
-    lfo2.connect(lfoDepth2);
-    lfoDepth1.connect(stream.gain);
-    lfoDepth2.connect(stream.gain);
-    lfo1.start(t);
-    lfo2.start(t);
-    stream.connect(out);
+    // ---- splash bed: 1–5 kHz ----------------------------------------------------------------
+    const bedHp = ctx.createBiquadFilter();
+    bedHp.type = "highpass";
+    // As the mug fills the splash loses its low end: 900 Hz → 1.5 kHz.
+    bedHp.frequency.setValueAtTime(900, t);
+    bedHp.frequency.linearRampToValueAtTime(1500, end);
+    bedHp.Q.value = 0.707;
+    const bedLp = ctx.createBiquadFilter();
+    bedLp.type = "lowpass";
+    bedLp.frequency.value = 5000;
+    bedLp.Q.value = 0.707;
+    const bed = ctx.createGain();
+    bed.gain.value = 1;
+    noise.connect(bedHp);
+    bedHp.connect(bedLp);
+    bedLp.connect(bed);
 
-    // ---- glug: the pot tips and air gets back in ---------------------------------------------
-    const glug = ctx.createOscillator();
-    glug.type = "sine";
-    glug.frequency.setValueAtTime(190, t);
-    glug.frequency.exponentialRampToValueAtTime(85, t + 0.14);
-    const glugGain = ctx.createGain();
-    glugGain.gain.setValueAtTime(0, t);
-    glugGain.gain.linearRampToValueAtTime(0.5, t + 0.02);
-    glugGain.gain.setTargetAtTime(0, t + 0.06, 0.05);
-    glug.connect(glugGain);
-    glugGain.connect(out);
-    glug.start(t);
-    glug.stop(t + 0.4);
-    // A second, smaller glug partway through on longer pours.
-    if (dur > 2) {
-      const t2 = t + dur * rng.range(0.35, 0.6);
-      const g2 = ctx.createOscillator();
-      g2.type = "sine";
-      g2.frequency.setValueAtTime(160, t2);
-      g2.frequency.exponentialRampToValueAtTime(95, t2 + 0.1);
-      const g2Gain = ctx.createGain();
-      g2Gain.gain.setValueAtTime(0, t2);
-      g2Gain.gain.linearRampToValueAtTime(0.28, t2 + 0.015);
-      g2Gain.gain.setTargetAtTime(0, t2 + 0.04, 0.04);
-      g2.connect(g2Gain);
-      g2Gain.connect(out);
-      g2.start(t2);
-      g2.stop(t2 + 0.3);
-    }
+    // ---- cavity resonance: 800 Hz → 1.8 kHz over the pour, Q 10, ≈ +10 dB -----------------------
+    const cavity = ctx.createBiquadFilter();
+    cavity.type = "bandpass";
+    cavity.Q.value = 10;
+    const fStart = 800 * rng.range(0.95, 1.05);
+    const fEnd = 1800 * rng.range(0.95, 1.05);
+    cavity.frequency.setValueAtTime(fStart, t);
+    cavity.frequency.exponentialRampToValueAtTime(fEnd, end);
+    const cavityGain = ctx.createGain();
+    cavityGain.gain.value = 1.6;
+    noise.connect(cavity);
+    cavity.connect(cavityGain);
 
-    // ---- tail: the full mug rings as the last drops land ------------------------------------
-    const ring = ctx.createBiquadFilter();
-    ring.type = "bandpass";
-    ring.frequency.value = 1400 * rng.range(0.95, 1.05);
-    ring.Q.value = 18;
-    const ringGain = ctx.createGain();
-    ringGain.gain.setValueAtTime(0, end - 0.05);
-    ringGain.gain.linearRampToValueAtTime(0.6, end);
-    ringGain.gain.setTargetAtTime(0, end + 0.02, 0.18);
-    noise.connect(ring);
-    ring.connect(ringGain);
-    ringGain.connect(out);
+    // ---- envelope + burble ---------------------------------------------------------------------
+    const env = ctx.createGain();
+    const g = env.gain;
+    g.setValueAtTime(0, t);
+    g.linearRampToValueAtTime(1.3, t + 0.06); // the first splash is the loudest
+    g.linearRampToValueAtTime(1.0, t + 0.3);
+    g.setValueAtTime(1.0, end - 0.3);
+    g.linearRampToValueAtTime(0, end); // 300 ms taper
+    const burble = ctx.createOscillator();
+    burble.frequency.value = rng.range(8, 15);
+    const burbleDepth = ctx.createGain();
+    burbleDepth.gain.value = 0.3;
+    burble.connect(burbleDepth);
+    burbleDepth.connect(env.gain);
+    // A second, slower irregularity so the burble isn't a metronome.
+    const burble2 = ctx.createOscillator();
+    burble2.frequency.value = rng.range(2.5, 4.5);
+    const burble2Depth = ctx.createGain();
+    burble2Depth.gain.value = 0.12;
+    burble2.connect(burble2Depth);
+    burble2Depth.connect(env.gain);
+    burble.start(t);
+    burble2.start(t);
+    bed.connect(env);
+    env.connect(out);
 
-    const stopAt = end + 1.2;
+    // The cavity is also gated, but it rings ~250 ms after the stream stops.
+    const ring = ctx.createGain();
+    const rg = ring.gain;
+    rg.setValueAtTime(0, t);
+    rg.linearRampToValueAtTime(1, t + 0.1);
+    rg.setValueAtTime(1, end - 0.1);
+    rg.setTargetAtTime(0, end - 0.1, 0.09);
+    cavityGain.connect(ring);
+    ring.connect(out);
+
+    const stopAt = end + 0.8;
     noise.stop(stopAt);
-    lfo1.stop(stopAt);
-    lfo2.stop(stopAt);
+    burble.stop(stopAt);
+    burble2.stop(stopAt);
     scheduleCleanup(noise, stopAt, spatial, engine);
   }
 
@@ -144,9 +144,11 @@ export class CoffeeSfx {
     const ctx = engine.ctx;
     const rng = engine.rng;
     const t = engine.now + 0.01;
+    engine.logEvent("sfx.clink", t, 0.08);
     const out = ctx.createGain();
-    out.gain.value = this.level * 0.7;
-    const spatial = engine.attach(out, at, this.bus);
+    // Partials sum to ≈ -6 dBFS peak; land the ping at ≈ -30 dBFS.
+    out.gain.value = dbToGain(-24);
+    const spatial = engine.attach(out, at, this.bus, { model: "equalpower" });
 
     // Ceramic: a few inharmonic partials, the higher ones dying first.
     const base = rng.range(2500, 3300);

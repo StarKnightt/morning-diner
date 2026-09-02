@@ -39,6 +39,20 @@ export interface LayerBus {
   readonly name: string;
 }
 
+export interface AttachOptions {
+  /** "HRTF" for fixed emitters across the room; "equalpower" for near one-shots (keeps L/R in phase). */
+  model?: PanningModelType;
+  refDistance?: number;
+  rolloffFactor?: number;
+}
+
+/** A scheduled sound event, for the harness's timeline and level checks. */
+export interface AudioEvent {
+  name: string;
+  t: number;
+  dur: number;
+}
+
 export interface AudioEngineOptions {
   /** Provide an existing (possibly offline) context; otherwise one is created. */
   context?: BaseAudioContext;
@@ -68,6 +82,8 @@ export class AudioEngine implements Tickable {
   private readonly reverbReturn: GainNode;
   private readonly noise = new Map<NoiseColor, AudioBuffer>();
   private readonly layers: Tickable[] = [];
+  /** Every discrete event any layer scheduled (context time). Harness only reads it. */
+  readonly events: AudioEvent[] = [];
   private masterDb: number;
   private volume = 1;
 
@@ -179,13 +195,13 @@ export class AudioEngine implements Tickable {
    * bus, or the sum bus by default). HRTF, inverse distance model, tuned so a
    * source across the 11 m room is roughly -18 dB and one beside you is 0 dB.
    */
-  attach(source: AudioNode, position: Vec3, into: AudioNode = this.input): SpatialHandle {
+  attach(source: AudioNode, position: Vec3, into: AudioNode = this.input, opts: AttachOptions = {}): SpatialHandle {
     const p = this.ctx.createPanner();
-    p.panningModel = "HRTF";
+    p.panningModel = opts.model ?? "HRTF";
     p.distanceModel = "inverse";
-    p.refDistance = DISTANCE.refDistance;
+    p.refDistance = opts.refDistance ?? DISTANCE.refDistance;
     p.maxDistance = DISTANCE.maxDistance;
-    p.rolloffFactor = DISTANCE.rolloffFactor;
+    p.rolloffFactor = opts.rolloffFactor ?? DISTANCE.rolloffFactor;
     p.coneInnerAngle = 360;
     p.coneOuterAngle = 360;
     setPannerPosition(p, position, this.now);
@@ -253,6 +269,12 @@ export class AudioEngine implements Tickable {
 
   register(layer: Tickable): void {
     this.layers.push(layer);
+  }
+
+  /** Record a discrete event (kept bounded; the harness reads it after rendering). */
+  logEvent(name: string, t: number, dur: number): void {
+    if (this.events.length > 2000) this.events.splice(0, 1000);
+    this.events.push({ name, t, dur });
   }
 
   /** Advance every event scheduler. Call once per frame (or per offline suspend). */
