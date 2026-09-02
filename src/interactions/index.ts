@@ -61,6 +61,7 @@ export function initInteractions(ctx: InteractionContext): Interactions {
   const door = new DoorInteraction(diner.door, diner.colliders, player, {
     open: () => audio.sfx.doorOpen(),
     outside: (amount) => audio.sfx.setOutside(amount),
+    latch: () => wiring.doorLatch(),
   }, scene);
 
   const prompt = new Prompt("E", new URLSearchParams(location.search).has("shoot"));

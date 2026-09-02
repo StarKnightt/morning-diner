@@ -12,6 +12,7 @@
  *   node tools/sequence.mjs --tag=sys7-seq        # → shots/<tag>-<seq>.png (sheet) + shots/<tag>-<seq>-k<i>-<t>s.png (keys)
  *   node tools/sequence.mjs --out=DIR             # write somewhere other than shots/ (before/after comparisons)
  *   node tools/sequence.mjs --query=post=0        # extra URL query (default: post ON — the user sees it with post)
+ *   node tools/sequence.mjs --seqs=pour --t0=4.3 --t1=4.9 --step=0.1 --keys=all   # zoom into a window; every frame full-size
  *
  * Every frame is a seek (`__interact(name, t)` freezes the clocks), so the sheet is
  * reproducible frame for frame. Cameras: the sit sequence IS the camera path; pour and
@@ -105,6 +106,18 @@ const SEQUENCES = {
   },
 };
 const NAMES = ONLY.length ? Object.keys(SEQUENCES).filter((s) => ONLY.includes(s)) : Object.keys(SEQUENCES);
+// Optional window override (applies to every selected sequence): --t0 --t1 --step, --keys=all|none|t,t,t
+for (const name of NAMES) {
+  const seq = SEQUENCES[name];
+  if (arg("t0")) seq.t0 = Number(arg("t0"));
+  if (arg("t1")) seq.t1 = Number(arg("t1"));
+  if (arg("step")) seq.step = Number(arg("step"));
+  const keys = arg("keys");
+  if (keys === "all") seq.keys = "all";
+  else if (keys === "none") seq.keys = [];
+  else if (keys) seq.keys = keys.split(",").map(Number);
+  if (arg("t0") || arg("t1") || arg("step")) seq.title = `${seq.title.split("  ")[0]}  ${seq.t0}-${seq.t1} s @ ${seq.step} s`;
+}
 
 /* ------------------------------------------------------------------ */
 /* teardown, wired before anything starts                              */
@@ -370,10 +383,11 @@ async function main() {
       );
       const buf = await page.screenshot({ type: "png" });
       const png = PNG.sync.read(buf);
-      const key = seq.keys.some((k) => Math.abs(k - t) < 1e-6);
-      frames.push({ t, png, key, info });
-      if (key) {
-        const kf = path.join(OUT, `${TAG}-${name}-k${seq.keys.findIndex((k) => Math.abs(k - t) < 1e-6)}-${t.toFixed(2)}s.png`);
+          const keyIdx = seq.keys === "all" ? times.indexOf(t) : seq.keys.findIndex((k) => Math.abs(k - t) < 1e-6);
+          const key = keyIdx >= 0;
+          frames.push({ t, png, key, info });
+          if (key) {
+            const kf = path.join(OUT, `${TAG}-${name}-k${keyIdx}-${t.toFixed(2)}s.png`);
         await fs.writeFile(kf, buf);
         written.push(kf);
       }
