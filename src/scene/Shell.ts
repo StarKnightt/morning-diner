@@ -182,6 +182,12 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     b.rbox(pal.trimPaint, [x0, y1, zFront - ct], [x1, y1 + cw, zFront], 0.002);
   }
 
+  /* ---------------- window head bulkhead (blind pocket) between head trim and grid ---------------- */
+  {
+    const { bottom, depth } = WINDOW.headSoffit;
+    b.box(pal.wallPaint, [-halfX, bottom, zFront - depth], [halfX, H, zFront], uv);
+  }
+
   /* ---------------- door frame (leaf is built in Door.ts) ---------------- */
   {
     const x0 = doorOpening.a0, x1 = doorOpening.a1;
@@ -198,8 +204,9 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     b.box(pal.alum, [x0 + jw, 0.02, zs0], [x0 + jw + st, DOOR.height - jw, zs1]);
     b.box(pal.alum, [x1 - jw - st, 0.02, zs0], [x1 - jw, DOOR.height - jw, zs1]);
     b.box(pal.alum, [x0 + jw, DOOR.height - jw - st, zs0], [x1 - jw, DOOR.height - jw, zs1]);
-    // 12 mm threshold saddle across the full wall depth
-    b.rbox(pal.alum, [x0 + jw, -0.002, zFront - 0.03], [x1 - jw, 0.012, zFront + T + 0.03], 0.004, 3);
+    // 100 × 12 mm aluminium threshold saddle under the leaf; concrete slab fills the opening below it
+    b.rbox(pal.alum, [x0 + jw, -0.002, zMid - 0.05], [x1 - jw, 0.012, zMid + 0.05], 0.004, 3);
+    b.box(pal.concrete, [x0, yLow, zFront - 0.01], [x1, 0, zFront + T], { uvScale: 1 });
     // Closer bracket on the head (interior side); the arm lives on the leaf in Door.ts
     b.rbox(pal.darkMetal, [x0 + jw + 0.08, DOOR.height - jw - 0.004, zFront + 0.01], [x0 + jw + 0.34, DOOR.height - jw, zFront + 0.07], 0.002);
   }
@@ -299,9 +306,9 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     parent.add(voidBox);
   }
 
-  /* ---------------- exterior ground ---------------- */
+  /* ---------------- exterior ground: apron slab one 120 mm step below the floor ---------------- */
   {
-    b.box(pal.concrete, [-halfX - 1.5, yLow, zFront + T], [halfX + 1.5, 0, zFront + T + 1.8], { uvScale: 1 });
+    b.box(pal.concrete, [-halfX - 1.5, yLow - 0.15, zFront + T], [halfX + 1.5, -0.12, zFront + T + 1.8], { uvScale: 1 });
     const g = new THREE.PlaneGeometry(90, 90);
     g.rotateX(-Math.PI / 2);
     g.translate(0, yLow, 0);

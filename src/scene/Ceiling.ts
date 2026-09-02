@@ -8,7 +8,7 @@ import * as THREE from "three";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
-import { BACK_BAR, CABINETS, CEILING, FAN, ROOM, cellX, cellZ } from "./layout";
+import { BACK_BAR, CABINETS, CEILING, FAN, ROOM, WINDOW, cellX, cellZ } from "./layout";
 
 export interface CeilingResult {
   fanRotor: THREE.Group;
@@ -98,16 +98,18 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
         }
       }
     }
-    // Wall angle around the perimeter (22 mm face), and along the cabinet soffit
-    const wa = 0.022;
-    b.box(pal.tbar, [-halfX, teeY0, zBack], [-halfX + wa, H, zFront]);
-    b.box(pal.tbar, [halfX - wa, teeY0, zBack], [halfX, H, zFront]);
-    b.box(pal.tbar, [-halfX, teeY0, zBack], [halfX, H, zBack + wa]);
-    b.box(pal.tbar, [-halfX, teeY0, zFront - wa], [halfX, H, zFront]);
+    // Wall angle (25 mm face, 3 mm below the tee face so it reads) around the perimeter,
+    // along the cabinet bulkhead and along the window head bulkhead.
+    const wa = 0.025, wy = teeY0 - 0.003;
+    const zw = zFront - WINDOW.headSoffit.depth;
+    b.box(pal.tbar, [-halfX, wy, zBack], [-halfX + wa, H, zw]);
+    b.box(pal.tbar, [halfX - wa, wy, zBack], [halfX, H, zw]);
+    b.box(pal.tbar, [-halfX, wy, zBack], [halfX, H, zBack + wa]);
+    b.box(pal.tbar, [-halfX, wy, zw - wa], [halfX, H, zw]);
     const zs = zBack + CABINETS.soffitDepth;
-    b.box(pal.tbar, [BACK_BAR.xMin, teeY0, zs], [BACK_BAR.xMax, H, zs + wa]);
-    b.box(pal.tbar, [BACK_BAR.xMin - wa, teeY0, zBack], [BACK_BAR.xMin, H, zs]);
-    b.box(pal.tbar, [BACK_BAR.xMax, teeY0, zBack], [BACK_BAR.xMax + wa, H, zs]);
+    b.box(pal.tbar, [BACK_BAR.xMin, wy, zs], [BACK_BAR.xMax, H, zs + wa]);
+    b.box(pal.tbar, [BACK_BAR.xMin - wa, wy, zBack], [BACK_BAR.xMin, H, zs]);
+    b.box(pal.tbar, [BACK_BAR.xMax, wy, zBack], [BACK_BAR.xMax + wa, H, zs]);
   }
 
   /* ---- troffers: whole cells, 20 mm door frame, recessed lens ---- */

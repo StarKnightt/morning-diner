@@ -21,15 +21,17 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
   const czMid = (zEnd0 + zInner) / 2;
   const cz0 = czMid - capHalf, cz1 = czMid + capHalf;
 
+  // Cap rail 60 × 40 mm with a 16 mm bullnose, one continuous run per divider.
   const capSlab = (pts: XZ[]) => {
-    const [slab] = slabGeometry(pts, { radius: 0.006, y0: cap.y0, thickness: cap.y1 - cap.y0, bevel: 0.006, curveSegments: 3 });
+    const [slab] = slabGeometry(pts, { radius: 0.008, y0: cap.y0, thickness: cap.y1 - cap.y0, bevel: cap.bullnose, curveSegments: 3 });
     b.add(slab, pal.laminateWood);
   };
 
   for (const cx of WINDOW.centersX) {
     /* ---- table ---- */
     {
-      const pts = rectXZ(cx - table.width / 2, zInner, cx + table.width / 2, zOuter);
+      const zT0 = zInner + table.inset;
+      const pts = rectXZ(cx - table.width / 2, zT0, cx + table.width / 2, zOuter);
       const [slab, band] = slabGeometry(pts, {
         radius: table.cornerR,
         y0: table.top - table.thickness,
@@ -40,15 +42,41 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       });
       b.add(slab, pal.formica);
       if (band) b.add(band, pal.formicaEdge);
-      // Pedestal: 90 mm chrome column on a 400 × 600 cast foot, mount plate under the top.
-      const pz = (zInner + zOuter) / 2;
-      b.rbox(pal.darkMetal, [cx - 0.2, 0, pz - 0.3], [cx + 0.2, 0.03, pz + 0.3], 0.012, 3);
-      const colH = table.top - table.thickness - 0.045;
-      const col = new THREE.CylinderGeometry(0.045, 0.045, colH, 24);
-      col.translate(cx, 0.03 + colH / 2, pz);
+      // Pedestal on the table centroid: cast bell base Ø 470 (40 mm rim rising to a Ø 150 boss),
+      // chrome column, 360 mm spider plate under the top.
+      const pz = (zT0 + zOuter) / 2;
+      const { bellR, bellRim, bossR, bossH, columnR, spider } = BOOTH.pedestal;
+      const bell = new THREE.LatheGeometry(
+        [
+          new THREE.Vector2(0, 0),
+          new THREE.Vector2(bellR, 0),
+          new THREE.Vector2(bellR, 0.012),
+          new THREE.Vector2(bellR - 0.006, bellRim),
+          new THREE.Vector2(bellR * 0.72, bellRim + 0.012),
+          new THREE.Vector2(bellR * 0.45, bellRim + 0.03),
+          new THREE.Vector2(bossR + 0.01, bossH - 0.012),
+          new THREE.Vector2(bossR, bossH),
+          new THREE.Vector2(0, bossH),
+        ],
+        48,
+      );
+      bell.translate(cx, 0, pz);
+      b.add(bell, pal.darkMetal);
+      const colH = table.top - table.thickness - 0.02 - bossH;
+      const col = new THREE.CylinderGeometry(columnR, columnR, colH, 28);
+      col.translate(cx, bossH + colH / 2, pz);
       b.add(col, pal.chrome);
-      b.rbox(pal.darkMetal, [cx - 0.15, table.top - table.thickness - 0.015, pz - 0.15], [cx + 0.15, table.top - table.thickness, pz + 0.15], 0.004);
-      b.collider([cx - table.width / 2, 0, zInner], [cx + table.width / 2, table.top, zOuter]);
+      const plate = new THREE.CylinderGeometry(spider / 2, spider / 2 - 0.01, 0.02, 32);
+      plate.translate(cx, table.top - table.thickness - 0.01, pz);
+      b.add(plate, pal.darkMetal);
+      for (let k = 0; k < 4; k++) {
+        const arm = new THREE.BoxGeometry(spider / 2 - columnR, 0.03, 0.04);
+        arm.translate((spider / 2 + columnR) / 2, 0, 0);
+        arm.rotateY((k / 4) * Math.PI * 2);
+        arm.translate(cx, table.top - table.thickness - 0.035, pz);
+        b.add(arm, pal.darkMetal);
+      }
+      b.collider([cx - table.width / 2, 0, zT0], [cx + table.width / 2, table.top, zOuter]);
     }
 
     /* ---- benches ---- */

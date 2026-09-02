@@ -26,6 +26,8 @@ export const WINDOW = {
   head: 2.62,
   /** Horizontal transom bar. */
   transomY: 2.2,
+  /** Head bulkhead (blind pocket) between the window head trim and the ceiling grid. */
+  headSoffit: { bottom: 2.7, depth: 0.2 },
   /** Centres along x of the 5 front windows; each has a booth in front of it. Pitch 1.8. */
   centersX: [-4.7, -2.9, -1.1, 0.7, 2.5],
 } as const;
@@ -47,13 +49,15 @@ export const BOOTH = {
   /** Aisle end and wall end of the seating (z). Table wall edge sits 24 mm off the apron. */
   zInner: 2.0,
   zOuter: 3.21,
-  table: { width: 0.7, top: 0.75, thickness: 0.038, cornerR: 0.03, band: 0.025 },
+  /** Table is inset 120 mm from the end panels; 50 mm corner radii. */
+  table: { width: 0.7, inset: 0.12, top: 0.75, thickness: 0.038, cornerR: 0.05, band: 0.025 },
+  pedestal: { bellR: 0.235, bellRim: 0.04, bossR: 0.075, bossH: 0.09, columnR: 0.045, spider: 0.36 },
   seat: { front: 0.36, depth: 0.45, thickness: 0.14, top: 0.45, edgeR: 0.04 },
   /** Wedge back: front face reclined, rear face vertical against the divider, tapering to the roll. */
   back: { frontX: 0.76, rearX: 0.88, top: 0.97, reclineDeg: 9, rollR: 0.045 },
   divider: { x0: 0.88, x1: 0.92 },
   /** One continuous mitred cap per divider (T in plan: divider + both end panels). */
-  cap: { y0: 1.045, y1: 1.08, width: 0.07 },
+  cap: { y0: 1.04, y1: 1.08, width: 0.06, bullnose: 0.016 },
   endPanel: 0.04,
   kick: 0.1,
 } as const;
@@ -70,12 +74,10 @@ export const COUNTER = {
   /** L-return at the door end: die x ∈ [xMax, xMax+dieDepth], top out to lReturnXOuter. */
   lReturnXOuter: 2.7,
   lReturnZEnd: -1.15,
-  /** Register stand (0.45 × 0.35 × 0.35) on the L-return top by the door, off the counter sightline. */
-  register: { x0: 2.05, x1: 2.5, z0: -0.95, z1: -0.6 },
   /** Chrome footrail: 36 mm Ø at 230 mm AFF, 130 mm off the die, brackets every 1.2 m. */
-  footrest: { y: 0.23, tubeR: 0.018, gap: 0.13, bracketPitch: 1.2 },
+  footrest: { y: 0.2, tubeR: 0.018, gap: 0.13, bracketPitch: 1.2 },
   kickHeight: 0.1,
-  kickRecess: 0.04,
+  kickRecess: 0.05,
 } as const;
 
 export const STOOL = {
@@ -118,8 +120,8 @@ export const CABINETS = {
   doorWidth: 0.533,
   /** Two runs flanking the pass-through. */
   runs: [
-    [-4.5, -1.3],
-    [0.3, 2.4],
+    [-4.5, -1.35],
+    [0.35, 2.4],
   ] as ReadonlyArray<readonly [number, number]>,
 } as const;
 

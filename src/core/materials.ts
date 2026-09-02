@@ -75,7 +75,7 @@ export function createPalette(maxAnisotropy: number): Palette {
     ceilingTile,
     tbar: new THREE.MeshStandardMaterial({ color: 0xf2f0ea, roughness: 0.55, metalness: 0.2 }),
     floor,
-    baseboard: new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.6, metalness: 0 }),
+    baseboard: new THREE.MeshStandardMaterial({ color: 0x2a2724, roughness: 0.55, metalness: 0 }),
     trimPaint: new THREE.MeshStandardMaterial({ color: 0xf1ede2, roughness: 0.5, metalness: 0 }),
     vinylRed: new THREE.MeshStandardMaterial({ color: 0x8a1a1a, roughness: 0.45, metalness: 0 }),
     formica: new THREE.MeshStandardMaterial({ color: 0xe8dcc0, roughness: 0.35, metalness: 0 }),

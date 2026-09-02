@@ -60,9 +60,10 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     rail.translate((xMin + 0.05 + tubeX) / 2, footrest.y, tubeZ);
     b.add(rail, pal.chrome);
     for (let x = xMin + 0.3; x < xMax; x += footrest.bracketPitch) {
-      // Bracket: wall plate on the die, horizontal arm out to the tube, saddle under it
-      b.rbox(pal.chrome, [x - 0.03, footrest.y - 0.05, dieFront - 0.002], [x + 0.03, footrest.y + 0.05, dieFront + 0.008], 0.003);
-      b.rbox(pal.chrome, [x - 0.012, footrest.y - 0.028, dieFront], [x + 0.012, footrest.y - 0.008, tubeZ + 0.01], 0.003);
+      // Cast bracket: 70 × 110 mm base plate on the die, tapered arm out to a saddle under the tube
+      b.rbox(pal.chrome, [x - 0.035, footrest.y - 0.055, dieFront - 0.002], [x + 0.035, footrest.y + 0.055, dieFront + 0.01], 0.004);
+      b.rbox(pal.chrome, [x - 0.014, footrest.y - 0.03, dieFront], [x + 0.014, footrest.y - 0.006, tubeZ + 0.012], 0.004);
+      b.rbox(pal.chrome, [x - 0.02, footrest.y - 0.032, tubeZ - 0.014], [x + 0.02, footrest.y + 0.004, tubeZ + 0.014], 0.005);
     }
     // L-return footrest along z
     const rail2 = new THREE.CylinderGeometry(footrest.tubeR, footrest.tubeR, tubeZ - lReturnZEnd - 0.05, 20);
@@ -73,21 +74,12 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     elbow.translate(tubeX, footrest.y, tubeZ);
     b.add(elbow, pal.chrome);
     for (let z = lReturnZEnd + 0.3; z < dieBack; z += footrest.bracketPitch) {
-      b.rbox(pal.chrome, [lDieX1 - 0.002, footrest.y - 0.05, z - 0.03], [lDieX1 + 0.008, footrest.y + 0.05, z + 0.03], 0.003);
-      b.rbox(pal.chrome, [lDieX1, footrest.y - 0.028, z - 0.012], [tubeX + 0.01, footrest.y - 0.008, z + 0.012], 0.003);
+      b.rbox(pal.chrome, [lDieX1 - 0.002, footrest.y - 0.055, z - 0.035], [lDieX1 + 0.01, footrest.y + 0.055, z + 0.035], 0.004);
+      b.rbox(pal.chrome, [lDieX1, footrest.y - 0.03, z - 0.014], [tubeX + 0.012, footrest.y - 0.006, z + 0.014], 0.004);
+      b.rbox(pal.chrome, [tubeX - 0.014, footrest.y - 0.032, z - 0.02], [tubeX + 0.014, footrest.y + 0.004, z + 0.02], 0.005);
     }
 
-    // Register stand on the top at the door end: 0.45 × 0.35 × 0.35, base plinth, body, lid.
-    {
-      const { x0, x1, z0, z1 } = COUNTER.register;
-      const y = height;
-      b.rbox(pal.darkMetal, [x0, y, z0], [x1, y + 0.03, z1], 0.004);
-      b.rbox(pal.formica, [x0 + 0.015, y + 0.03, z0 + 0.015], [x1 - 0.015, y + 0.31, z1 - 0.015], 0.006, 3);
-      b.rbox(pal.stainless, [x0 - 0.005, y + 0.31, z0 - 0.005], [x1 + 0.005, y + 0.35, z1 + 0.005], 0.008, 3);
-      // Drawer line and a display panel on the aisle (+z) face
-      b.box(pal.darkMetal, [x0 + 0.03, y + 0.09, z1 - 0.016], [x1 - 0.03, y + 0.096, z1 - 0.012]);
-      b.rbox(pal.darkGlass, [x0 + 0.08, y + 0.15, z1 - 0.018], [x1 - 0.08, y + 0.27, z1 - 0.012], 0.002);
-    }
+    // The L-return top stays empty: the register is a prop (System 2+).
 
     b.collider([xMin, 0, dieBack], [lReturnXOuter, height, topFrontZ]);
     b.collider([xMax, 0, lReturnZEnd], [lReturnXOuter, height, dieBack]);
@@ -240,9 +232,7 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     b.rbox(pal.stainless, [xMin, height, zBack - 0.005], [xMax, height + 0.1, zBack + 0.015], 0.002);
     b.collider([xMin, 0, zBack], [xMax, height, zFront]);
 
-    // Coffee warmer position: stainless brewer body placeholder (System 2 details it).
-    b.rbox(pal.stainless, [coffeeX - 0.2, height, zBack + 0.05], [coffeeX + 0.2, height + 0.42, zBack + 0.45], 0.004, 3);
-    b.rbox(pal.darkMetal, [coffeeX - 0.18, height + 0.005, zBack + 0.05], [coffeeX + 0.18, height + 0.03, zBack + 0.5], 0.003);
+    void coffeeX; // the brewer itself is built in Props.ts (System 2)
   }
 
   /* ---------------- upper cabinets + soffit ---------------- */
