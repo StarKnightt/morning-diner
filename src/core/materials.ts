@@ -6,7 +6,7 @@
 import * as THREE from "three";
 import * as texModule from "../procedural/textures";
 import * as extModule from "../procedural/exterior";
-import { WINDOW } from "../scene/layout";
+import { DOOR, WINDOW } from "../scene/layout";
 import { VINYL_CRAZE_METRES, boothVinylCrazeLayout } from "./upholstery";
 import { FLUORESCENT, TROFFER_LENS_NITS, luminance, nits } from "../scene/Lighting";
 import type { TextureBank } from "./textureBank";
@@ -115,6 +115,8 @@ export interface Palette {
   baseboardWorn: THREE.MeshStandardMaterial;
   /** Door kick plate: satin (0.45) brushed stainless, lighter than the brewer trim (derived from `stainlessCool`). */
   kickPlate: THREE.MeshPhysicalMaterial;
+  /** The kick plate proper: satin aluminium with boot rubber, mop film and brushing on its own canvas (rev 3). */
+  kickPlateWorn: THREE.MeshPhysicalMaterial;
   /** Cast pedestal bells: dark metal with a grey dust film and kick marks over the bottom 30 mm (derived from `darkMetal`). */
   castBaseDusty: THREE.MeshStandardMaterial;
   /** Door/window dressing atlas: OPEN sign, hours, PUSH, card sticker, film edge. */
@@ -122,7 +124,7 @@ export interface Palette {
 }
 
 /** Palette fields that are derived from tuned base materials after the env-intensity pass. */
-type DerivedKey = "tbarPainted" | "formicaCounterWorn" | "formicaEdgeBrushed" | "chromeScuffed" | "chromeBar" | "stainlessTouched" | "glassCarafe" | "baseboardWorn" | "vinylRedWeltCracked" | "kickPlate" | "castBaseDusty";
+type DerivedKey = "tbarPainted" | "formicaCounterWorn" | "formicaEdgeBrushed" | "chromeScuffed" | "chromeBar" | "stainlessTouched" | "glassCarafe" | "baseboardWorn" | "vinylRedWeltCracked" | "kickPlate" | "kickPlateWorn" | "castBaseDusty";
 
 export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palette {
   const aniso = Math.min(8, maxAnisotropy);
@@ -139,14 +141,14 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // world-anchored UVs (merge.ts worldBoxUv) so seams and the 0.95–1.12 m scuff band run
   // through every pier and spandrel. Stipple relief is a 0.6 m detail normal (repeat 4).
   const WALL_M = 2.4;
-  const wallTex = tex.paintedWall("#e9e2d2", 2048, 11, 0.06, { metres: WALL_M, seamsU: [0, 0.5], seamsV: [0.5], scuff: { v0: 0.95 / WALL_M, v1: 1.12 / WALL_M, perMetre: 3 } });
+  const wallTex = tex.paintedWall("#e9e2d2", 2048, 11, 0.06, { metres: WALL_M, seamsU: [0, 0.5], seamsV: [0.5], scuff: { v0: 0.88 / WALL_M, v1: 1.08 / WALL_M, perMetre: 3 } });
   // Window wall: canvas = the 1.8 m window pitch, u 0.5 on every window centre (Shell.ts
   // offsets the UVs), so the sun-fade halo lands beside each jamb (u 0.125 / 0.875).
   const WIN_M = WINDOW.centersX[1] - WINDOW.centersX[0]; // 1.8
   const winWallTex = tex.paintedWall("#e9e2d2", 2048, 13, 0.06, {
     metres: WIN_M,
     seamsV: [1.2 / WIN_M],
-    scuff: { v0: 0.95 / WIN_M, v1: 1.12 / WIN_M, perMetre: 2 },
+    scuff: { v0: 0.88 / WIN_M, v1: 1.08 / WIN_M, perMetre: 2 },
     fade: { jambsU: [0.5 - WINDOW.width / 2 / WIN_M, 0.5 + WINDOW.width / 2 / WIN_M], reach: 0.22 / WIN_M, v0: WINDOW.sill / WIN_M, v1: WINDOW.head / WIN_M, amount: 0.028 },
   });
   const extWallTex = tex.paintedWall("#d9cfbd", 1024, 12, 0.08);
@@ -634,6 +636,20 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   kickPlate.color.setRGB(0.74, 0.77, 0.8, THREE.LinearSRGBColorSpace);
   kickPlate.anisotropy = 0.7;
   kickPlate.anisotropyRotation = Math.PI / 2;
+  // Rev 3: the plate itself gets its own wear canvas (tint + brushing + boot rubber + mop
+  // film; textures.ts kickPlateWear) on the RoundedBox face UVs; the push-bar roses keep the
+  // plain satin above. Roughness floor 0.3 (no sub-texel roughness → no specular sparkle
+  // from the map). +1 draw call.
+  const kickPlateWorn = kickPlate.clone();
+  {
+    const kw = tex.kickPlateWear(1024, 256, DOOR.width - 2 * DOOR.jamb - 2 * DOOR.reveal - 2 * 0.123, 0.203, 97, 0.15 /* u runs from the latch (+x) end on the −z face */);
+    kw.map.wrapS = kw.map.wrapT = THREE.ClampToEdgeWrapping;
+    kw.roughnessMap.wrapS = kw.roughnessMap.wrapT = THREE.ClampToEdgeWrapping;
+    kickPlateWorn.map = kw.map;
+    kickPlateWorn.roughnessMap = kw.roughnessMap;
+    kickPlateWorn.color.setRGB(1, 1, 1);
+    kickPlateWorn.roughness = 1;
+  }
   // Pedestal bells at floor contact (rev 2): the LatheGeometry's v runs up the profile, the
   // rim and shoulder are v ≲ 0.2. A 64 × 64 DataTexture (no worker) carries the cast's own
   // colour with a grey dust film and mop splash over the bottom, patchy around the base, and
@@ -699,5 +715,5 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // upward with drips (additive param on the existing material).
   palette.coffeeStain.alphaMap = tex.tideLineAlpha(512, 65);
 
-  return { ...palette, formicaEdgeBrushed, chromeScuffed, chromeBar, stainlessTouched, glassCarafe, formicaCounterWorn, tbarPainted, baseboardWorn, vinylRedWeltCracked, kickPlate, castBaseDusty };
+  return { ...palette, formicaEdgeBrushed, chromeScuffed, chromeBar, stainlessTouched, glassCarafe, formicaCounterWorn, tbarPainted, baseboardWorn, vinylRedWeltCracked, kickPlate, kickPlateWorn, castBaseDusty };
 }

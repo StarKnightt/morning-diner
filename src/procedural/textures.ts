@@ -600,56 +600,59 @@ export function paintedWall(hex: string, size: number, seed: number, strength = 
     // darker paint-transfer line at contact height — the booth cap's arris, ~65 % up the
     // band — 6–9 mm tall, broken into runs, wandering ±3 mm. A few small dark knocks sit in
     // the band. Nothing above or below it. Burnished paint under the band is glossier.
+    // Rev 3. Rev 2's band was too faint to read and its 6–9 mm "contact line" was all that
+    // survived — a dashed ruled line. Now the band IS the mark: 10–20 cm tall (v0..v1 plus
+    // a feathered tail), greasy grey-brown, darkest along the centre, its density a smudge
+    // field — horizontal-stretched fbm (jackets slide along the wall) with a fine grain —
+    // patchy along the wall where people sit more, a few darker smears where the same
+    // shoulder rubs every day. Inside the band the flat paint is burnished glossy (roughness
+    // drops from 0.985 toward 0.6 at the darkest). No line, no fly specks.
     const { v0, v1, perMetre } = opts.scuff;
     const yTop = (1 - v1) * size, yBot = (1 - v0) * size, yMid = (yTop + yBot) / 2, half = (yBot - yTop) / 2;
-    const yLine = yBot - (yBot - yTop) * 0.65;
     const along = makeFbm(seed + 41, 5, 3);
-    const gate = makeFbm(seed + 43, 18, 2);
-    const img2 = ctx.getImageData(0, Math.max(0, Math.floor(yTop - half)), size, Math.min(size, Math.ceil(yBot + half)) - Math.max(0, Math.floor(yTop - half)));
-    const y0 = Math.max(0, Math.floor(yTop - half));
+    const smudge = makeFbm(seed + 43, 24, 3);
+    const grain = makeFbm(seed + 47, 96, 2);
+    const y0 = Math.max(0, Math.floor(yTop - half * 0.8)), y1 = Math.min(size, Math.ceil(yBot + half * 0.8));
+    const img2 = ctx.getImageData(0, y0, size, y1 - y0);
     const d2 = img2.data;
+    // Heavier smears: centre u, half-length, weight — 2–4 per metre, in the band's upper half
+    // (shoulder height), each an ellipse of extra density.
+    const smears: Array<[number, number, number, number]> = [];
+    for (let s = 0; s < Math.round(perMetre * metres); s++)
+      smears.push([rng(), (0.08 + rng() * 0.18) * pxPerM, yMid - half * (0.1 + rng() * 0.5), 0.3 + rng() * 0.4]);
     for (let yy = 0; yy < img2.height; yy++) {
       const y = y0 + yy;
-      // Band profile: raised cosine across v0..v1, tail a little beyond
-      const t = Math.abs(y - yMid) / (half * 1.15);
+      // Band profile: raised cosine across the band and its tail, darkest at the centre
+      const t = Math.abs(y - yMid) / (half * 1.4);
       const prof = t >= 1 ? 0 : 0.5 + 0.5 * Math.cos(Math.PI * t);
-      // Contact line: 6–9 mm tall, wobbling ±3 mm
       for (let x = 0; x < size; x++) {
         const u = x / size;
         const patch = 0.35 + 0.65 * along(u, 0.3); // where people sit more
-        const aBand = prof * prof * 0.24 * patch;
-        const wob = (gate(u, 0.8) - 0.5) * 0.006 * pxPerM;
-        const lh = (0.006 + 0.003 * along(u, 0.1)) * pxPerM / 2;
-        const dl = Math.abs(y - (yLine + wob)) / lh;
-        const open = smoothstep(0.42, 0.55, gate(u, 0.5)); // broken into runs
-        const aLine = dl >= 1 ? 0 : (1 - dl * dl) * 0.3 * open * patch;
+        // smudge field: stretched 5:1 along the wall, plus a fine grain so it is not airbrush
+        const sm = 0.3 + 0.7 * smudge(u * 0.2 + 0.11, y / size);
+        const gr = 0.75 + 0.6 * (grain(x / size, y / size) - 0.5);
+        let a = prof * Math.sqrt(prof) * 0.85 * patch * sm * gr;
+        for (const [su, sl, sy, sw] of smears) {
+          let du = Math.abs(x - su * size); du = Math.min(du, size - du);
+          const e = (du / sl) ** 2 + ((y - sy) / (half * 0.45)) ** 2;
+          if (e < 1) a += (1 - e) * sw * 0.35 * sm;
+        }
+        a = Math.min(0.8, a);
         const i = (yy * size + x) * 4;
-        // Band: grey-brown grime; line: darker transfer (wood finish + grime)
-        let r = d2[i], g = d2[i + 1], b = d2[i + 2];
-        r = r * (1 - aBand) + 120 * aBand; g = g * (1 - aBand) + 112 * aBand; b = b * (1 - aBand) + 100 * aBand;
-        r = r * (1 - aLine) + 72 * aLine; g = g * (1 - aLine) + 60 * aLine; b = b * (1 - aLine) + 48 * aLine;
-        d2[i] = r; d2[i + 1] = g; d2[i + 2] = b;
-        rough[y * size + x] -= aBand * 1.1 + aLine * 0.3; // burnished under the band
+        // greasy grey-brown grime, darker where denser
+        const gr2 = 108 - 40 * a, gg2 = 98 - 40 * a, gb2 = 84 - 38 * a;
+        d2[i] = d2[i] * (1 - a) + gr2 * a; d2[i + 1] = d2[i + 1] * (1 - a) + gg2 * a; d2[i + 2] = d2[i + 2] * (1 - a) + gb2 * a;
+        rough[y * size + x] -= a * 0.62; // burnished under the band
       }
     }
     ctx.putImageData(img2, 0, y0);
-    // Knocks: small dark ragged ellipses in the band
-    const n = Math.round(perMetre * metres);
-    for (let s = 0; s < n; s++) {
-      const x = rng() * size, y = yTop + rng() * (yBot - yTop);
-      const len = (0.005 + rng() * 0.02) * pxPerM, lw = 0.004 * pxPerM, ang = (rng() - 0.5) * 0.4;
-      ctx.fillStyle = `rgba(40,34,28,${0.25 + rng() * 0.25})`;
-      ctx.beginPath();
-      ctx.ellipse(x, y, len * 0.5, lw * 0.5, ang, 0, Math.PI * 2);
-      ctx.fill();
-    }
   }
   return { map: finish(c, true, 4), roughnessMap: greyFromField(rough, size, size, 4) };
 }
 
 /**
- * Roller stipple: a 3/8" nap leaves 1–3 mm domes of paint at ~60 % coverage,
- * 0.1–0.3 mm high (why flat walls still glint at grazing light). Detail canvas
+ * Roller stipple: a 3/8" nap leaves 2–4 mm domes of paint at ~60 % coverage,
+ * 0.2–0.5 mm high (why flat walls still glint at grazing light). Detail canvas
  * covering 0.3 m (rev 2: was 0.6 m — at 0.59 mm/texel a 1 mm dome was two texels
  * and the relief blurred away); tiled with repeat = metres / 0.3 on the wall UVs.
  * Cells on a jittered 2.2 mm grid, each a dome of random height, 15 % skipped,
@@ -660,7 +663,7 @@ export function wallStipple(size: number, seed: number): { normalMap: THREE.Text
   const mmPerPx = (WALL_STIPPLE_M * 1000) / size;
   const rng = makeRng(seed);
   const swell = makeFbm(seed + 5, 12, 3);
-  const cell = 2.2 / mmPerPx;
+  const cell = 2.8 / mmPerPx;
   const grid = Math.max(4, Math.round(size / cell));
   const step = size / grid;
   const cx = new Float32Array(grid * grid), cy = new Float32Array(grid * grid), cr = new Float32Array(grid * grid), ch = new Float32Array(grid * grid);
@@ -669,8 +672,8 @@ export function wallStipple(size: number, seed: number): { normalMap: THREE.Text
       const k = j * grid + i;
       cx[k] = (i + 0.1 + rng() * 0.8) * step;
       cy[k] = (j + 0.1 + rng() * 0.8) * step;
-      cr[k] = (0.7 + rng() * 1.0) / mmPerPx; // dome radius 0.7–1.7 mm
-      ch[k] = rng() < 0.15 ? 0 : 0.1 + rng() * 0.2; // height mm
+      cr[k] = (1.0 + rng() * 1.1) / mmPerPx; // dome radius 1.0–2.1 mm (2–4 mm bumps)
+      ch[k] = rng() < 0.15 ? 0 : 0.2 + rng() * 0.3; // height mm (rev 3: 0.2–0.5, was 0.1–0.3 — no lit/shadow side read)
     }
   const hf = new Float32Array(size * size);
   for (let y = 0; y < size; y++) {
@@ -692,7 +695,7 @@ export function wallStipple(size: number, seed: number): { normalMap: THREE.Text
   // own shade whatever the light does, so the relief keeps a lighting-independent presence
   // (the normal alone vanished under a flat rig). 0.84 in the deepest valley, 1 on a dome top.
   const ao = new Float32Array(size * size);
-  for (let i = 0; i < ao.length; i++) ao[i] = 0.84 + 0.16 * clamp01(hf[i] / 0.25);
+  for (let i = 0; i < ao.length; i++) ao[i] = 0.84 + 0.16 * clamp01(hf[i] / 0.4);
   return { normalMap: normalFromHeight(hf, size, size, 0.5 / mmPerPx, 4), aoMap: greyFromField(ao, size, size, 4) };
 }
 
@@ -1752,6 +1755,98 @@ export function speckleRoughness(size: number, base: number, amp: number, seed: 
   const t = finish(c, false, 4);
   t.repeat.set(6, 6);
   return t;
+}
+
+/**
+ * Door kick plate (rev 3): one canvas over the plate's face (`wM` × `hM` m, UV 0..1 — the
+ * RoundedBox face UVs). Satin brushed aluminium: the map is the metal's own tint with
+ * 1–2 % vertical brush streaks (the roughness carries the brushing proper, 0.36–0.5 in
+ * vertical runs, so the floor reflection smears up the plate). On it, what shoes do to a
+ * kick plate: black rubber transfer as smears — dense core, feathered, streaked along the
+ * kick, broken where the sole lifted — MULTIPLIED into the tint (× 0.4 at full density,
+ * matte where the rubber sits), 80 % of them in the lower half and toward the latch side
+ * (`latchU`) where a foot pushes the door; a grey mop-splash film over the bottom 15 mm; a
+ * band of dulled, scratched metal along the bottom edge where the mop bucket and the vacuum
+ * catch it. The dent/lifted lip is geometry (Door.ts).
+ */
+export function kickPlateWear(w: number, h: number, wM: number, hM: number, seed: number, latchU: number): { map: THREE.Texture; roughnessMap: THREE.Texture } {
+  const { c, ctx } = canvas(w, h);
+  const rng = makeRng(seed);
+  const mPerPx = wM / w;
+  const col = makeFbm(seed + 1, 96, 2); // brush streak field, sampled along u only
+  const fine = makeFbm(seed + 2, 128, 2);
+  const grime = makeFbm(seed + 3, 8, 3);
+  const smearN = makeFbm(seed + 7, 64, 2);
+  const T = new Float32Array(w * h); // rubber transfer 0..1
+  const marks = 20;
+  for (let s = 0; s < marks; s++) {
+    // origin: lower half, latch-side weighted; direction: an arc of a swinging foot — mostly
+    // 10–40° off horizontal, either way. A few broad faint sole-drags, most narrower.
+    const side = rng() < 0.8 ? latchU + (rng() - 0.5) * 0.7 : rng();
+    const px = ((side + 1) % 1) * w, py = h * (rng() < 0.8 ? 0.5 + rng() * 0.48 : rng() * 0.5);
+    const lenPx = (0.03 + rng() * rng() * 0.16) / mPerPx;
+    const ang = (rng() < 0.5 ? 1 : -1) * (0.17 + rng() * 0.5) + (rng() < 0.5 ? Math.PI : 0);
+    const bend = (rng() - 0.5) * 0.8;
+    const broad = rng() < 0.3;
+    const wMm = broad ? 14 + rng() * 16 : 5 + rng() * 9;
+    const weight = broad ? 0.2 + rng() * 0.25 : 0.3 + rng() * 0.5, seed2 = rng() * 10;
+    const cxp = px + Math.cos(ang + bend) * lenPx * 0.5, cyp = py + Math.sin(ang + bend) * lenPx * 0.5;
+    const exp_ = px + Math.cos(ang) * lenPx, eyp = py + Math.sin(ang) * lenPx;
+    const steps = Math.max(3, Math.ceil(lenPx * 1.2));
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      const qx = (1 - t) * (1 - t) * px + 2 * (1 - t) * t * cxp + t * t * exp_;
+      const qy = (1 - t) * (1 - t) * py + 2 * (1 - t) * t * cyp + t * t * eyp;
+      const along = smearN(t * 0.6 + seed2, seed2 * 0.3);
+      const gap = smoothstep(0.34, 0.44, along);
+      if (gap <= 0) continue;
+      const ends = smoothstep(0, 0.12, t) * smoothstep(1, 0.85, t);
+      const widthPx = (wMm / 1000 / mPerPx) * (0.55 + 0.45 * smearN(t * 1.3 + seed2 + 3, 0.7)) * (0.5 + 0.5 * ends);
+      const R = Math.ceil(widthPx / 2 + 1);
+      const dens = weight * gap * ends;
+      for (let dy = -R; dy <= R; dy++)
+        for (let dx = -R; dx <= R; dx++) {
+          const xx = Math.round(qx) + dx, yy = Math.round(qy) + dy;
+          if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+          const dd = Math.hypot(xx - qx, yy - qy) / (widthPx / 2 + 0.5);
+          if (dd > 1) continue;
+          const perp = ((xx - qx) * -(eyp - py) + (yy - qy) * (exp_ - px)) / (lenPx || 1);
+          const streak = smearN(t * lenPx * 0.02 + seed2 * 3, perp * 0.16 + seed2);
+          const prof = (1 - dd * dd) * (0.45 + 1.1 * streak);
+          const i = yy * w + xx;
+          T[i] = Math.max(T[i], Math.min(1, dens * prof));
+        }
+    }
+  }
+  const img = ctx.createImageData(w, h);
+  const d = img.data;
+  const rough = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const v = 1 - y / h; // v = 0 at the plate's bottom edge
+    const mm = v * hM * 1000; // height above the bottom edge
+    for (let x = 0; x < w; x++) {
+      const u = x / w, i = y * w + x, o = i * 4;
+      // brushing: vertical runs (u-only streak field) + a fine grain
+      const streak = col(u * 8, 0.5) - 0.5, grain = fine(x / w, y / h) - 0.5;
+      let r = 0.4 + streak * 0.14 + grain * 0.04;
+      let k = 1 + streak * 0.03 + grain * 0.01;
+      // mop-splash film over the bottom 15 mm, ragged top edge, and the dulled/scratched
+      // bottom band (40 mm, heaviest at the edge)
+      const splash = (1 - smoothstep(6, 18 + 8 * grime(u * 3, 0.2), mm)) * (0.6 + 0.4 * grime(u * 6, v * 3));
+      const bottom = 1 - smoothstep(0, 40, mm);
+      k *= 1 - 0.14 * splash - 0.04 * bottom;
+      r += splash * 0.28 + bottom * 0.1 * (0.5 + grime(u * 10, 0.7));
+      // rubber transfer
+      const t = T[i];
+      k *= 1 - 0.5 * t;
+      r += t * 0.35;
+      // tint: cool satin aluminium (sRGB ≈ 224/228/232), a hair warmer where handled
+      d[o] = Math.min(255, 224 * k); d[o + 1] = Math.min(255, 228 * k); d[o + 2] = Math.min(255, 232 * k); d[o + 3] = 255;
+      rough[i] = Math.min(0.9, Math.max(0.3, r));
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return { map: finish(c, true, 4), roughnessMap: greyFromField(rough, w, h, 4) };
 }
 
 /** Coarse asphalt for the lot placeholder. */
