@@ -191,7 +191,19 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
         const dirX = (s * lean) / faceLen, dirY = (back.top - yb0) / faceLen;
         const t = 0.02 + panelH / 2;
         m.setPosition(X(back.frontX) + dirX * t + s * 0.003, yb0 + dirY * t, zMid);
-        b.add(panel, pal.vinylRedCrazed, m);
+        if (ti === 1) {
+          // The second booth's backs have cracked along the welts (System 5): the material's
+          // crack band lives at u ≈ 0, so u becomes the distance from the nearest cord (the
+          // 0.5 mm pebble grain does not mind being mirrored at the channel crowns).
+          const pp = panel.attributes.position as THREE.BufferAttribute, puv = panel.attributes.uv as THREE.BufferAttribute;
+          for (let i = 0; i < pp.count; i++) {
+            const x = pp.getX(i);
+            let dmin = 1;
+            for (const vx of valleys) dmin = Math.min(dmin, Math.abs(x - vx));
+            puv.setX(i, dmin);
+          }
+          b.add(panel, pal.vinylRedWeltCracked, m);
+        } else b.add(panel, pal.vinylRedCrazed, m);
         // 6 mm welt cord sewn ON every seam: centre 1 mm above the crown tangent line
         // (crowns at 20 mm), so it carries its own highlight and throws a line shadow
         // both sides (baked into the panel's vertex colour). Ends tuck under the seams.

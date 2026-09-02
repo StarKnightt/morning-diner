@@ -101,6 +101,8 @@ export interface Palette {
   chromeScuffed: THREE.MeshStandardMaterial;
   /** Push bar / pull handle chrome with a hand-worn grip zone (derived from `chrome`). */
   chromeBar: THREE.MeshStandardMaterial;
+  /** Crazed back vinyl with cracking beside the welts — one booth's back panels (u = distance from the welt). */
+  vinylRedWeltCracked: THREE.MeshPhysicalMaterial;
   /** Brushed stainless with fingerprints (derived from `stainlessBrushed`). */
   stainlessTouched: THREE.MeshPhysicalMaterial;
   /** Decanter glass with scratches and dishwasher etch (derived from `glassClear`). */
@@ -112,7 +114,7 @@ export interface Palette {
 }
 
 /** Palette fields that are derived from tuned base materials after the env-intensity pass. */
-type DerivedKey = "tbarPainted" | "formicaCounterWorn" | "formicaEdgeBrushed" | "chromeScuffed" | "chromeBar" | "stainlessTouched" | "glassCarafe" | "baseboardWorn";
+type DerivedKey = "tbarPainted" | "formicaCounterWorn" | "formicaEdgeBrushed" | "chromeScuffed" | "chromeBar" | "stainlessTouched" | "glassCarafe" | "baseboardWorn" | "vinylRedWeltCracked";
 
 export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palette {
   const aniso = Math.min(8, maxAnisotropy);
@@ -540,6 +542,13 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   const chromeScuffed = withRough(palette.chrome.clone(), tex.scuffRoughness(512, palette.chrome.roughness, 61));
   // Hands on chrome: the push bar and pull handle (v along the bar).
   const chromeBar = withRough(palette.chrome.clone(), tex.handWear(512, palette.chrome.roughness, 62));
+  const vinylRedWeltCracked = palette.vinylRedCrazed.clone();
+  {
+    const t = tex.vinylSurface(1024, 0.25, true, true);
+    for (const m of [t.normalMap, t.roughnessMap]) { m.wrapS = m.wrapT = THREE.RepeatWrapping; m.repeat.set(4, 4); }
+    vinylRedWeltCracked.normalMap = t.normalMap;
+    vinylRedWeltCracked.roughnessMap = t.roughnessMap;
+  }
   // Fingerprints on the napkin dispensers and brewer trim (one canvas per face).
   const stainlessTouched = withRough(palette.stainlessBrushed.clone(), tex.fingerprints(512, palette.stainlessBrushed.roughness, 63));
   // Decanter: scratches + dishwasher etch over clear glass (base roughness 0).
@@ -562,5 +571,5 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // upward with drips (additive param on the existing material).
   palette.coffeeStain.alphaMap = tex.tideLineAlpha(512, 65);
 
-  return { ...palette, formicaEdgeBrushed, chromeScuffed, chromeBar, stainlessTouched, glassCarafe, formicaCounterWorn, tbarPainted, baseboardWorn };
+  return { ...palette, formicaEdgeBrushed, chromeScuffed, chromeBar, stainlessTouched, glassCarafe, formicaCounterWorn, tbarPainted, baseboardWorn, vinylRedWeltCracked };
 }

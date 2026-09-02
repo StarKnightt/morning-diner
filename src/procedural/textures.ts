@@ -606,7 +606,7 @@ export function acousticTile(size: number, seed = 555, stain = false): TextureSe
       for (let x = 0; x < size; x++) {
         const dx = x - cx, dy = y - cy;
         const ang = Math.atan2(dy, dx);
-        const rad = Math.hypot(dx, dy) / (R * (0.85 + 0.3 * wobble((ang + Math.PI) / (2 * Math.PI), 0.5)));
+        const rad = Math.hypot(dx, dy) / (R * (0.72 + 0.56 * wobble((ang + Math.PI) / (2 * Math.PI), 0.5)));
         if (rad > 1.05) continue;
         let a = 0.22 * (1 - smoothstep(0.96, 1.03, rad)); // wash
         for (let k = 0; k < rings.length; k++) {
@@ -677,7 +677,7 @@ export interface VinylSet {
  * — carried in the normal and (≤ 15 %) roughness only; nothing in the diffuse.
  * One canvas covers `metres` of vinyl.
  */
-export function vinylSurface(size: number, metres: number, crazed: boolean): VinylSet {
+export function vinylSurface(size: number, metres: number, crazed: boolean, weltCracks = false): VinylSet {
   const pxPerMm = size / (metres * 1000);
   const { c: nc, ctx: nctx } = canvas(size, size);
   const { c: rc, ctx: rctx } = canvas(size, size);
@@ -748,8 +748,22 @@ export function vinylSurface(size: number, metres: number, crazed: boolean): Vin
           }
         const edge = (f2 - f1) / pxPerMm; // mm from the cell boundary
         const p = patch(x / size, y / size);
-        const presence = Math.min(1, Math.max(0, (p - 0.5) / 0.14));
-        const w = 0.2 + p * 0.25; // crack half-width in mm
+        let presence = Math.min(1, Math.max(0, (p - 0.5) / 0.14));
+        let w = 0.2 + p * 0.25; // crack half-width in mm
+        if (weltCracks) {
+          // Seam cracking (System 5): the vinyl flexes along the sewn welt every time a back is
+          // leaned on, and after years the plasticiser has gone: a 4–18 mm band beside the cord
+          // is crazed through, wider cracks, with a few running along the seam. Booths.ts maps
+          // this panel's u as the distance from the nearest welt, so u ≈ 0 (the canvas edge,
+          // wrapping) is the cord line.
+          const du = Math.min(x, size - x) / size * metres * 1000; // mm from the welt
+          const band = (1 - smoothstep(6, 18, du)) * smoothstep(1.5, 4, du) * (0.6 + 0.4 * patch(x / size + 0.5, y / size));
+          if (band > presence) { presence = band; w = 0.25 + band * 0.35; }
+          // Long cracks parallel to the cord: a wandering line 5–9 mm out, present in stretches
+          const line = 6.5 + (patch(0.25, y / size) - 0.5) * 5, stretch = smoothstep(0.45, 0.55, patch(0.7, y / size * 0.5));
+          const dl = Math.abs(du - line);
+          if (dl < 0.45 && stretch > presence) { presence = stretch; w = 0.45; }
+        }
         const inCrack = edge < w ? 1 - edge / w : 0;
         const lip = edge >= w && edge < w + 0.8 ? 1 - (edge - w) / 0.8 : 0;
         const i = y * size + x;
