@@ -7,6 +7,8 @@
 import * as THREE from "three";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
+import { DECAL, atlasQuad } from "../core/shapes";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { DOOR, ROOM } from "./layout";
 
 export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
@@ -46,7 +48,7 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   const bar = new THREE.CylinderGeometry(0.014, 0.014, leafW - stile * 2 + 0.06, 24);
   bar.rotateZ(Math.PI / 2);
   bar.translate(leafW / 2, barY, z0 - 0.07);
-  b.add(bar, pal.chrome);
+  b.add(bar, pal.chromeBar); // hand-worn grip zone toward the latch side (System 5)
   for (const x of [stile + 0.02, leafW - stile - 0.02]) {
     // Cast standoff: 45 × 60 mm rose on the stile, tapered post out to a saddle under the bar.
     // Satin stainless, not mirror chrome: a mirror this close to the dark-bronze stile
@@ -64,10 +66,13 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   // Pull handle (exterior side, +z): vertical chrome bar
   const pull = new THREE.CylinderGeometry(0.014, 0.014, 0.45, 20);
   pull.translate(leafW - stile / 2, barY, z1 + 0.06);
-  b.add(pull, pal.chrome);
+  b.add(pull, pal.chromeBar);
   for (const y of [barY - 0.19, barY + 0.19]) {
-    b.rbox(pal.chrome, [leafW - stile / 2 - 0.012, y - 0.012, z1], [leafW - stile / 2 + 0.012, y + 0.012, z1 + 0.06], 0.004);
+    b.rbox(pal.chromeBar, [leafW - stile / 2 - 0.012, y - 0.012, z1], [leafW - stile / 2 + 0.012, y + 0.012, z1 + 0.06], 0.004);
   }
+  // Kick plate (System 5): 8" (203 mm) satin stainless on the push side, door width less 2",
+  // screwed to the bottom rail — standard commercial hardware (ANSI/BHMA A156.6 protective plates).
+  b.rbox(pal.stainlessCool, [stile + 0.023, y0 + 0.012, z0 - 0.0015], [leafW - stile - 0.023, y0 + 0.012 + 0.203, z0], 0.001, 1);
   // Surface closer on the top rail (interior side) with its arm reaching the head bracket
   const cy0 = leafH - topRail + 0.02, cy1 = leafH - 0.015;
   b.rbox(pal.darkMetal, [0.12, cy0, z0 - 0.06], [0.36, cy1, z0], 0.004);
@@ -104,6 +109,30 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   smudge.renderOrder = 11;
   smudge.name = "door-smudge";
   hinge.add(smudge);
+
+  // Dressing (System 5): one atlas material (materials.ts decal), quads 1.5 mm inside the
+  // glass. Everything is applied to the INSIDE face, as diners do to keep vinyl out of the
+  // weather: the OPEN card (suction hooks, high on the light) and the PUSH sticker face the
+  // room; the hours lettering and the card-acceptance sticker are applied reversed so they
+  // read from the lot, and from inside they read mirrored through the glass — as in life.
+  // (Inside is also the only place they can be: three.js's transmission buffer holds opaque
+  // objects only, so a transparent decal on the far side of transmissive glass never shows.)
+  const decals: THREE.BufferGeometry[] = [];
+  const stick = (w: number, h: number, x: number, y: number, region: readonly [number, number, number, number], readsFromInside: boolean) => {
+    const g = atlasQuad(w, h, region);
+    if (readsFromInside) g.rotateY(Math.PI); // face −z (the room)
+    g.translate(x, y, -0.0015);
+    decals.push(g);
+  };
+  const glassMidX = leafW / 2;
+  stick(0.3, 0.2, glassMidX + 0.05, gy1 - 0.16, DECAL.open, true);
+  stick(0.12, 0.05, glassMidX, barY + 0.095, DECAL.push, true);
+  stick(0.2, 0.26, gx1 - 0.15, 1.45, DECAL.hours, false);
+  stick(0.085, 0.055, gx1 - 0.09, 1.12, DECAL.cards, false);
+  const decalMesh = new THREE.Mesh(mergeGeometries(decals, false)!, pal.decal);
+  decalMesh.renderOrder = 12;
+  decalMesh.name = "door-decals";
+  hinge.add(decalMesh);
 
   parent.add(hinge);
   return hinge;

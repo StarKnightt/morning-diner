@@ -6,6 +6,7 @@
  */
 import * as THREE from "three";
 import type { Palette } from "../core/materials";
+import { makeRng } from "../core/rng";
 import { MergedBuilder } from "../core/merge";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -45,33 +46,63 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
   }
 
   /* ---- tegular tiles, instanced ---- */
+  // Grid tees carry metric UVs (1 canvas = 1 m of tee) for the chipped-paint map.
+  const tee = { uvScale: 1 };
   {
+    // Two water-stained tiles (under the AC line and by the pass-through) are their own
+    // small mesh with the stained variant: +1 draw, the only way to give two instances a
+    // different map. System 5.
+    const stained = new Set(["6,7", "15,3"]);
     const cells: Array<[number, number]> = [];
-    for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) if (own(i, j) === undefined) cells.push([i, j]);
+    for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) if (own(i, j) === undefined && !stained.has(`${i},${j}`)) cells.push([i, j]);
     const tileT = 0.015;
     const geo = new THREE.BoxGeometry(tile - 0.02, tileT, tile - 0.02);
     const im = new THREE.InstancedMesh(geo, pal.ceilingTile, cells.length);
     im.receiveShadow = true;
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3();
+    const tint = new THREE.Color();
+    const rng = makeRng(4141);
+    // A few tiles sag: laid on a slightly bowed cross tee, one edge drops 4–6 mm.
+    const sag = new Map<string, number>([["4,3", 0.55], ["11,8", -0.7], ["17,5", 0.5]]);
+    const sagAxis = new THREE.Vector3(1, 0, 0), yaw = new THREE.Quaternion(), tiltQ = new THREE.Quaternion();
     cells.forEach(([i, j], k) => {
       const x0 = cellX(i), x1 = cellX1(i), z0 = cellZ(j), z1 = cellZ1(j);
       p.set((x0 + x1) / 2, teeY0 - tegularDrop + tileT / 2, (z0 + z1) / 2);
       s.set((x1 - x0 - 0.02) / (tile - 0.02), 1, (z1 - z0 - 0.02) / (tile - 0.02));
       // Rotate whole tiles by quarter turns so the speckle does not repeat visibly.
       const full = x1 - x0 > tile - 1e-3 && z1 - z0 > tile - 1e-3;
-      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), full ? ((i * 7 + j * 3) % 4) * (Math.PI / 2) : 0);
+      yaw.setFromAxisAngle(new THREE.Vector3(0, 1, 0), full ? ((i * 7 + j * 3) % 4) * (Math.PI / 2) : 0);
+      const sg = sag.get(`${i},${j}`);
+      if (sg) {
+        tiltQ.setFromAxisAngle(sagAxis, THREE.MathUtils.degToRad(sg));
+        q.copy(tiltQ).multiply(yaw);
+        p.y -= 0.003;
+      } else q.copy(yaw);
       m.compose(p, q, s);
       im.setMatrixAt(k, m);
+      // Per-tile tone: ±1.5 % with a warm (yellowed) drift on ~30 % of them; 1 in 25 a shade greyer.
+      const v = 1 + (rng() - 0.5) * 0.03;
+      const yellow = rng() < 0.3 ? 0.012 + rng() * 0.012 : 0;
+      const grey = rng() < 0.04 ? 0.04 : 0;
+      tint.setRGB(v - grey, (v - grey) * (1 - yellow * 0.35), (v - grey) * (1 - yellow));
+      im.setColorAt(k, tint);
     });
     im.instanceMatrix.needsUpdate = true;
     im.name = "ceiling-tiles";
     parent.add(im);
+    const sb = new MergedBuilder();
+    for (const key of stained) {
+      const [i, j] = key.split(",").map(Number);
+      const x0 = cellX(i), x1 = cellX1(i), z0 = cellZ(j), z1 = cellZ1(j);
+      sb.box(pal.ceilingTileStained, [x0 + 0.01, teeY0 - tegularDrop, z0 + 0.01], [x1 - 0.01, teeY0 - tegularDrop + tileT, z1 - 0.01]);
+    }
+    sb.build(parent, { name: "ceiling-stained", castShadow: false });
   }
 
   /* ---- T-bar grid ---- */
   {
     // Cross-tee end clip: a slightly deeper, wider stub where a cross tee meets a main.
-    const joint = (x0: number, z0: number, x1: number, z1: number) => b.box(pal.tbar, [x0, teeY0 - 0.002, z0], [x1, teeY0, z1]);
+    const joint = (x0: number, z0: number, x1: number, z1: number) => b.box(pal.tbarPainted, [x0, teeY0 - 0.002, z0], [x1, teeY0, z1], tee);
     // Tees running along z at each x line (1.2 m cross tees, 15 mm face), with a joint at each end
     for (let i = 1; i < nx; i++) {
       const x = cellX(i);
@@ -79,7 +110,7 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
         const a = own(i - 1, j), c = own(i, j);
         if (a !== undefined && a === c) continue; // inside a troffer
         const z0 = cellZ(j), z1 = cellZ1(j);
-        b.box(pal.tbar, [x - crossFace / 2, teeY0, z0], [x + crossFace / 2, H, z1]);
+        b.box(pal.tbarPainted, [x - crossFace / 2, teeY0, z0], [x + crossFace / 2, H, z1], tee);
         joint(x - crossFace / 2 - 0.001, z0, x + crossFace / 2 + 0.001, z0 + 0.012);
         joint(x - crossFace / 2 - 0.001, z1 - 0.012, x + crossFace / 2 + 0.001, z1);
       }
@@ -93,7 +124,7 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
         const a = own(i, j - 1), c = own(i, j);
         if (a !== undefined && a === c) continue;
         const x0 = cellX(i), x1 = cellX1(i);
-        b.box(pal.tbar, [x0, teeY0, z - face / 2], [x1, H, z + face / 2]);
+        b.box(pal.tbarPainted, [x0, teeY0, z - face / 2], [x1, H, z + face / 2], tee);
         if (!main) {
           joint(x0, z - face / 2 - 0.001, x0 + 0.012, z + face / 2 + 0.001);
           joint(x1 - 0.012, z - face / 2 - 0.001, x1, z + face / 2 + 0.001);
@@ -104,14 +135,14 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
     // along the cabinet bulkhead and along the window head bulkhead.
     const wa = 0.025, wy = teeY0 - 0.003;
     const zw = zFront - WINDOW.headSoffit.depth;
-    b.box(pal.tbar, [-halfX, wy, zBack], [-halfX + wa, H, zw]);
-    b.box(pal.tbar, [halfX - wa, wy, zBack], [halfX, H, zw]);
-    b.box(pal.tbar, [-halfX, wy, zBack], [halfX, H, zBack + wa]);
-    b.box(pal.tbar, [-halfX, wy, zw - wa], [halfX, H, zw]);
+    b.box(pal.tbarPainted, [-halfX, wy, zBack], [-halfX + wa, H, zw], tee);
+    b.box(pal.tbarPainted, [halfX - wa, wy, zBack], [halfX, H, zw], tee);
+    b.box(pal.tbarPainted, [-halfX, wy, zBack], [halfX, H, zBack + wa], tee);
+    b.box(pal.tbarPainted, [-halfX, wy, zw - wa], [halfX, H, zw], tee);
     const zs = zBack + CABINETS.soffitDepth;
-    b.box(pal.tbar, [BACK_BAR.xMin, wy, zs], [BACK_BAR.xMax, H, zs + wa]);
-    b.box(pal.tbar, [BACK_BAR.xMin - wa, wy, zBack], [BACK_BAR.xMin, H, zs]);
-    b.box(pal.tbar, [BACK_BAR.xMax, wy, zBack], [BACK_BAR.xMax + wa, H, zs]);
+    b.box(pal.tbarPainted, [BACK_BAR.xMin, wy, zs], [BACK_BAR.xMax, H, zs + wa], tee);
+    b.box(pal.tbarPainted, [BACK_BAR.xMin - wa, wy, zBack], [BACK_BAR.xMin, H, zs], tee);
+    b.box(pal.tbarPainted, [BACK_BAR.xMax, wy, zBack], [BACK_BAR.xMax + wa, H, zs], tee);
   }
 
   /* ---- troffers: whole cells, 20 mm door frame, recessed lens ---- */

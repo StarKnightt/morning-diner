@@ -201,7 +201,7 @@ export class Diner {
       vinyls.forEach((v, i) => v.color.copy(saved[i]));
       scene.environment.dispose();
       scene.environment = roomEnv;
-      for (const m of [this.palette.glassClear, this.palette.glassFluted, this.palette.coffee, this.palette.coffeeStain, this.palette.ceramic, this.palette.bisque, this.palette.chromeSoft, this.palette.sugar, this.palette.salt]) {
+      for (const m of [this.palette.glassClear, this.palette.glassCarafe, this.palette.glassFluted, this.palette.coffee, this.palette.coffeeStain, this.palette.ceramic, this.palette.bisque, this.palette.chromeSoft, this.palette.sugar, this.palette.salt]) {
         m.envMap = propEnv;
         m.needsUpdate = true;
       }
