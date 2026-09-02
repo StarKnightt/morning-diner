@@ -120,7 +120,7 @@ const TROFFER_LUMENS = 7_500;
 /**
  * Sky + lot seen through the glass and the half-open slats, as one Lambertian rectangle
  * in the glass plane: (½ sky at ≈ 10,000 nits + ½ lot at ≈ 3,000) × 0.88 glass × 0.5
- * slat openness ≈ 2,900 nits; set to 1,800 because the room probe already carries part
+ * slat openness ≈ 2,900 nits; set to 1,200 because the room probe already carries part
  * of the window's contribution (it sees the windows) — REFERENCE §8 explains the split.
  */
 const WINDOW_SKY = new THREE.Color().setRGB(205 / 255, 215 / 255, 232 / 255, THREE.SRGBColorSpace);
@@ -553,8 +553,10 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   // table undersides and the counter die — the probe now sits away from them (Diner.ts),
   // so each patch is an upward-facing RectAreaLight: sun colour × checker floor
   // (average albedo ≈ 0.45, slightly warm), luminance ρ·E/π with E = 90 klux · sin 35° ·
-  // 0.88 glass · 0.5 slat duty ≈ 22.7 klux → 3,250 nits. The dielectrics' probe is
-  // captured with the interior sun off (Diner.ts), so this is the only sun bounce they get.
+  // 0.88 glass · 0.5 slat duty ≈ 22.7 klux → 3,250 nits over the lit stripes; 2,000 as the
+  // rectangle's average because booth backs and stool bases block ~40 % of it. The
+  // dielectrics' probe is captured with the interior sun off (Diner.ts), so this is the
+  // only sun bounce they get.
   const bounces: THREE.RectAreaLight[] = [];
   if (!q.has("nobounce")) {
     const planShift = Math.tan(THREE.MathUtils.degToRad(38));

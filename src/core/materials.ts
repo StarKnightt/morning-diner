@@ -432,9 +432,10 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   for (const m of Object.values(palette)) {
     if (m instanceof THREE.MeshStandardMaterial) m.envMapIntensity = 1;
   }
-  // Emissives in nits × K (Lighting.ts: 1 unit = 10,000 nits). Lit rocker switch ≈ 1,500 nits,
-  // red pilot LED ≈ 3,000 nits, the unlit kitchen box ≈ 30 nits (grey paint under a 300-lux
-  // kitchen fluorescent: 0.3 × 300 / π). The troffer lens is set at its construction above.
+  // Emissives in nits × K (Lighting.ts: 1 unit = 10,000 nits); the radiance is intensity ×
+  // the emissive colour's luminance. Lit rocker switch ≈ 700 nits, red pilot lamp ≈ 700 nits,
+  // the unlit kitchen box ≈ 30 nits (grey paint under a 300-lux kitchen fluorescent:
+  // 0.3 × 300 / π). The troffer lens is set at its construction above (≈ 4,500 nits).
   palette.rockerLit.emissiveIntensity = 0.15;
   palette.pilotRed.emissiveIntensity = 0.3;
   palette.kitchenDim.emissiveIntensity = 0.07;
