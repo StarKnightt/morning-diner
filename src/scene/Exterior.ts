@@ -42,11 +42,20 @@ export interface ExteriorResult {
   sky: THREE.Mesh;
 }
 
+/**
+ * Diffuse sky fill approximation from System 3 (emissive = albedo × k × 0.45), when nothing
+ * lit the lot but the sun. System 4 replaced it: every exterior material samples the lot
+ * probe (Diner.ts), a PMREM of the physical sky dome (Lighting.ts SKY_HORIZON_NITS), which IS
+ * the diffuse skylight — ≈ 17 klux against 51.6 klux of direct sun, a 2 EV lit/shadow ratio.
+ * Rev 2 of System 4 (2026-09) sets `SKY_FILL_SCALE` to 0: at k ≈ 0.2 the emissive was still
+ * adding ≈ 900 nits × albedo to every exterior surface, lit or shaded — 14 % of the shade
+ * side on the asphalt, a flat, unshadowable term that lifted every lot shadow and could not
+ * be in a photograph. The hook is kept so the term can be A/B'd (`?skyfill=1` restores it).
+ */
+const SKY_FILL_SCALE = typeof location !== "undefined" && new URLSearchParams(location.search).has("skyfill") ? 0.45 : 0;
 function skyFill(mat: THREE.MeshStandardMaterial, k: number): THREE.MeshStandardMaterial {
-  // Diffuse sky fill approximation: emissive = albedo × k (placeholder until System 4).
-  // Rev 2: scaled down ×0.45 — the hemisphere light already supplies most of the sky term,
-  // and the extra emissive was flattening the lot shadows to ~1.5:1 (real 8 AM sun ≈ 5:1).
-  k *= 0.45;
+  k *= SKY_FILL_SCALE;
+  if (k <= 0) return mat;
   // emissive = colour × k, through the map when there is one (colour × map is the albedo — rev 3:
   // the car paint's dust map is a near-white tint, so emissive had to carry the paint colour).
   mat.emissive.copy(mat.color).multiplyScalar(k);
