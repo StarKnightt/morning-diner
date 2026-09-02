@@ -328,11 +328,20 @@ let pcssInstalled = false;
  *   radius ≤ 0 → fixed-kernel PCF of |radius| texels (the lot sun: its penumbrae would be
  *                a few px through the blinds, and a blur on the cone occluder's edge would
  *                have opened a half-lit ring at the two-sun seam).
- * 16 blocker taps + 24 filter taps on a per-pixel rotated Vogel disk. Non-reversed depth.
+ *
+ * Rev 2: 8 blocker taps + 16 filter taps (was 16 + 24) on a 16-point Poisson disk rotated
+ * per pixel by interleaved-gradient noise; the lot light takes 4 taps on a rotated square.
+ * Every FILTER tap is a bilinear comparison (`pcssTap`: the four texels around the tap,
+ * each compared, then bilinearly weighted — what a `sampler2DShadow` does in hardware, which
+ * a raw depth texture cannot). It costs 4 coherent fetches per tap but turns the 17-level
+ * staircase of 16 hard taps into a continuous ramp, which is what removes the speckle in
+ * the penumbrae (rev 1's 24 single-fetch taps still dithered visibly). `?pcss=fast` compiles
+ * single-fetch taps for the A/B timing. Non-reversed depth.
  */
 export function installPcss(): void {
   if (pcssInstalled) return;
   pcssInstalled = true;
+  const fast = typeof location !== "undefined" && new URLSearchParams(location.search).get("pcss") === "fast";
   // The built three.module.js strips the chunk's comments, so the BASIC branch is located
   // structurally: the `#else` after the VSM `#elif`, up to the `#endif` before the point-light block.
   const chunk = THREE.ShaderChunk.shadowmap_pars_fragment;
@@ -348,14 +357,35 @@ export function installPcss(): void {
     return;
   }
   const pcss = /* glsl */ `#else // SHADOWMAP_TYPE_BASIC — replaced by PCSS (src/scene/Lighting.ts)
+		${fast ? "#define PCSS_FAST 1" : ""}
 
+		// 16-point Poisson disk, unit radius; the even entries (radii 0.4–0.9) are the blocker search.
+		const vec2 pcssDisk[ 16 ] = vec2[ 16 ](
+			vec2( -0.7634, -0.3234 ), vec2( 0.7663, -0.6231 ), vec2( -0.0763, -0.7532 ), vec2( 0.2796, 0.2382 ),
+			vec2( -0.7422, 0.3709 ), vec2( -0.6608, -0.7125 ), vec2( -0.3102, 0.2243 ), vec2( 0.7900, 0.6131 ),
+			vec2( 0.3592, -0.7903 ), vec2( 0.4355, -0.3839 ), vec2( -0.2147, -0.3395 ), vec2( 0.6418, 0.1547 ),
+			vec2( -0.1960, 0.8080 ), vec2( -0.6598, 0.7410 ), vec2( 0.1620, 0.6373 ), vec2( 0.1166, -0.1143 )
+		);
+
+		// Interleaved gradient noise (Jimenez 2014): a per-pixel rotation with no visible structure.
 		float pcssNoise( vec2 p ) {
 			return fract( 52.9829189 * fract( dot( p, vec2( 0.06711056, 0.00583715 ) ) ) );
 		}
-		vec2 pcssVogel( int i, int n, float phi ) {
-			float r = sqrt( ( float( i ) + 0.5 ) / float( n ) );
-			float theta = float( i ) * 2.399963229728653 + phi;
-			return vec2( cos( theta ), sin( theta ) ) * r;
+
+		// One filter tap: bilinearly weighted comparison of the 2×2 texels around uv.
+		float pcssTap( sampler2D map, vec2 uv, vec2 texel, float zR ) {
+			#ifdef PCSS_FAST
+				return step( zR, texture2D( map, uv ).r );
+			#else
+				vec2 p = uv / texel - 0.5;
+				vec2 f = fract( p );
+				vec2 base = ( floor( p ) + 0.5 ) * texel;
+				float d00 = step( zR, texture2D( map, base ).r );
+				float d10 = step( zR, texture2D( map, base + vec2( texel.x, 0.0 ) ).r );
+				float d01 = step( zR, texture2D( map, base + vec2( 0.0, texel.y ) ).r );
+				float d11 = step( zR, texture2D( map, base + texel ).r );
+				return mix( mix( d00, d10, f.x ), mix( d01, d11, f.x ), f.y );
+			#endif
 		}
 
 		float getShadow( sampler2D shadowMap, vec2 shadowMapSize, float shadowIntensity, float shadowBias, float shadowRadius, vec4 shadowCoord ) {
@@ -369,37 +399,39 @@ export function installPcss(): void {
 
 				vec2 texel = vec2( 1.0 ) / shadowMapSize;
 				float phi = pcssNoise( gl_FragCoord.xy ) * PI2;
+				float cs = cos( phi ), sn = sin( phi );
+				mat2 rot = mat2( cs, sn, -sn, cs );
 
 				if ( shadowRadius > 0.0 ) {
 
 					// 1. Blocker search: average depth of everything in front of the receiver.
 					float searchR = shadowRadius * 0.2;
 					float sum = 0.0, n = 0.0;
-					for ( int i = 0; i < 16; i ++ ) {
-						float d = texture2D( shadowMap, shadowCoord.xy + pcssVogel( i, 16, phi ) * searchR ).r;
+					for ( int i = 0; i < 8; i ++ ) {
+						float d = texture2D( shadowMap, shadowCoord.xy + rot * pcssDisk[ i * 2 ] * searchR ).r;
 						if ( d < zR ) { sum += d; n += 1.0; }
 					}
 					if ( n > 0.5 ) {
 						// 2. Penumbra ∝ receiver−blocker separation, clamped to the search disk.
 						float pen = clamp( shadowRadius * ( zR - sum / n ), texel.x * 0.75, searchR );
-						// 3. PCF over the penumbra.
+						// 3. PCF over the penumbra, bilinear taps.
 						float lit = 0.0;
-						for ( int i = 0; i < 24; i ++ ) {
-							float d = texture2D( shadowMap, shadowCoord.xy + pcssVogel( i, 24, phi + 1.0 ) * pen ).r;
-							lit += step( zR, d );
+						for ( int i = 0; i < 16; i ++ ) {
+							lit += pcssTap( shadowMap, shadowCoord.xy + rot * pcssDisk[ i ] * pen, texel, zR );
 						}
-						shadow = lit / 24.0;
+						shadow = lit / 16.0;
 					}
 
 				} else {
 
-					float r = max( 0.5, -shadowRadius ) * texel.x;
-					float lit = 0.0;
-					for ( int i = 0; i < 8; i ++ ) {
-						float d = texture2D( shadowMap, shadowCoord.xy + pcssVogel( i, 8, phi ) * r ).r;
-						lit += step( zR, d );
-					}
-					shadow = lit * 0.125;
+					// Fixed kernel: four bilinear taps on a rotated square of half-side |radius| texels.
+					float r = max( 0.5, -shadowRadius ) * texel.x * 0.7071;
+					vec2 a = rot * vec2( r, r ), b = rot * vec2( r, -r );
+					float lit = pcssTap( shadowMap, shadowCoord.xy + a, texel, zR )
+						+ pcssTap( shadowMap, shadowCoord.xy - a, texel, zR )
+						+ pcssTap( shadowMap, shadowCoord.xy + b, texel, zR )
+						+ pcssTap( shadowMap, shadowCoord.xy - b, texel, zR );
+					shadow = lit * 0.25;
 
 				}
 
@@ -558,7 +590,10 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   sunLot.position.copy(centre).addScaledVector(dir, lotDist);
   sunLot.target.position.copy(centre);
   sunLot.castShadow = true;
-  sunLot.shadow.mapSize.set(4096, 4096);
+  // Rev 2: 2048² (was 4096²) — ≈ 22 × 11 mm texels over the lot box below; the casters
+  // out there are cars, poles, wheel stops and a wall, whose shadows are metres long.
+  // Halves the depth pass's fill and the map's memory (4.7 ms → measure).
+  sunLot.shadow.mapSize.set(2048, 2048);
   {
     // Fit the ortho frustum to the lot box (kerb → CMU wall, pole tops) plus the building.
     const cam = sunLot.shadow.camera;
@@ -584,8 +619,8 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
     cam.updateProjectionMatrix();
   }
   sunLot.shadow.bias = -0.0001;
-  sunLot.shadow.normalBias = 0.03; // ≈ 8 mm texels
-  sunLot.shadow.radius = -1.2; // fixed PCF, 1.2 texels (see installPcss)
+  sunLot.shadow.normalBias = 0.05; // ≈ 2 texels of the 2048² map (22 mm): acne-free on the asphalt at 35° incidence
+  sunLot.shadow.radius = -1.0; // fixed PCF: 4 bilinear taps on a 1-texel rotated square (see installPcss)
   scene.add(sunLot, sunLot.target);
 
   /* ---------------- cone occluder: masks `sunLot` out of the spot's cone ---------------- */
