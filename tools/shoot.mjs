@@ -173,6 +173,16 @@ async function main() {
   const stats = await assertSceneGpu(page, "shoot");
   console.log(`[shoot] scene ready in ${readyMs} ms  draw calls=${stats.calls}  triangles=${stats.triangles}`);
 
+  // Boot timeline from src/main.ts (window.__perf): where the start-up time went.
+  const perf = await page.evaluate(() => (typeof window.__perf === "function" ? window.__perf() : null));
+  if (perf) {
+    console.log(
+      `[shoot] boot: ${perf.marks.map((m) => `${m.name} ${m.ms}`).join(" · ")} ms` +
+        `  textures ${perf.textures.wallMs} ms wall on ${perf.textures.workers} workers` +
+        `  programs=${perf.programs} parallel-compile=${perf.parallelCompile}`,
+    );
+  }
+
   const outDir = path.join(ROOT, "shots");
   await fs.mkdir(outDir, { recursive: true });
 
