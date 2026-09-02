@@ -278,6 +278,7 @@ export const finishFragment = /* glsl */ `
     if (uToneMap == 0) col = ACESFilmicToneMapping(col);
     else if (uToneMap == 1) col = AgXToneMapping(col);
     else if (uToneMap == 2) col = NeutralToneMapping(col);
+    else if (uToneMap == 4) col = CustomToneMapping(col); // System 4 camera curve (Lighting.ts)
     else col = clamp(col * toneMappingExposure, 0.0, 1.0);
 
     if (uHighlightDesat > 0.0) {

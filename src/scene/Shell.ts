@@ -298,6 +298,12 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
       const shade = new THREE.CylinderGeometry(0.075, 0.045, 0.09, 24, 1, true);
       shade.translate(lx, hy - 0.075, hz);
       b.add(shade, pal.darkMetal);
+      // System 4 rev 2: the red R40 bulb itself, its face 5 mm below the shade's mouth —
+      // emissive (materials.ts heatLampBulb, ≈ 8,000 nits) so the pass-through reads as
+      // lit from the dining room. The light it throws on the shelf is Lighting.ts "heat-lamp".
+      const bulb = new THREE.CylinderGeometry(0.04, 0.038, 0.02, 20);
+      bulb.translate(lx, hy - 0.125, hz);
+      b.add(bulb, pal.heatLampBulb);
     }
   }
 

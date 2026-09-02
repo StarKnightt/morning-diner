@@ -7,6 +7,7 @@ import * as THREE from "three";
 import * as texModule from "../procedural/textures";
 import * as extModule from "../procedural/exterior";
 import { WINDOW } from "../scene/layout";
+import { FLUORESCENT, TROFFER_LENS_NITS, luminance, nits } from "../scene/Lighting";
 import type { TextureBank } from "./textureBank";
 
 export interface Palette {
@@ -76,6 +77,8 @@ export interface Palette {
   fanBlade: THREE.MeshStandardMaterial;
   voidBlack: THREE.MeshBasicMaterial;
   kitchenDim: THREE.MeshStandardMaterial;
+  /** Red-coated R40 heat-lamp bulb face over the pass-through shelf (System 4 rev 2). */
+  heatLampBulb: THREE.MeshStandardMaterial;
   darkGlass: THREE.MeshStandardMaterial;
   concrete: THREE.MeshStandardMaterial;
   acUnit: THREE.MeshStandardMaterial;
@@ -306,7 +309,11 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     anisotropy: 0.4, // at 1.0 the sun's stretched lobe whited out the whole sunlit face
     anisotropyRotation: Math.PI / 2, // brushing runs vertically on upright panels
   });
-  const blackPowder = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.55, metalness: 0.1 });
+  // System 4 rev 2: #141414 is a 0.6 % albedo — no paint is that black (black powder coat
+  // measures 3–5 %); under the physical rig the brewer body sat at 35 nits, −5.6 EV, a hole
+  // in every frame. #383838 ≈ 4 % keeps it black and puts it in the curve's toe (≈ sRGB 20–30).
+  // (dawn-station NOTES case 34 is the same defect: a black authored as a display number.)
+  const blackPowder = new THREE.MeshStandardMaterial({ color: 0x383838, roughness: 0.55, metalness: 0.1 });
   // Light brushed stainless for the brewer hood, funnel and base plate: albedo ≈ 0.6 with a
   // hint of blue. Deliberately left on the ROOM probe (not the prop probe under the
   // cabinets): the prop probe's ceiling is the dark cabinet underside, which turned the
@@ -420,7 +427,8 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     pepper: new THREE.MeshStandardMaterial({ color: 0x3a3430, roughness: 0.9, metalness: 0 }),
     trayBrown: new THREE.MeshStandardMaterial({ color: 0x4a2c1a, roughness: 0.55, metalness: 0 }),
     clockFace: new THREE.MeshStandardMaterial({ color: 0xf6f3ea, roughness: 0.5, metalness: 0 }),
-    rubberMat: new THREE.MeshStandardMaterial({ color: 0x1e1e1e, roughness: 0.9, metalness: 0 }),
+    // Dusty black rubber is a 3–4 % albedo (was #1e1e1e, 1.3 %) — see blackPowder (System 4 rev 2).
+    rubberMat: new THREE.MeshStandardMaterial({ color: 0x363636, roughness: 0.9, metalness: 0 }),
     darkMetal: new THREE.MeshStandardMaterial({ color: 0x3a3836, roughness: 0.5, metalness: 0.6 }),
     alum: new THREE.MeshStandardMaterial({ color: 0x4f4841, roughness: 0.45, metalness: 0.55 }),
     alumBright: new THREE.MeshStandardMaterial({ color: 0xb4b8bc, roughness: 0.38, metalness: 0.7 }),
@@ -429,8 +437,17 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     // toward the lower edge and corners (roughness map 0.008–0.045, REFERENCE §4).
     // transmission stays 1 and the 12 % loss lives in `color`: any transmission < 1
     // leaves a lit diffuse skin over the pane that reads as a milky veil (rev 1 lesson).
+    // System 4 rev 2: #e2ebe6 (linear 0.76/0.83/0.79, +9 % green) turned the sky through the
+    // panes grey-green in the sys4 frames; face-on, 6 mm clear float is (0.85/0.87/0.86) —
+    // the green lives in the edges. Measured in-page (rev 2, sky through the door pane with
+    // the pane shown / hidden): three r185 renders a DoubleSide transmissive surface's back
+    // face into the transmission buffer first (WebGLRenderer.renderTransmissionPass), so a
+    // single pane applies `color` and the Fresnel term TWICE — #edf0ee passed 0.69, not 0.88.
+    // Two Fresnel losses are right for a pane (two surfaces, (1 − 0.042)² = 0.92); the body
+    // absorption must not be squared, so `color` is its square root: #f9fbfa (0.955/0.968/0.96)²
+    // × 0.92 = 0.86 total, the 6 mm float value, with 1.5 % of green.
     glass: new THREE.MeshPhysicalMaterial({
-      color: 0xe2ebe6,
+      color: 0xf9fbfa,
       roughness: 1,
       roughnessMap: ext.glassDust(1024, 3320, false),
       metalness: 0,
@@ -445,7 +462,7 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     }),
     // Door glass: same pane with palm/finger smudges around push-bar height.
     glassDoor: new THREE.MeshPhysicalMaterial({
-      color: 0xe2ebe6,
+      color: 0xf9fbfa,
       roughness: 1,
       roughnessMap: ext.glassDust(1024, 3321, true),
       metalness: 0,
@@ -495,27 +512,35 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     kickPanel: new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.6, metalness: 0.3 }),
     tileBacking: new THREE.MeshStandardMaterial({ color: 0x5a5650, roughness: 1, metalness: 0 }),
     fixtureWhite: new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.4, metalness: 0.1 }),
-    // Prismatic lens of a lit 2×4 troffer: 4,500 nits at nadir (REFERENCE §2/§8 — a 10,500 lm
-    // luminaire over 1.11 × 0.51 m emits 5,900 nits Lambertian; the lens map's dark prisms
-    // bring the mean down) = 0.45 scene units at K = 1e-4, in the same 4100 K + green-bias
-    // tint as the RectAreaLight under it (Lighting.ts). The lens luminance (0.83 for this
-    // colour) × 0.54 ≈ 0.45. About 1.5 stops under a sunlit white Formica table (≈ 12,000
-    // nits) — the fixture is on and visibly losing to the window light.
-    fixtureLens: new THREE.MeshStandardMaterial({
-      color: 0xf4f2ee,
-      roughness: 0.35,
-      metalness: 0,
-      emissive: new THREE.Color().setRGB(255 / 255, (224 / 255) * 1.04, 190 / 255, THREE.SRGBColorSpace),
-      emissiveIntensity: 0.54,
-      map: lens.map,
-      emissiveMap: lens.map,
-      normalMap: lens.normalMap,
-      normalScale: new THREE.Vector2(0.8, 0.8),
-    }),
+    // Prismatic lens of a lit 2×4 troffer (System 4 rev 2): mean luminance TROFFER_LENS_NITS
+    // (7,500 lm Lambertian over 1.11 × 0.51 m ≈ 4,200 nits, +2.0 EV over middle grey) in the
+    // lamp's own 4100 K green-biased tint (Lighting.ts FLUORESCENT, shared with the spot under
+    // it). The emissive map (textures.ts trofferLens) carries the four T8 tube images through
+    // the K12 prisms — ≈ 1.5× the mean under each tube (≈ 6,300 nits, +2.6 EV: near the camera
+    // curve's clip, not on it), ≈ 0.65× between, dark 30 mm at the housing ends — normalised
+    // to mean 1 / TROFFER_LENS_HEADROOM in the texture, so the intensity is (nits × K ×
+    // headroom) / the tint's luminance. The colour map keeps the prism pitch in the albedo.
+    fixtureLens: (() => {
+      const tint = FLUORESCENT.clone();
+      const lum = 0.2126 * tint.r + 0.7152 * tint.g + 0.0722 * tint.b;
+      const tubes = tex.trofferLens(1024, 512, 4, 185); // 185 cells across 1.11 m = 6 mm prisms
+      return new THREE.MeshStandardMaterial({
+        color: 0xf4f2ee,
+        roughness: 0.35,
+        metalness: 0,
+        emissive: tint,
+        emissiveIntensity: (nits(TROFFER_LENS_NITS) * texModule.TROFFER_LENS_HEADROOM) / lum,
+        map: lens.map,
+        emissiveMap: tubes.emissiveMap,
+        normalMap: lens.normalMap,
+        normalScale: new THREE.Vector2(0.8, 0.8),
+      });
+    })(),
     fanBlade: new THREE.MeshStandardMaterial({ map: capTex.map, roughnessMap: capTex.roughnessMap, normalMap: capTex.normalMap, color: 0x8a7060, roughness: 1, metalness: 0 }),
     voidBlack: new THREE.MeshBasicMaterial({ color: 0x040404 }),
     // Nothing lights the kitchen box, so a little emissive stands in for its own ambient: dark, not black.
     kitchenDim: new THREE.MeshStandardMaterial({ color: 0x4a4744, roughness: 0.95, metalness: 0, emissive: 0x3a3632, emissiveIntensity: 0.55 }),
+    heatLampBulb: new THREE.MeshStandardMaterial({ color: 0x3a0c06, roughness: 0.3, metalness: 0, emissive: 0xff5a22, emissiveIntensity: 1 }),
     darkGlass: new THREE.MeshStandardMaterial({ color: 0x1c1b1a, roughness: 0.15, metalness: 0.4 }),
     concrete,
     acUnit: new THREE.MeshStandardMaterial({ color: 0xd8d6cf, roughness: 0.6, metalness: 0.2 }),
@@ -535,12 +560,23 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     if (m instanceof THREE.MeshStandardMaterial) m.envMapIntensity = 1;
   }
   // Emissives in nits × K (Lighting.ts: 1 unit = 10,000 nits); the radiance is intensity ×
-  // the emissive colour's luminance. Lit rocker switch ≈ 700 nits, red pilot lamp ≈ 700 nits,
-  // the unlit kitchen box ≈ 30 nits (grey paint under a 300-lux kitchen fluorescent:
-  // 0.3 × 300 / π). The troffer lens is set at its construction above (≈ 4,500 nits).
+  // the emissive colour's luminance. Lit rocker switch ≈ 700 nits, red pilot lamp ≈ 700 nits.
+  // The troffer lens is set at its construction above (TROFFER_LENS_NITS).
   palette.rockerLit.emissiveIntensity = 0.15;
   palette.pilotRed.emissiveIntensity = 0.3;
-  palette.kitchenDim.emissiveIntensity = 0.07;
+  // Kitchen box (System 4 rev 2): rev 1 gave it 30 nits, "grey paint under a 300-lux
+  // fluorescent" — but that is a −4.3 EV hole at this exposure (GREY_NITS ≈ 600), and both
+  // critics read the pass-through as unlit. A working kitchen at 8 AM runs 500 lux at the
+  // work plane (IES kitchen standard) with the walls at 250–350 lux and a lot of stainless;
+  // as an emissive stand-in for the surfaces the heat-lamp spot (Lighting.ts) does not
+  // reach: 0.45 albedo × 450 lux / π ≈ 65 nits, −3.2 EV — dark, but in the camera curve's
+  // toe rather than under it, so the range hood and table read as shapes.
+  palette.kitchenDim.emissiveIntensity = nits(65) / luminance(palette.kitchenDim.emissive);
+  // Heat-lamp bulb face: a 250 W red R40 runs ≈ 2,800 K behind a red coating; the visible
+  // face of the reflector bulb is ≈ 8,000 nits (a 60 W frosted bulb is ≈ 12,000 nits; the
+  // coating passes ~15 % but the reflector concentrates it). +3.7 EV: clips to the paper
+  // white with a red fringe, as heat lamps do in every diner photograph.
+  palette.heatLampBulb.emissiveIntensity = nits(8_000) / luminance(palette.heatLampBulb.emissive);
 
   /* ---- System 5: wear variants, derived from the tuned base materials ----
    * Each clone inherits colour, gloss and envMapIntensity from its base *as tuned above*

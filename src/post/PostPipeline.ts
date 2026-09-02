@@ -76,11 +76,13 @@ function toneMapIndex(t: ToneMap | null, renderer: THREE.WebGLRenderer): number 
       case THREE.NoToneMapping:
       case THREE.LinearToneMapping:
         return 3;
+      case THREE.CustomToneMapping:
+        return 4; // System 4's camera curve (scene/Lighting.ts installCameraToneMapping)
       default:
         return 0;
     }
   }
-  return t === "agx" ? 1 : t === "neutral" ? 2 : t === "none" ? 3 : 0;
+  return t === "agx" ? 1 : t === "neutral" ? 2 : t === "none" ? 3 : t === "camera" ? 4 : 0;
 }
 
 export interface PostPipelineOptions {
