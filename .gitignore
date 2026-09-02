@@ -1,0 +1,7 @@
+node_modules/
+dist/
+tmp/
+.shot-build/
+# Only the final per-system frames are committed (shots/sysN-*.png).
+shots/*
+!shots/sys*-*.png
