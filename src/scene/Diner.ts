@@ -20,7 +20,7 @@ import { buildCeiling } from "./Ceiling";
 import { buildCounter } from "./Counter";
 import { buildDoor } from "./Door";
 import { buildExterior } from "./Exterior";
-import { buildContactShadows, buildLighting, installShadowMasks, sunDirection } from "./Lighting";
+import { ROOM_PROBE_INTENSITY, buildContactShadows, buildLighting, installShadowMasks, sunDirection } from "./Lighting";
 import { buildProps } from "./Props";
 import { buildShell } from "./Shell";
 import { FAN } from "./layout";
@@ -261,6 +261,12 @@ export class Diner {
         propEnv = prop;
         lotEnv = lot;
         scene.environment = room.texture;
+        // Near-field correction for a one-point probe (Lighting.ts ROOM_PROBE_INTENSITY). Note
+        // three ignores a material's own envMapIntensity whenever its envMap comes from
+        // scene.environment (WebGLRenderer: the uniform is overwritten with this value), so
+        // this is the ONE knob on the dielectrics' ambient; per-material values only act on
+        // the metals, props and exterior, which carry their own probes.
+        scene.environmentIntensity = ROOM_PROBE_INTENSITY;
         assign(metalMats, roomSpec.texture);
         assign(propMats, prop.texture);
         assign(exteriorMats, lot.texture);

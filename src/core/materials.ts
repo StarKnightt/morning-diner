@@ -311,8 +311,9 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   });
   // System 4 rev 2: #141414 is a 0.6 % albedo — no paint is that black (black powder coat
   // measures 3–5 %); under the physical rig the brewer body sat at 35 nits, −5.6 EV, a hole
-  // in every frame. #2c2c2c ≈ 2.6 % keeps it black and puts it in the curve's toe (≈ sRGB 30).
-  const blackPowder = new THREE.MeshStandardMaterial({ color: 0x2c2c2c, roughness: 0.55, metalness: 0.1 });
+  // in every frame. #383838 ≈ 4 % keeps it black and puts it in the curve's toe (≈ sRGB 20–30).
+  // (dawn-station NOTES case 34 is the same defect: a black authored as a display number.)
+  const blackPowder = new THREE.MeshStandardMaterial({ color: 0x383838, roughness: 0.55, metalness: 0.1 });
   // Light brushed stainless for the brewer hood, funnel and base plate: albedo ≈ 0.6 with a
   // hint of blue. Deliberately left on the ROOM probe (not the prop probe under the
   // cabinets): the prop probe's ceiling is the dark cabinet underside, which turned the
@@ -426,8 +427,8 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     pepper: new THREE.MeshStandardMaterial({ color: 0x3a3430, roughness: 0.9, metalness: 0 }),
     trayBrown: new THREE.MeshStandardMaterial({ color: 0x4a2c1a, roughness: 0.55, metalness: 0 }),
     clockFace: new THREE.MeshStandardMaterial({ color: 0xf6f3ea, roughness: 0.5, metalness: 0 }),
-    // Black rubber is a 2–3 % albedo (was #1e1e1e, 1.3 %) — see blackPowder (System 4 rev 2).
-    rubberMat: new THREE.MeshStandardMaterial({ color: 0x282828, roughness: 0.9, metalness: 0 }),
+    // Dusty black rubber is a 3–4 % albedo (was #1e1e1e, 1.3 %) — see blackPowder (System 4 rev 2).
+    rubberMat: new THREE.MeshStandardMaterial({ color: 0x363636, roughness: 0.9, metalness: 0 }),
     darkMetal: new THREE.MeshStandardMaterial({ color: 0x3a3836, roughness: 0.5, metalness: 0.6 }),
     alum: new THREE.MeshStandardMaterial({ color: 0x4f4841, roughness: 0.45, metalness: 0.55 }),
     alumBright: new THREE.MeshStandardMaterial({ color: 0xb4b8bc, roughness: 0.38, metalness: 0.7 }),

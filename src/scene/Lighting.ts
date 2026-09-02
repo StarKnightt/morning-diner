@@ -120,10 +120,13 @@ export const CAMERA_WHITE_EV = 2.5;
 /**
  * Hable ("Uncharted 2") filmic curve, per channel, normalised so x_white → 1 with
  * x_white = 0.18 · 2^CAMERA_WHITE_EV · CAMERA_CURVE_GAIN. The gain scales the input so
- * middle grey lands near 0.2 display-linear (sRGB ≈ 125; a camera JPEG puts a grey card at
- * 118–128) instead of Hable's default 0.149. Display-linear values on this curve, by stops
- * over grey (white at +2.5): −4 → 0.011 (sRGB 27), −3 → 0.024 (43), −2 → 0.053 (65),
- * −1 → 0.116 (95), 0 → 0.24 (134), +1 → 0.46 (180), +2 → 0.78 (228), +2.5 → 1.0.
+ * middle grey lands at 0.26 display-linear (sRGB 140; a camera JPEG puts a grey card at
+ * 118–140) instead of Hable's default 0.149. Display values on this curve, by stops over
+ * grey (white at +2.5), from the exact port of this GLSL in the rev 2 harness (camtone.mjs;
+ * verified against 14 probe regions to ±1 code): −5 → sRGB 17, −4 → 29, −3 → 44, −2 → 67,
+ * −1 → 98, 0 → 140, +1 → 187, +2 → 234, +2.5 → 255. Author by inverting a target code
+ * through that table (code 64 ↔ 390 nits, 96 ↔ 810, 128 ↔ 1,410, 192 ↔ 3,600, 240 ↔ 7,400),
+ * never by eye against a tone-mapped frame (night-street TECHNIQUE §1–2).
  * Per-channel: a clipped sunlit red goes salmon → white the way film and sensors do
  * (AgX kept it red by design; the photographs the frame is judged against do not).
  */
@@ -275,6 +278,25 @@ const BOUNCE_FLUX = new THREE.Vector3(
 );
 /** Spot cone that approximates a Lambertian emitter: smoothstep(cos 89°, 1, cos θ) ≈ cos θ. */
 const LAMBERT_ANGLE = THREE.MathUtils.degToRad(89);
+/**
+ * `scene.environmentIntensity` for the room probe (Diner.ts). A single cube captured at one
+ * point is a far-field approximation of a near-field room: every surface is lit as if it
+ * were surrounded by what the probe saw, and what the probe saw from the counter edge is a
+ * ceiling and a floor 1.3 m away already lit by the bounce spots — so the probe hands the
+ * second bounce back at roughly the average radiance of the room's brightest faces rather
+ * than the room's mean. Measured (rev 2, `?nofill` / `?nobounce` A/B on the HDR probe): the
+ * probe adds ≈ 1,400 lux-equivalent of spot-lit second bounce on the shaded walls where the
+ * flux balance (Φ₁ · ρ / (A · (1 − ρ)) ≈ 125 klm · 0.5 / (220 m² · 0.5) ≈ 570 lux) allows
+ * ≈ 600. 0.7 halves that excess while keeping most of the probe's other job — the sky
+ * through the five windows, which sits 3.5 m from the probe and is not inflated the same
+ * way — intact. dawn-station ships the same correction on its interior PMREM at 0.35
+ * (`lightInterior.ts`, `ibounce`), for a room with no sun in it. `?ibounce=n` overrides.
+ */
+export const ROOM_PROBE_INTENSITY = (() => {
+  if (typeof location === "undefined") return 0.7;
+  const v = Number(new URLSearchParams(location.search).get("ibounce"));
+  return Number.isFinite(v) && v > 0 ? v : 0.7;
+})();
 
 export interface LightingResult {
   sun: THREE.SpotLight;
@@ -312,6 +334,42 @@ export function configureRenderer(renderer: THREE.WebGLRenderer): void {
   renderer.shadowMap.type = SHADOW_MAP_TYPE;
   primeShadowMapType(renderer);
   installPcss();
+  // The window and door panes are transmissive, so three renders the whole opaque scene a
+  // second time into the transmission buffer every frame — 140 of the 294 draws at `length`,
+  // every one of them paying for the PCSS, and all of it for the exterior seen through six
+  // panes. Measured (rev 2, GPU timer at `length`): 3.4 ms of an 11.4 ms scene pass at full
+  // resolution; 0.5 (a 960×540 buffer) gives the same frame for 8.0 ms. What is behind the
+  // glass is the sunlit lot — mostly clipped — and a hot-morning exterior through 6 mm float
+  // is never pixel-sharp anyway (System 8's shimmer works the same region). `?txscale=n`.
+  const q = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
+  const tx = Number(q?.get("txscale"));
+  const txScale = Number.isFinite(tx) && tx > 0 ? tx : 0.5;
+  renderer.transmissionResolutionScale = txScale;
+  installTransmissionLod(1 / txScale);
+}
+
+/**
+ * three's transmission blur is `lod = log2(bufferWidth) · roughness'`, a mip level of the
+ * transmission buffer — so it is a blur in BUFFER texels, and a half-size buffer blurs the
+ * view through the glass twice as wide on screen as the full-size one did (measured: the
+ * block wall and the scrub through the door pane went from readable to mush at 0.5). This
+ * rewrites the level so the on-screen blur is the one the full-resolution formula gives:
+ * lod = log2(bufferWidth · k) · roughness' − log2(k), k = 1 / transmissionResolutionScale.
+ * Roughness 0 still costs the buffer's own 1-texel (2 px) bicubic softness; the smudge map's
+ * 0.05–0.15 roughness is 3–8 px of blur either way, so that floor is invisible.
+ */
+function installTransmissionLod(k: number): void {
+  const chunk = THREE.ShaderChunk.transmission_pars_fragment;
+  const line = "float lod = log2( transmissionSamplerSize.x ) * applyIorToRoughness( roughness, ior );";
+  if (!chunk.includes(line)) {
+    console.warn("[lighting] transmission_pars_fragment layout changed; LOD compensation not installed");
+    return;
+  }
+  const kk = k.toFixed(4);
+  THREE.ShaderChunk.transmission_pars_fragment = chunk.replace(
+    line,
+    `float lod = max( 0.0, log2( transmissionSamplerSize.x * ${kk} ) * applyIorToRoughness( roughness, ior ) - log2( ${kk} ) );`,
+  );
 }
 
 /**
@@ -352,19 +410,25 @@ let pcssInstalled = false;
  *                a few px through the blinds, and a blur on the cone occluder's edge would
  *                have opened a half-lit ring at the two-sun seam).
  *
- * Rev 2: 8 blocker taps + 16 filter taps (was 16 + 24) on a 16-point Poisson disk rotated
- * per pixel by interleaved-gradient noise; the lot light takes 4 taps on a rotated square.
+ * Rev 2: 8 blocker taps + 12 filter taps (rev 1: 16 + 24) on a Vogel spiral rotated per
+ * pixel by interleaved-gradient noise keyed to the shadow-map UV (world-stationary; see the
+ * note at `phi`); the lot light takes one bilinear tap.
  * Every FILTER tap is a bilinear comparison (`pcssTap`: the four texels around the tap,
  * each compared, then bilinearly weighted — what a `sampler2DShadow` does in hardware, which
- * a raw depth texture cannot). It costs 4 coherent fetches per tap but turns the 17-level
- * staircase of 16 hard taps into a continuous ramp, which is what removes the speckle in
+ * a raw depth texture cannot). It costs 4 coherent fetches per tap but turns the 13-level
+ * staircase of 12 hard taps into a continuous ramp, which is what removes the speckle in
  * the penumbrae (rev 1's 24 single-fetch taps still dithered visibly). `?pcss=fast` compiles
  * single-fetch taps for the A/B timing. Non-reversed depth.
  */
 export function installPcss(): void {
   if (pcssInstalled) return;
   pcssInstalled = true;
-  const fast = typeof location !== "undefined" && new URLSearchParams(location.search).get("pcss") === "fast";
+  const q = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
+  const fast = q?.get("pcss") === "fast";
+  // Tap budget. `?taps=b,f` for the A/B (rev 2 measured 8/16 → 8/12 at −0.5 ms on `length`).
+  const taps = (q?.get("taps") ?? "").split(",").map(Number);
+  const BLOCKER_TAPS = Number.isInteger(taps[0]) && taps[0] >= 4 ? taps[0] : 8;
+  const FILTER_TAPS = Number.isInteger(taps[1]) && taps[1] >= 4 ? taps[1] : 12;
   // The built three.module.js strips the chunk's comments, so the BASIC branch is located
   // structurally: the `#else` after the VSM `#elif`, up to the `#endif` before the point-light block.
   const chunk = THREE.ShaderChunk.shadowmap_pars_fragment;
@@ -382,13 +446,16 @@ export function installPcss(): void {
   const pcss = /* glsl */ `#else // SHADOWMAP_TYPE_BASIC — replaced by PCSS (src/scene/Lighting.ts)
 		${fast ? "#define PCSS_FAST 1" : ""}
 
-		// 16-point Poisson disk, unit radius; the even entries (radii 0.4–0.9) are the blocker search.
-		const vec2 pcssDisk[ 16 ] = vec2[ 16 ](
-			vec2( -0.7634, -0.3234 ), vec2( 0.7663, -0.6231 ), vec2( -0.0763, -0.7532 ), vec2( 0.2796, 0.2382 ),
-			vec2( -0.7422, 0.3709 ), vec2( -0.6608, -0.7125 ), vec2( -0.3102, 0.2243 ), vec2( 0.7900, 0.6131 ),
-			vec2( 0.3592, -0.7903 ), vec2( 0.4355, -0.3839 ), vec2( -0.2147, -0.3395 ), vec2( 0.6418, 0.1547 ),
-			vec2( -0.1960, 0.8080 ), vec2( -0.6598, 0.7410 ), vec2( 0.1620, 0.6373 ), vec2( 0.1166, -0.1143 )
-		);
+		#define PCSS_BLOCKER_TAPS ${BLOCKER_TAPS}
+		#define PCSS_FILTER_TAPS ${FILTER_TAPS}
+
+		// Vogel spiral: n points of equal area on the unit disk (golden angle), rotated by phi.
+		// Any tap count is a well-distributed disk, so the budget is a constant, not a table.
+		vec2 pcssVogel( int i, int n, float phi ) {
+			float r = sqrt( ( float( i ) + 0.5 ) / float( n ) );
+			float theta = float( i ) * 2.39996323 + phi;
+			return vec2( cos( theta ), sin( theta ) ) * r;
+		}
 
 		// Interleaved gradient noise (Jimenez 2014): a per-pixel rotation with no visible structure.
 		float pcssNoise( vec2 p ) {
@@ -421,34 +488,44 @@ export function installPcss(): void {
 			if ( inFrustum && zR <= 1.0 ) {
 
 				vec2 texel = vec2( 1.0 ) / shadowMapSize;
-				float phi = pcssNoise( gl_FragCoord.xy ) * PI2;
-				float cs = cos( phi ), sn = sin( phi );
-				mat2 rot = mat2( cs, sn, -sn, cs );
+				// Tap-pattern phase from the shadow-map UV (world space perpendicular to the light,
+				// 1/8 texel = 0.4 mm for the sun), not gl_FragCoord: a point on a surface keeps its
+				// phase as the camera walks, so the Monte-Carlo residual rides with the surface
+				// instead of being redrawn every frame (night-street softShadow.ts, 'world' phase).
+				float phi = pcssNoise( shadowCoord.xy * shadowMapSize * 8.0 ) * PI2;
 
 				if ( shadowRadius > 0.0 ) {
 
 					// 1. Blocker search: average depth of everything in front of the receiver.
 					float searchR = shadowRadius * 0.2;
 					float sum = 0.0, n = 0.0;
-					for ( int i = 0; i < 8; i ++ ) {
-						float d = texture2D( shadowMap, shadowCoord.xy + rot * pcssDisk[ i * 2 ] * searchR ).r;
+					for ( int i = 0; i < PCSS_BLOCKER_TAPS; i ++ ) {
+						float d = texture2D( shadowMap, shadowCoord.xy + pcssVogel( i, PCSS_BLOCKER_TAPS, phi ) * searchR ).r;
 						if ( d < zR ) { sum += d; n += 1.0; }
 					}
 					if ( n > 0.5 ) {
 						// 2. Penumbra ∝ receiver−blocker separation, clamped to the search disk.
 						float pen = clamp( shadowRadius * ( zR - sum / n ), texel.x * 0.75, searchR );
-						// 3. PCF over the penumbra, bilinear taps.
+						// 3. PCF over the penumbra, bilinear taps (a second phase so the filter's
+						//    residual is not correlated with the search's).
 						float lit = 0.0;
-						for ( int i = 0; i < 16; i ++ ) {
-							lit += pcssTap( shadowMap, shadowCoord.xy + rot * pcssDisk[ i ] * pen, texel, zR );
+						for ( int i = 0; i < PCSS_FILTER_TAPS; i ++ ) {
+							lit += pcssTap( shadowMap, shadowCoord.xy + pcssVogel( i, PCSS_FILTER_TAPS, phi + 1.0 ) * pen, texel, zR );
 						}
-						shadow = lit / 16.0;
+						shadow = lit / float( PCSS_FILTER_TAPS );
 					}
+
+				} else if ( shadowRadius > -0.5 ) {
+
+					// One bilinear tap: a 1-texel ramp, what hardware PCF gives (the lot sun).
+					shadow = pcssTap( shadowMap, shadowCoord.xy, texel, zR );
 
 				} else {
 
 					// Fixed kernel: four bilinear taps on a rotated square of half-side |radius| texels.
 					float r = max( 0.5, -shadowRadius ) * texel.x * 0.7071;
+					float cs = cos( phi ), sn = sin( phi );
+					mat2 rot = mat2( cs, sn, -sn, cs );
 					vec2 a = rot * vec2( r, r ), b = rot * vec2( r, -r );
 					float lit = pcssTap( shadowMap, shadowCoord.xy + a, texel, zR )
 						+ pcssTap( shadowMap, shadowCoord.xy - a, texel, zR )
@@ -643,7 +720,10 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   }
   sunLot.shadow.bias = -0.0001;
   sunLot.shadow.normalBias = 0.05; // ≈ 2 texels of the 2048² map (22 mm): acne-free on the asphalt at 35° incidence
-  sunLot.shadow.radius = -1.0; // fixed PCF: 4 bilinear taps on a 1-texel rotated square (see installPcss)
+  // One bilinear tap (installPcss, radius in (−0.5, 0]): a 1-texel (11 mm) ramp. The sun's
+  // real penumbra on the lot is 9.3 mm per metre of caster height — one texel for a car's
+  // sill, two for its roof — so the 4-tap kernel was softer than the sun and cost 0.8 ms.
+  sunLot.shadow.radius = -0.25;
   scene.add(sunLot, sunLot.target);
 
   /* ---------------- cone occluder: masks `sunLot` out of the spot's cone ---------------- */
@@ -733,10 +813,23 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
     const color = new THREE.Color(flux.x / lum, flux.y / lum, flux.z / lum); // luminance 1 → intensity carries the lumens
     for (const cx of WINDOW.centersX) {
       const l = lambertSpot(color, lum, "sun-bounce");
-      // The first window's beam meets the −x end wall before the aisle: keep its spot indoors.
-      const xc = Math.max(-ROOM.halfX + 0.4, cx - (ROOM.zFront - zFloor) * planShift * wFloor - 0.5 * wBooth);
-      l.position.set(xc, 0.12, zc);
-      l.target.position.set(xc, 3, zc);
+      const xc = cx - (ROOM.zFront - zFloor) * planShift * wFloor - 0.5 * wBooth;
+      if (xc > -ROOM.halfX + 0.4) {
+        l.position.set(xc, 0.12, zc);
+        l.target.position.set(xc, 3, zc);
+      } else {
+        // The first window's beam meets the −x end wall 1.1 m past its centre: the wall
+        // patch (the one the `counter` pose looks at) is a band at z ≈ zFront − 1.1/tan 38°
+        // from the floor up to 2.62 − 1.78·tan 35° ≈ 1.4 m. That bounce leaves the wall
+        // horizontally, toward +x — so this spot sits ON the wall and fires along +x. Rev 2's
+        // first round clamped it to an up-facing spot 0.4 m from the wall, which lit the
+        // wall it stood for (a wall cannot light itself) to 1,090 nits, 0.9 EV over the
+        // other shaded walls, and the ceiling above the first booth with it.
+        const dx = ROOM.halfX - 0.05 + cx; // window centre → wall, along −x
+        const zWall = ROOM.zFront - dx / planShift;
+        l.position.set(-ROOM.halfX + 0.05, 0.7, zWall);
+        l.target.position.set(-ROOM.halfX + 3, 0.7, zWall);
+      }
       scene.add(l, l.target);
       bounces.push(l);
     }
