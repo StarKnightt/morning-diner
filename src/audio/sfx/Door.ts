@@ -43,8 +43,9 @@ export class DoorSfx {
     this.position = { ...position };
     // The click below peaks ≈ -10 dBFS before this trim.
     this.level = dbToGain((opts.levelDb ?? -20) + 10);
-    this.bus = engine.createBus("sfx-door", opts.reverbDb ?? -12);
-    this.outsideBus = engine.createBus("outside", -Infinity);
+    // Neither the leaf's own sounds nor the exterior bed are part of the room the door ducks.
+    this.bus = engine.createBus("sfx-door", opts.reverbDb ?? -12, { interior: false });
+    this.outsideBus = engine.createBus("outside", -Infinity, { interior: false });
 
     const ctx = engine.ctx;
     const t0 = engine.now;
