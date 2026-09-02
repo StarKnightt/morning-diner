@@ -274,7 +274,13 @@ System 3 poses: `window` is a seated (1.15 m) eye-line looking out through the
 blinds of booth 3; `door-glass` stands at the door looking out through the
 pane at the sedan; `blind-macro` is 0.3 m from the slats; `lot-wide` looks
 through the big front window at lot + pickup + horizon; `stripes` looks down
-at a booth seat and table under the slat shadows.
+at a booth seat and table under the slat shadows. Rev 4 added the exterior
+debug poses to `shoot.mjs` (they were a throwaway harness in rev 2/3): `dbg-pickup-front34`,
+`dbg-pickup-side` (true side elevation for proportion measurement), `dbg-pickup-rear34`,
+`dbg-sedan-front34` (the windshield-interior check), `dbg-sedan-rear34`, `dbg-wheel`
+(1.2 m from the sedan's front-left wheel), `dbg-wheelstop` (under the sedan's nose at the
+stop bar) and `dbg-wall-road` (standing in the empty stall between the two cars — the pickup's roof filled the frame from its rev 3 spot once the truck moved forward — looking over the wall and through its gap: ruts, scrub edge, road, ranges). They
+stand outside the building — never player-reachable — and are shot with `--tag=sys3`.
 
 ## Lessons recorded
 
@@ -547,6 +553,59 @@ at a booth seat and table under the slat shadows.
   blooms — that is the intended "already washed out" read and System 4 sets the
   final balance, but the asphalt still needs its aggregate speckle (±0.2 albedo
   contrast) to read as asphalt and not as concrete at that exposure.
+- **`MergedBuilder.add` mutates the geometry it is given** (`applyMatrix4` in
+  place, no clone). Anything you want to reuse — the rev 4 cabin lining is the
+  body loft flipped inside out — must be cloned *before* the first `add`, or the
+  copy is transformed twice and lands at 2× the car's offset (a black ghost
+  sedan appeared 5 m behind the pickup in `dbg-pickup-side`).
+- **Glass over paint is not glass.** Rev 3 laid panes 6 mm proud of a closed
+  body loft, so every window was a tinted reflection of a *painted* surface —
+  the critics' "opaque navy slabs". Rev 4 cuts the glass out of the loft itself
+  (`glassOf`: tumblehome segment over a side pane's span, top-centre quads split
+  at |x| = w(z) inside the A-pillars; raked pillar edges by splitting quads along
+  a parameter line) and emits those quads with the pane material, with the same
+  loft flipped inside out (`flipFaces`) in dark matte as the cabin lining, so the
+  only openings are the glass. A pane that blends must stay in the OPAQUE list
+  (`transparent: false`, `CustomBlending`, premultiplied `gl_FragColor = (light,
+  α)` via `onBeforeCompile`, `depthWrite` off, `renderOrder 5`) or three's
+  transmission pass never sees it and the diner's window glass looks straight
+  through the car.
+- **A convex-body normal rule fails inside a pocket.** `loftBody` orients
+  normals away from the station centre; the pickup bed's floor and inner walls
+  lie below / outside that centre, so they faced into the metal, were culled and
+  showed the dark lining ("black bed"). Pockets use a flat face normal aimed at
+  the cavity (`pocketFloorY + 0.15` on the centre line) instead.
+- **Attribute parity in a merged bucket.** `mergeGeometries` drops the *whole*
+  bucket if one geometry lacks an attribute the others have — the rev 4 hood cut
+  strips (position + normal, no uv) silently removed every dark-trim part on both
+  cars. Give hand-built geometry all three of position / normal / uv.
+- **Loft rings must stay ordered in y.** `Station.yBelt` was `max(beltY, yLo + 0.05)`
+  regardless of `yTop`; over the hood and deck (lower than the belt line) the
+  belt ring sat above the top ring, the skin folded outward and its underside
+  read as a black lip along the far hood edge (pickup 4 cm, sedan up to 9 cm at
+  the nose). Clamp each ring under the one above (`yBelt ≤ yTop − 0.03`).
+- **Hand-wound strips: check the winding against the camera, not the maths in
+  your head.** The tyre-track ruts (rev 3) were wound (p, p+1, p+2) which faces
+  −y for any path direction, so every track was back-face culled and no frame
+  ever showed one — nobody noticed because the pose also happened to hide the
+  ground behind the wall. Shoot a top-down debug pose for any ground decal.
+- **Put seeded imperfections where the eye is.** A "random height" kink on a
+  74-slat blind lands in the top half most of the time, and the `window` pose
+  only sees the bottom 25 slats; rev 3's kinks/sags were there but never in
+  frame. Constrain the seed to the band the poses cover (66–94 % down).
+- **Measure at native resolution.** `tools/crop.mjs` takes 1920 × 1080 pixel
+  coordinates; reading a downscaled 1024 px preview and passing those numbers
+  crops the wrong region (×1.875).
+- **`tools/shoot.mjs` is CRLF in the working copy on Windows** (`core.autocrlf
+  true`); an editor that writes LF turns a 12-line pose edit into a 536-line
+  diff. Normalise to LF before committing (`sed -i 's/\r$//'`) so git's
+  autocrlf handles the rest.
+- **Decade decision (sedan).** The brief named a 1991–96 Caprice; the model is
+  the 1977–90 *box* Caprice (upright greenhouse, flat hood/deck, quad
+  rectangular sealed beams, egg-crate grille, chrome bumpers with guards). Kept
+  on purpose: the box body suits the diner's period and the front graphic already
+  reads; the 91–96 "whale" body would need a whole new loft and its rounded glass
+  is a worse fit for the blend-pane approach.
 
 ## System 4 — lighting (`src/scene/Lighting.ts`, probes in `Diner.ts`, additive material tweaks in `materials.ts`)
 
@@ -917,28 +976,46 @@ src/interactions/
                  through a mug handle); keys E / F, or left-click while the pointer is locked
   Prompt.ts      centre-bottom hint "E — Sit" / "E — Stand" / "E — Pour coffee" / "E — Open door";
                  system font, 180 ms fade, `?shoot` makes it instant for deterministic frames
-  Sit.ts         10 benches (5 window booths × 2 sides); 0.9 s eased glide to the seated pose
-                 (eye 1.15 m, centred on the bench, turned 35° to the window, −9° pitch) then a
-                 12 mm head settle over 0.25 s; movement locked, look clamped ±70° / ±40° around
-                 the seated heading; E again glides back to the aisle spot. Any window booth works.
-  Pour.ts        decanter lift 12 cm → over the mug → tilt 45° → 2.5 s hold → return, 6.3 s total;
-                 stream = wobbling tapered cylinder (onBeforeCompile), mug liquid = lathe disc with
-                 meniscus lip + rippled surface (shader, coffee material), decanter coffee clipped
-                 by a plane that drops 9 mm; steam = Steam.ts; clink at pick-up/put-down, pour SFX
-                 for the stream duration. Once full, E gives a 4 mm / 0.22 s bob and no refill.
-  Steam.ts       1 InstancedMesh, 22 billboard quads, procedural noise alpha in the shader, rise +
-                 drift, 30 s then fades. Modest by design (System 8 may extend).
-  DoorSwing.ts   leaf 0 → 85° over 1.1 s with overshoot + settle, 4 s hold, closer-style slow →
-                 latch (7.15 s cycle); one AABB collider that follows the leaf every frame
-                 (disabled for the frame if the player's centre is inside it, so they are never
-                 trapped); `onDoorOpen(progress)` listeners (default one brightens the hemi fill
-                 +12 % at full open); audio `setOutside(progress)` crossfades the heat wall.
-  debug.ts       window.__interact / __interactPose / __interactions (below)
+  Sit.ts         10 benches (5 window booths × 2 sides); 1.8 s sit-down in four beats (rev 2):
+                 0.15 s anticipation (hint fades, 4 mm weight shift) → 0.6 s step & turn to the
+                 cushion edge, eyes on the seat (−32°), only 7 cm lost → 0.7 s lower & slide
+                 (1.55 → 1.15 m ease in-out, 8 cm lean toward the table and back, eyes lift to the
+                 window) → 0.35 s cushion settle (14 mm dip, 4 mm rebound). Seated eye 1.15 m,
+                 centred on the bench, turned 35° to the window, −9° pitch; movement locked, look
+                 clamped ±70° / ±40°; E again stands (1.0 s: lean, rise, slide out). Any window booth.
+  Pour.ts        5.95 s from E (rev 2): 0.25 s reach → lift off the plate → 0.75 s Bézier arc of the
+                 spout lip to 4 cm over the pour point, wrist already tilting from 55 % of the carry →
+                 tilt-on settles the lip → stream 1.78–4.35 s: flow ramps in over 0.35 s (a thread
+                 that thickens), holds, dies over 0.4 s; over-tilt (≤ 6°) ∝ flow, pot dips 1.5 cm as
+                 the mug fills → 0.35 s wrist snap upright (ease-out) cuts the stream, tail falls at g,
+                 two drips at 4.50 / 4.75 → arc back, decelerating set-down. Stream radius ∝ √flow ×
+                 √(v0/v(d)) (continuity thinning), parabola from a 0.3 m/s lip speed, Rayleigh–Plateau
+                 bead-up when the flow is a thread; mug level = landed volume (flow integrated with the
+                 0.17 s fall delay) through the mug's inner-radius profile; decanter coffee = tall body
+                 + world clipping plane (Props' fixed body hidden from boot), level drops 9 mm; steam =
+                 `src/post/Steam.ts` SteamEmitter at the rim (the interactions/Steam.ts duplicate is
+                 gone), strength/rise/size build over 1.5 s from the first splash, fade 18 → 30 s.
+                 SFX on the visual: clink as the glass leaves / lands on the plate, pour from the moment
+                 the leading edge hits the mug for as long as liquid lands (tail + drips included).
+                 Once full, E gives a 4 mm / 0.22 s bob and no refill.
+  DoorSwing.ts   7.25 s closer cycle (rev 2): 0.22 s reach (hint fades; latch click + whoosh as the
+                 leaf starts) → 1.23 s weighted push (velocity profile: ease-in, peak ≈ 40 %, backcheck
+                 cushions the last 15°, a 0.9° bump into the cushion — no spring-back) → 1.4 s hold,
+                 extended while the player stands in the threshold zone → 3.6 s sweep 85° → 12°
+                 (take-up from rest, then decelerating: spring torque falls, damping ∝ speed) → 0.8 s
+                 latch 12° → 0, velocity-continuous, slightly accelerating, `latch()` SFX on the stop.
+                 One AABB collider follows the leaf every frame (disabled for the frame if the
+                 player's centre is inside it); `angleDeg` for captures; `onDoorOpen(progress)`
+                 listeners (default brightens the hemi fill +12 % at full open); `setOutside(progress)`
+                 every frame the leaf moves — the crossfade inherits the closer's ease.
+  debug.ts       window.__interact / __interactPose / __interactions / __player (below)
   util.ts        easings + the Interactable interface
 src/audio/wiring.ts   createDinerAudio() with the warmer at the brewer's lower plate and the mug at
                  `pourMug`; radio / AC / fan / door from System 6's defaultPositions();
                  startAudio() (idempotent) + first click/keydown/pointerdown fallback;
-                 listener follows the camera in update()
+                 listener follows the camera in update(); `doorLatch()` — leaf-on-stop thump
+                 (150–210 Hz, 60 ms) + bolt click (2.6–3.8 kHz) + strike seat (1.4 kHz, 35 ms later)
+                 + a quiet 700 Hz pane shiver, at the strike jamb through the door bus
 ```
 
 Controls: E (F, or click under pointer lock) on the highlighted target. Reach:
@@ -952,7 +1029,8 @@ Debug / capture API (`src/interactions/debug.ts`, on `window`):
 | `__interact(name, t)` | seek to `t` seconds into that interaction and freeze the clocks (silent) |
 | `__interact("stand" \| "resume" \| "reset")` | stand up / unfreeze / everything back to rest |
 | `__interactPose("sit-seated" \| "pour-mid" \| "pour-full" \| "door-open")` | state + camera for `tools/shoot.mjs` |
-| `__interactions` | the live object: `.sit.state`, `.pour.state`, `.door.progress`, `.target`, `.audio.state()`, `.startAudio()` |
+| `__interactions` | the live object: `.sit.state`, `.pour.state`, `.door.progress`, `.door.angleDeg`, `.target`, `.audio.state()`, `.startAudio()` |
+| `__player` | the `FirstPerson` controller (harness feel checks: `.position`, `.camera`, `.setPose`) |
 
 Poses (`tools/shoot.mjs --tag=sys7 --poses=sit-seated,pour-mid,pour-full,door-open`,
 `--port=` to run beside another worktree's harness): `sit-seated` = booth 2,
@@ -973,6 +1051,96 @@ allocations (scratch vectors are members). Draw calls: +6 at the pour camera
 while pouring (stream, liquid, live decanter clone, steam), 0 otherwise — plus
 both shadow passes on frames where the leaf or the decanter moved. The hint is
 shown in the `sys7-*` frames and hidden by the harness for every scene pose.
+
+### System 7 rev 2 — feel polish (`shots/sys7-seq-*.png`)
+
+**Contact sheets.** `node tools/sequence.mjs` (port 5260, `--port=` to move) builds, serves
+`dist/`, and shoots each interaction as a frozen time series through `__interact(name, t)`:
+sit 0 → 1.8 s @ 0.1 s (first person — the sit *is* the camera path), pour 0 → 6 s @ 0.25 s
+(back-bar camera), door 0 → 7.25 s @ 0.25 s from the vestibule camera and from an exterior
+3/4 camera (`door-ext`, the leaf swings toward the lens so its angle reads). Each frame's
+strip carries the time and the state (leaf angle in degrees, pour/sit state); key frames
+(amber) are also written full-size (`sys7-seq-<seq>-k<i>-<t>s.png`). Post ON by default
+(`--query=post=0` for the plain renderer), `--seqs=`, `--no-build`, `--out=DIR` (before/after
+runs), `--tag=`, and a window override `--t0 --t1 --step --keys=all|none|t,…` to zoom into a
+beat at full size. pngjs only, bitmap labels, GPU asserted like `shoot.mjs`.
+
+**Before → after (read off the sheets, then re-shot).**
+
+| | before | after |
+|---|---|---|
+| Sit | 0.9 s single cubic ease from the aisle straight to the seated pose — the view swings across the booth back, everything is over by 0.6 s and frames 0.5–1.1 s are identical; 12 mm "settle" invisible; no lean, no look-at-seat; hint and motion start on the same frame | 1.8 s in four beats (above): the hint has faded before the step, eyes drop to the seat while stepping in, the drop is the slow part, the head leans 8 cm toward the table and comes back as the hips land, then a 14 mm cushion dip + 4 mm rebound. Every frame of the sheet is different; the window fills the frame from 1.3 s |
+| Pour | decanter teleports 12 cm up in the first 0.25 s, straight lines between key points, tilt starts only after arrival, constant-radius rod of a stream (taper 1.0 → 0.7), no drips, fill linear in time, steam an opaque white cloud twice the mug's size within ~1 s | 0.25 s reach, lift then a Bézier arc with the tilt blended into the arrival; stream is a thread that thickens, thins with √(v0/v) as it falls (≈ 45 % over 10 cm) on a parabola, beads up and detaches at the end, two drips; the level follows the landed volume through the mug's profile (fast at the narrow foot, slow at the rim, 0.17 s behind the lip); steam is the System 8 emitter building over 1.5 s to a translucent wisp |
+| Door | 0 → 53° in the first 0.25 s (≈ 210°/s: a slammed door), 85° by 0.75 s with a spring overshoot, 4.3 s hold, sweep 85 → 8° in 1.8 s (≈ 43°/s), 0.25 s latch, no latch sound | 0.22 s reach, 1.23 s weighted push peaking ≈ 90°/s with a backcheck cushion instead of a spring, hold that waits while you stand in it, 3.6 s decelerating sweep (24 → 15°/s), 0.8 s latch at ≈ 15°/s with the thump + bolt click; measured live: 85° at 1.45 s, 12° at 6.45 s, shut at 7.25 s |
+| SFX | pour SFX at stream start (0.17 s before anything lands), clink on the same frame as the lift, no latch | pour on impact for as long as liquid lands; clink as the glass leaves / meets the plate; latch release as the leaf starts; `doorLatch()` on the stop |
+
+**References used.** Door: 2010 ADA Standards 404.2.8.1 — closers adjusted so that from 90°
+the door takes ≥ 5 s to reach 12° from the latch (<https://www.access-board.gov/ada/chapter/ch04/>).
+LCN 4040XP field adjustment: sweep valve = 90° → 10–15° from the latch, target 5–7 s on ADA
+openings, 4–6 s acceptable on lighter-traffic doors; latch valve = the last 10–15°, "it should
+accelerate slightly in that zone and seat against the strike with a clean, firm click — no
+bounce"; backcheck engages at 70–75° and cushions the rest of the opening
+(<https://www.securityparts.com/how-to-adjust-commercial-door-closer>; exterior 4–6 s and a
+1–2 s latch zone: <https://nationallocksupply.com/blog/commercial-door-closer-adjustment-sizing-guide/>).
+This diner door sweeps 85° → 12° in 3.6 s + 0.8 s latch — the brisk end of a light aluminium
+storefront leaf, as the brief asked (3–4 s sweep + 1 s latch); an ADA-strict 5 s sweep is
+one constant (`TL.sweep`). Pour: a free-falling stream thins by continuity, radius ∝ (v0/v)^½,
+and a thread breaks into drops below ≈ 1 mm (Plateau–Rayleigh,
+<https://en.wikipedia.org/wiki/Plateau%E2%80%93Rayleigh_instability>); the pouring form —
+tilt just past the lip angle, flow set by the extra tilt, cut with a quick wrist snap so the
+stream detaches rather than dribbles — is what a Bunn decanter's pinched lip is shaped for.
+Sit: young adults sit down in 1.33–1.49 s with seat contact at 0.70–0.88 s and a forward
+trunk lean throughout (Sci Rep 2023, <https://www.nature.com/articles/s41598-023-43401-6>);
+the iTUG "sit" phase averages 1.6 ± 0.5 s with a 0.6 s flexion beat
+(<https://pmc.ncbi.nlm.nih.gov/articles/PMC11943381/>); trunk flexion is what controls the
+descent (<https://doi.org/10.3389/fnhum.2024.1399179>). Our 1.8 s = 1.45 s to seat contact
++ 0.35 s cushion settle. Head-bob: ≈ 1.8–2 steps/s at 1.4 m/s; a 1–2 cm camera bob reads as
+"a body" without motion sickness.
+
+**Hook checks.** `onDoorOpen(progress)` fires every frame the leaf moves and once at rest; the
+default listener lifts the hemisphere fill +12 % at full open (nothing in System 4/8 binds it
+yet). `src/post/beams.ts` includes the door *lite* as a static aperture, so the sun-beam dust
+prism does not need an update when the leaf swings — but it stays the size of the closed
+leaf's glass; a rev could add the clear opening × progress. `setOutside()` is already a
+perceptual curve (a^0.6, 0.1 s ramps) and now follows the closer's ease, so the heat wall
+comes in over the 1.2 s push and leaves with the sweep, cut at the latch — not abrupt.
+
+**Player feel (`src/player/FirstPerson.ts`, documented in its header).** Velocity is
+rate-limited: 0 → 1.4 m/s in 0.15 s, stop in 0.12 s (measured 0.62 / 1.09 / 1.40 m/s at
+0.05 / 0.10 / 0.15 s; 0.62 / 0.09 / 0 at 0.05 / 0.10 / 0.15 s after release). Head-bob 1.4 cm
+peak-to-peak at 1.8 Hz with a 5 mm sway at half rate, amplitude eased in over 0.25 s and out
+over 0.2 s; applied to the camera only, `position` never bobs, and a still player is exactly
+at eye height (so every capture pose is unchanged). Eye height stays at the project's 1.62 m
+(the brief said 1.65; every System 1–8 shot is framed at 1.62, so it was left). Mouse look
+has no smoothing. Collision: the axis-separated test refused *both* axes whenever the circle
+touched an AABB corner, so walking diagonally along the counter stopped dead at the first
+stool base; it is now move-then-push-out along the contact normal (≤ 4 rounds, refuse the
+move if squeezed), which slides on faces and rolls round corners — measured: along the stool
+row at 0.56–0.7 m/s with a ±1.5 cm ripple, along the booth fronts at 0.7 m/s (no stepping on
+seats: stops 28 cm short of the cushion front), along the counter front at 1.35 m/s, across
+the door jamb without a catch, and through the open door at full speed.
+
+**Lessons.** (1) `renderer.compile()` links materials *without* their `clippingPlanes`
+(clipping state is set per object during a real render), so the numClippingPlanes=1
+variant of the clipped decanter body only exists once that mesh has been drawn — and the
+boot camera never sees the decanter, so it linked on the first E at the mug (0.7 s freeze).
+Fix: the live body is visible from boot (Props' fixed body hidden) with `frustumCulled =
+false`, and a pending `moved` flag re-renders the shadow maps on frame 1 so the depth
+variant links too — first pour now costs 16 ms. (2) A good interaction has an anticipation
+beat: the hint's 180 ms fade needs to finish before the first thing moves (sit 0.15 s, door
+0.22 s, pour 0.25 s). (3) Author swings as velocity profiles and integrate to a LUT
+(`integrateProfile` in DoorSwing.ts): "fast here, slow there" is how a closer valve and an
+animator both think, and the latch can be made velocity-continuous from the LUT's end slope.
+
+**Merge with System 6 rev 3 (`main`).** Both branches fixed the same two audio-sync problems
+independently, so the merge keeps one path for each: (1) the close latch — rev 3's
+`DoorSfx.setOutside(0)` plays `doorClose()` by itself on the frame the leaf seats, so
+`index.ts` no longer also calls `wiring.doorLatch()` (kept as a scripted voice; both together
+were a doubled click); (2) the pour landing — rev 3's `pourCoffee()` starts its splash
+`CoffeeSfx.LANDING_S` (0.17 s) after the call, so `Pour.ts` fires the cue that much *before*
+its computed impact time (fallDelay ≈ 0.167 s) instead of at it, and the sound still lands
+with the leading edge. Runtime verification of this merge (sequences, audio harness,
+boot/draw-call deltas) was **not** run at merge time — GPU unavailable — and is owed.
 
 ## System 8 — post-processing & atmosphere (`src/post/`)
 
@@ -1026,12 +1194,11 @@ System 4 re-lighting scales dust and haze for free. Hook: one call in
   settle / the overlay fade. MSAA target size follows
   `renderer.getDrawingBufferSize()` (pixel ratio ≤ 1.5, `setSize` on resize) and
   is re-allocated lazily on the first frame after a change.
-- **Steam duplication (clean-up owed).** System 7 (now in `main`) carries its own
-  `src/interactions/Steam.ts` for the pour; `src/post/Steam.ts` exports the
-  `SteamEmitter` used for the decanter (and written for the pour — see `steam`
-  below). Both compile and run side by side (the pour's steam at the mug, the
-  ambient wisp at the decanter); they were deliberately not unified in this merge.
-  Pick one emitter in a System 7/8 polish pass.
+- **Steam duplication (resolved in System 7 rev 2).** System 7 rev 1 carried its own
+  `src/interactions/Steam.ts` for the pour beside `src/post/Steam.ts`'s
+  `SteamEmitter` (decanter). Rev 2 deleted the duplicate: the pour's mug steam is a
+  second `SteamEmitter` (`Pour.ts` → `MugSteam`) whose strength / rise / size are
+  driven from the pour clock, so the API here is the only steam API.
 - **Interactions × post.** `interactions.update(dt)` runs before `post.render()`
   in the loop: a swinging door leaf or a lifted decanter calls
   `diner.invalidateShadows()`, and the scene pass inside `post.render()` is what
@@ -1134,12 +1301,12 @@ lazily, once).
 |---|---|---|
 | 1 | Interior geometry and floor plan | **done** (rev 4 close-out: empty L-return, footrail at 200 mm on cast brackets, bell pedestals, head bulkhead + 25 mm wall angle, 60 × 40 caps, 100 mm saddle + stepped exterior slab) |
 | 2 | Booth and counter detail | **PASSED at rev 7 (`9adefff`)**; System 3 rev 1 polish: 3 condiment sets on 9 stools (centred between stool pairs), boomerangs in two classes (32–38 mm + 15–20 mm) with a few outline-only shapes, channels pillowed 4 mm outward with the 1–2 mm valley at the welt, stool seats with a 17 mm crown + 10 mm roll over the band, near-white granular sugar. Rev 7 was: flicker audit + fixes (see Lessons); stools built per stool into the merged buckets (no instancing): ±6 mm column height, any yaw with the welt junction + boxing seam travelling with it, ±5 % squash, 250 × 200 mm sit-hollow 6–9 mm deep in its own shade, one 2.5° worn swivel, three chrome wear grades (roughness 0.07/0.12/0.17), four bolt caps per base; glass `transmission 1`/roughness 0/thin, granular sugar top tilted 7° at 75 %, grey-blue granular salt standing in front of the pepper; black SplashGard funnel (Ø 178 × 100, paddle handle) in the rails, stainless fill lid so one black warmer disc tops the hood, 7 mugs staggered ±15 mm on the mat; napkin tip with folded leaf + crease, domed cast pedestal with collar, pass-through surround in wall-trim paint. Rev 6 was: A1 veneer at true scale (lines 1.5–2.5 mm, one decaying cathedral per 0.5 m, ≤ 9 % contrast, per-panel UV jitter + flips; oak caps / walnut panels + die / maple cabinets + fan blades kept); A2 cords proud of the channels (centre +1 mm over the crowns, 6 mm, baked line shadows, 6 puckers in the last 30 mm at both tucks), 6 mm piped head-roll seam, seat welt + boxing seam + dark top-stitch line at the nose, 6 mm welt torus round every stool seat over a 1" band; vinyl roughness ≈ 0.32–0.5, grain normal 1.25, clearcoat 0.1. B1 boomerangs as straight-armed 100–130° elbows with rounded tapered tips, 28–52 mm, ~3.5 / 100 cm², three tones, on a 2048 px / 1.2 m tile (no repeat on a table). B2 one fluted jar (14 cos² ribs, 2.5 mm) in `glassFluted` (10 mm refraction thickness) with the sugar at 97 % of the bore to 65 %, full-diameter 12 mm lid with 1" side-hinged flap; S&P 1.5 mm glass walls, fills at 97 % of the bore to 60 %, opaque `salt`. B3 hood in light `stainlessCool` (albedo 0.6, roughness 0.3, anisotropic, room probe) with black control band + black 150 mm warmer discs top and base, stainless base plate over a black base, 25 × 14 mm lit rocker switches with pivot line. B4 mug 7–8 mm walls / 13 mm floor / 6.5 mm rim, dark `bisque` foot ring, stubby handle; 8 spares inverted on a ribbed rubber bar mat, 2 upright, saucers only at the two stools. B5 stools: seat parts pivot on the column top with ±1.2° tilt, ±10 mm height, ±5 % cushion squash, ±10 mm pitch with two nudged 22–30 mm. C: 2" fluted T-mould with 4 grooves on the counter, 28 mm push bar on cast rose/post/saddle standoffs, 4.5" × ½" five-rib saddle threshold, 5 mm dark-steel spider plate with 4 screws on a dark-sealed underside, ½" troffer recess in a 1" frame, shaped cast fan irons with bosses, 1.8 mm rolled dispenser lid edge. Rev 5 was: mugs are `MeshPhysicalMaterial` ivory china (opaque, roughness 0.15, clearcoat 0.6, env 0.45; runtime probe confirmed transmission/transparent were never set — the rev 4 "frosted" read was a shaded white body mirroring the counter); Skylark laminate as sparse (~30 %) round-capped stroked chevrons, three tones pulled toward cream, non-touching; Tablecraft-221 dispenser in smooth `stainlessBrushed` (roughness 0.2, anisotropy 0.4 — at 1.0 the sun lobe whited the face) with 70 × 22 slots on both long faces, napkin fans, flange lid, rubber feet; BUNN tower in matte `blackPowder` with brushed stainless side panels and a Ø 190 × 110 stainless funnel with forward handle; channel depth 20 mm with 6 mm cords riding 2 mm under the crowns, vinyl #A8141C roughness ≈ 0.3–0.4, 0.4 mm grain, clearcoat 0.15; veneer ridge pitch 1–4 mm with ~300 mm cathedral figure at ≤ 12 % contrast (caps satin 0.3, laminates 0.5); shaker fill fitted to the glass, half-moon side-hinged sugar flap, 13 mm troffer reveal. Rev 4 was: prop-side reflection probe (no checker in glassware), opaque #2A1408 coffee at 55 % with fill line/meniscus/tide line, 12 mm D-handle facing the aisle, 100 mm-deep funnel; opaque ivory mugs (roughness 0.14, env 0.2) inverted on 140 mm saucers on the drip tray + 3 loose uprights + `pourMug`; Skylark boomerangs as bent chevrons (62/72 mm, 12–15 mm, tan/grey-blue/white, ~40 %); three grain sources via `woodVeneer` (oak caps, walnut panels/die, maple cabinets); seat boxing seam 25 mm below the crown, brighter valley cords, ±3–4 mm puckers; stools ±8 mm height/±10 mm pitch/±25 mm off-line, concave rim band mirrors the checker; Tablecraft-221 dispenser with 52 × 42 arch, napkin tip, lid seam; bright 4" saddle; kitchen box with its own emissive ambient. Rev 3 was: — 5 mm welt cords proud in every channel valley + 7 mm roll-seam and boxing-seam welts, puckers at both tucks, broad sheen (roughness map 0.35–0.55, clearcoat 0.25); 512 px interior-capture PMREM; irregular vertical veneer grain on end panels/counter die/cabinets (contrast 0.10), horizontal cap grain; T-mould with 3 real 2 mm grooves + returned lip, 38 mm tops with sparse two-tone boomerang; counter sheet seams every 3.6 m; steep-rimmed bell stool bases that mirror the floor, per-stool rim seam, ±12 mm height/±25 mm offset; footrail elbow + return flange; 300 mm brushed spider plate; BUNN VPR brewer with one lower + one upper warmer, deep SplashGard funnel, brushed body; 173 × 178 decanter with opaque 55 % coffee, fill line, tide line, black collar/handle, stainless base ring; closed 98 × 117 × 184 dispenser with recessed faceplates and one napkin tip; 12-flute sugar pourer at 65 %; glass shakers with visible fill; glossy waisted mugs (roughness 0.1); 6 mm prism troffer lens; 14 mm fan blades; alu threshold plate |
-| 3 | Windows, blinds, exterior view | **built, rev 3 (proof crops in `shots/crops/`, debug exterior frames `shots/sys3-dbg-*.png`)**. Rev 3 (critic items A–F): **A** vehicles rebuilt as lofted bodies through 24-point cross-sections (`Station`/`loftBody` in `Exterior.ts`: 20 mm sill radius, side bulge to the belt, tumblehome to a 70–90 mm roof radius, plan taper at the ends, analytic normals with one-sided tangents at the hood/roof creases) with the wheel arches cut into the lower edge so four lathed tyres (rounded shoulders, sidewall bulge, 0.19 m bead) show under the fenders; ride height 0.31 m sill / 0.35 m tyre (sedan), 0.42 / 0.38 (pickup); chrome bumpers 0.45–0.58 m with rubber guards over a painted valance; sealed beams (2 × round 5¾" per side on the pickup, 2 × rectangular on the sedan) as glassy `MeshPhysicalMaterial` lenses in chrome bezels; amber signals; egg-crate grille texture (`grilleTexture`); plates front + rear (`plateTexture`); door mirrors on chrome arms, wipers on the glass, chrome pulls, rubber + chrome side moulding, drip rails, shut-line slivers, wheel-well liners and underbody mass; glass metalness 0 (rev 2's 0.55 tinted the sky reflection black — see Lessons), dust-film paint (`carDust` map + roughness). **B** route holes 12 × 6 mm ovals (annulus-triangulated patches in the slat mesh) — 5 px at booth distance, showing whatever is behind (`crop-route-hole`). **C** slats are real per-blind geometry (`appendSlat`): tilt 25 ± 5° per blind, drop 0 or 3–8 cm with the spare slats stacked on the bottom rail, 1–3 mm parabolic sag between ladders + free-end droop, 1–3 creased slats per run, ±2.5° per-slat jitter, ±4 % tone via vertex colours; ladders front + rear with rungs; 25 × 38 mm pale headrail; moulded plastic tassel in slat colour (the `lot-wide` "dark 15 cm band" is the window's transom bar behind the slats, not the headrail — see Lessons). **D** Ø 0.6 m poured piers 0.75 m high with chamfer, grout collar, steel base plate, four anchor bolts + nuts and a pole flange; 150 mm kerb + 0.7 m gravel strip along the CMU base; 90 mm precast cap with 25 mm overhang; two-lane frontage road 16 m behind the wall (shoulders, edge lines, faded centre line) with creosoted utility poles / crossarms / insulators every 38 m and 1 px catenary wires; 110 instanced 1–2 m creosote bushes (stem fan + olive foliage clumps). **E** verified, no leak: with the spot off (`sunLot` only) the room has no sun patches at all; the "unstriped" wall patches in `length`/`counter` are the last window's blinded throw on the end wall — striped at 2–3 px pitch (oblique compression + penumbra), invisible at frame scale; the seat patch in `stripes` is shadowed vinyl mirroring the bright window. **F** door smudge redrawn as a palm-heel smear arc + scattered fingertip dabs + diagonal drag streaks (nothing periodic), alpha × (0.3 + 0.7·(1 − N·V)²) so it brightens at grazing angles (`crop-smudge`). Draw calls unchanged (114–271 by pose, worst `length`); triangles 1.30 M. Rev 2: two-light sun split (spot for the building, directional + caster-only cone for the lot — see Lessons) so poles, cars, stops and the CMU wall cast onto the lot; exterior fill ×0.45; A1/A2 measured and documented as critic mis-reads (`crop-wall-under-sill`, `crop-stripes-rectified`); blinds: 1.3 mm ladders front + rear with a rung under every slat, 10 × 6 mm route slots with the lift cord through them, ±2.5° tilt jitter + 3–4 kinked slats, ±4 % tone, enamel crown highlight (smooth 0.3 roughness base + sparse dust streaks to 0.6, metalness 0.1, env 0.7), 1" × ½" bottom rail with end caps, headrail + valance lip, 12 mm tan tilt wand (0.5 m, right jamb), two pull cords + equaliser + turned-wood acorn tassel (left jamb, ending 15 mm over the stool); cars re-bodied (lofted profile with sloped hood/trunk, raked pillars, flared arches, rocker, door shut lines, B/C pillars, drip rails, chrome bumpers/belt line/mirrors, sky-reflecting glass, recessed lamps); 1.8 × 0.15 m trapezoid concrete wheel stops; 3 more branching cracks with 3–4 cm black filler, oil blotch at a stall head, tyre scuffs; CMU tones randomised per block on an 8 × 4 tile; satin stainless push-bar mounts; sky brightened toward the sun azimuth with a haze band at the ridge foot and a fainter second range; scrub in three size classes / three tones with down-sun contact-shadow decals; ceiling/fan/overlays/car trim no longer cast (draw calls 179–338, worst `length`, with the per-frame shadow passes; lower since the shadow maps are rendered once at boot — see Startup). Rev 1 was: venetian blinds on all five windows (none on the door: the reference diners keep the door pane clear for the OPEN sign and the view of who is coming), instanced curved 1" slats at 22 mm pitch / 45°, ±0.5° tilt, ±0.3 mm sag, a kinked slat per window, ±4 % tone, dust streaks on the up-faces, rails, two ladders + lift cords + wand each; slats cast the hard stripe shadows through the existing sun (tight 3.3 mm shadow texels). Window/door glass `MeshPhysicalMaterial` T = 1 with the 12 % loss in the colour, IOR 1.52, 6 mm, green-grey attenuation, room-probe reflection, dust haze heavier at the lower edge/corners, wipe streaks, five handprints at push-bar height (roughness patch + haze decal). Exterior: 150 mm kerb + 1.5 m sidewalk, 12 stalls of re-striped asphalt (drift, tyre polish, sealcoat patches, alligator + long cracks with dusty/sealed fills, oil drips, old + new lines) over a plain surround, kerb stops, 1.2 m CMU wall at the far edge, two 7 m light standards on concrete bases, dusty white pickup (5.3 m, 2.9 m wheelbase, 0.71 m tyres) and maroon sedan (4.9 m, faded clearcoat) with dark glass, chrome bumpers/trim, recessed headlamps with chrome bezels, contact-shadow decals, `lotEnv` probe; desert dirt with 900 instanced scrub patches, fBm mesa/ridge ring fading into the sky, shader sky dome (near-white horizon → pale desaturated blue, sun glare on az 38° / el 35°), linear fog 45–260 m for atmospheric perspective. Draw calls 181–335 (worst: `length`). |
+| 3 | Windows, blinds, exterior view | **built, rev 4 (branch `sys3-rev4`; frames `shots/sys3-{window,door-glass,lot-wide,dbg-sedan-front34,dbg-sedan-rear34,dbg-pickup-side,dbg-pickup-front34,dbg-pickup-rear34,dbg-wheel,dbg-wheelstop,dbg-wall-road}.png`)**. Rev 4 (two critics passed everything but the vehicles and wheel stops): **1** panel shut lines as real grooves in the loft (6 mm wide × 8 mm deep dark walls/floors in their own geometry, door cuts on both cars, trunk-lid leading edge, 6 cm cab–bed gap; hood↔fender and deck↔quarter cut strips 2.5 mm proud), one pull per door (pickup 1, sedan 2 per side) just ahead of each rear shut line; **2** glass cut out of the body loft and rendered as a blended dielectric pane (`makePaneGlass`: Schlick Fresnel α = 0.38 + 0.62·F, premultiplied custom blend, still in the opaque list for the transmission pass, inner faces 12 % reflection) over a cabin lining (the loft flipped inside out), padded dash + binnacle, tilted steering wheel with three spokes and column, seat backs / cushions / headrests on posts (sedan), bench (pickup), rear shelf; A-pillar and C-pillar edges raked by quad splitting; windshield shows wheel + dash silhouettes in `dbg-sedan-front34`; **3** wipers as pivot post + nut + arm + hinge + blade + rubber, parked along the cowl channel 60 mm below the glass base at 12° rake, lower part behind the hood's trailing edge; **4** wheels: lathed tyre (sidewall bulge, 8 tread grooves, bead, sidewall/tread tones in the vertex colour), painted steel rim with lip + 5 lug nuts + centre cap (pickup) or full chrome cover with dish rings + black medallion (sedan), radial brake-dust vertex colour, dark drum behind; tyres fill the arches (superellipse p = 2.6 flattened arch on the sedan, p = 4 rounded-rectangle on the pickup); **5** pickup re-proportioned: front axle 0.72 m behind the nose (WB 3.0), windshield base 0.64 m behind the axle (21 % WB; measured in `dbg-pickup-side` at native resolution: axle x = 404, A-pillar base 637, rear axle 1264 → 233 / 860 px = 27 % axle-to-cowl (rev 3: 41 %), body nose 160 → 28 % front overhang, bumper 112 → 34 % (rev 3: 42 %)), door cut at 1.42, full-width chrome-framed fascia with twin round sealed beams per side (concave chrome bowls, fluted domes) flanking an egg-crate grille; **6** both door mirrors 150 × 100 × 70 mm painted heads on chrome arms; **7** wheel stops: 1.83 × 0.20 × 0.14 m (72" × 8" × 5.5") precast bars with 6 mm chamfers, two dark rebar pin holes 0.46 m in from each end, centred in the stall (0.44 m clear each side), ±3° skew; noses parked 0.37 m (pickup) / 0.48 m (sedan) past the bar face, tyres 8–10 cm short of it. Polish: **8** blinds — one 6–10 mm sagging slat and one creased slat (outer 15–25 cm twisted 14–25°, tip drooping 8–15 mm) per blind at seeded heights 66–94 % down the drop (the band a seated or standing eye actually sees — measured in `window`: sag slat 9–12 px between ladders ≈ 6–8 mm at 1.5 px/mm, kink tip 12 px down with the twist reading edge-on; every other slat within 3 px end to end), the last blind in the row pulled up 15–30 cm, closed 27 × 19 mm bottom rail with end caps and two cord buttons, cream acorn tassel (17 × 50 mm) on a 2 mm cord pair; **9** horizon as three ridged-noise range layers with a clear tonal step fading with distance, scrub edge broken by a noise-graded shoulder with a parallel pair of tyre-track ruts running from the road to the wall gap (visible through the gap in `dbg-wall-road`; rev 3's ruts were wound face-down and back-face culled — see Lessons), six distinct creosote / mesquite silhouettes merged into one mesh; **10** headlamps with reflector depth and lens fluting, bumper guards in mirrored pairs flanking both plates. Also fixed in the final pass: the loft's belt ring sat *above* the hood/deck top ring wherever the panel is lower than the belt line, folding the skin outward so its underside showed as a 4–9 cm black lip along the far hood edge on both cars (`dbg-pickup-front34`, `dbg-sedan-front34`); the belt ring is now clamped 3 cm under the top ring (see Lessons). Sedan kept as the 1977–90 box Caprice (see Lessons). Boot 12.6–13.0 s in the harness with parallel agents on the GPU (main `f642bac` shot beside it measured 37.6 s under the same contention, so the number is load, not the branch); draw calls at boot 167 (main 173), `lot-wide` 237 (main 237), `door-glass` 139 (main 133: +6 = the two blended car-glass/lamp-glass meshes and the extra dark/chrome/wheel buckets); triangles 1.28 M (main 1.24 M). Rev 3 (critic items A–F): **A** vehicles rebuilt as lofted bodies through 24-point cross-sections (`Station`/`loftBody` in `Exterior.ts`: 20 mm sill radius, side bulge to the belt, tumblehome to a 70–90 mm roof radius, plan taper at the ends, analytic normals with one-sided tangents at the hood/roof creases) with the wheel arches cut into the lower edge so four lathed tyres (rounded shoulders, sidewall bulge, 0.19 m bead) show under the fenders; ride height 0.31 m sill / 0.35 m tyre (sedan), 0.42 / 0.38 (pickup); chrome bumpers 0.45–0.58 m with rubber guards over a painted valance; sealed beams (2 × round 5¾" per side on the pickup, 2 × rectangular on the sedan) as glassy `MeshPhysicalMaterial` lenses in chrome bezels; amber signals; egg-crate grille texture (`grilleTexture`); plates front + rear (`plateTexture`); door mirrors on chrome arms, wipers on the glass, chrome pulls, rubber + chrome side moulding, drip rails, shut-line slivers, wheel-well liners and underbody mass; glass metalness 0 (rev 2's 0.55 tinted the sky reflection black — see Lessons), dust-film paint (`carDust` map + roughness). **B** route holes 12 × 6 mm ovals (annulus-triangulated patches in the slat mesh) — 5 px at booth distance, showing whatever is behind (`crop-route-hole`). **C** slats are real per-blind geometry (`appendSlat`): tilt 25 ± 5° per blind, drop 0 or 3–8 cm with the spare slats stacked on the bottom rail, 1–3 mm parabolic sag between ladders + free-end droop, 1–3 creased slats per run, ±2.5° per-slat jitter, ±4 % tone via vertex colours; ladders front + rear with rungs; 25 × 38 mm pale headrail; moulded plastic tassel in slat colour (the `lot-wide` "dark 15 cm band" is the window's transom bar behind the slats, not the headrail — see Lessons). **D** Ø 0.6 m poured piers 0.75 m high with chamfer, grout collar, steel base plate, four anchor bolts + nuts and a pole flange; 150 mm kerb + 0.7 m gravel strip along the CMU base; 90 mm precast cap with 25 mm overhang; two-lane frontage road 16 m behind the wall (shoulders, edge lines, faded centre line) with creosoted utility poles / crossarms / insulators every 38 m and 1 px catenary wires; 110 instanced 1–2 m creosote bushes (stem fan + olive foliage clumps). **E** verified, no leak: with the spot off (`sunLot` only) the room has no sun patches at all; the "unstriped" wall patches in `length`/`counter` are the last window's blinded throw on the end wall — striped at 2–3 px pitch (oblique compression + penumbra), invisible at frame scale; the seat patch in `stripes` is shadowed vinyl mirroring the bright window. **F** door smudge redrawn as a palm-heel smear arc + scattered fingertip dabs + diagonal drag streaks (nothing periodic), alpha × (0.3 + 0.7·(1 − N·V)²) so it brightens at grazing angles (`crop-smudge`). Draw calls unchanged (114–271 by pose, worst `length`); triangles 1.30 M. Rev 2: two-light sun split (spot for the building, directional + caster-only cone for the lot — see Lessons) so poles, cars, stops and the CMU wall cast onto the lot; exterior fill ×0.45; A1/A2 measured and documented as critic mis-reads (`crop-wall-under-sill`, `crop-stripes-rectified`); blinds: 1.3 mm ladders front + rear with a rung under every slat, 10 × 6 mm route slots with the lift cord through them, ±2.5° tilt jitter + 3–4 kinked slats, ±4 % tone, enamel crown highlight (smooth 0.3 roughness base + sparse dust streaks to 0.6, metalness 0.1, env 0.7), 1" × ½" bottom rail with end caps, headrail + valance lip, 12 mm tan tilt wand (0.5 m, right jamb), two pull cords + equaliser + turned-wood acorn tassel (left jamb, ending 15 mm over the stool); cars re-bodied (lofted profile with sloped hood/trunk, raked pillars, flared arches, rocker, door shut lines, B/C pillars, drip rails, chrome bumpers/belt line/mirrors, sky-reflecting glass, recessed lamps); 1.8 × 0.15 m trapezoid concrete wheel stops; 3 more branching cracks with 3–4 cm black filler, oil blotch at a stall head, tyre scuffs; CMU tones randomised per block on an 8 × 4 tile; satin stainless push-bar mounts; sky brightened toward the sun azimuth with a haze band at the ridge foot and a fainter second range; scrub in three size classes / three tones with down-sun contact-shadow decals; ceiling/fan/overlays/car trim no longer cast (draw calls 179–338, worst `length`, with the per-frame shadow passes; lower since the shadow maps are rendered once at boot — see Startup). Rev 1 was: venetian blinds on all five windows (none on the door: the reference diners keep the door pane clear for the OPEN sign and the view of who is coming), instanced curved 1" slats at 22 mm pitch / 45°, ±0.5° tilt, ±0.3 mm sag, a kinked slat per window, ±4 % tone, dust streaks on the up-faces, rails, two ladders + lift cords + wand each; slats cast the hard stripe shadows through the existing sun (tight 3.3 mm shadow texels). Window/door glass `MeshPhysicalMaterial` T = 1 with the 12 % loss in the colour, IOR 1.52, 6 mm, green-grey attenuation, room-probe reflection, dust haze heavier at the lower edge/corners, wipe streaks, five handprints at push-bar height (roughness patch + haze decal). Exterior: 150 mm kerb + 1.5 m sidewalk, 12 stalls of re-striped asphalt (drift, tyre polish, sealcoat patches, alligator + long cracks with dusty/sealed fills, oil drips, old + new lines) over a plain surround, kerb stops, 1.2 m CMU wall at the far edge, two 7 m light standards on concrete bases, dusty white pickup (5.3 m, 2.9 m wheelbase, 0.71 m tyres) and maroon sedan (4.9 m, faded clearcoat) with dark glass, chrome bumpers/trim, recessed headlamps with chrome bezels, contact-shadow decals, `lotEnv` probe; desert dirt with 900 instanced scrub patches, fBm mesa/ridge ring fading into the sky, shader sky dome (near-white horizon → pale desaturated blue, sun glare on az 38° / el 35°), linear fog 45–260 m for atmospheric perspective. Draw calls 181–335 (worst: `length`). |
 | 4 | Lighting | **built, rev 1** (`shots/sys4-*.png`, post on; `shots/sys4-raw-*.png`, `?post=0`). Physical units at K = 1e-4 with camera exposure ISO 100 f/5.6 1/160 (EV 12.29, grey 1,080 nits, AgX); 90 klux 5500 K spot sun with PCSS (0.53° disc, 3.5 mm texels) + directional lot sun; sky dome scaled to 5,500-nit horizon with circumsolar boost and baked into split PMREM probes (sun-off for dielectrics, sun-on for metals); 8 × 7,500 lm 4100 K troffer RectAreaLights with 4,500-nit lenses; window sky fills + floor-patch bounce RectAreaLights; contact-occlusion decals; `sunBeam` compare-map twin so System 8's dust/haze keep working under BasicShadowMap. Measured: sunlit vinyl stripes +0.9…+1.7 EV, table core +3.8 (clips), sky through slats +2.3…+3.1, counter top −1.1…−1.3, die −2.7, seat in shade −2.9 — see REFERENCE §8 |
 | 5 | Materials and textures | **built, rev 1 (textures)**, merged into `main` over System 3 rev 3 + System 8 — the light-independent half: floor wear/grout relief, wall stipple/seams/scuffs/fade, fissured tiles + stains/sag/tee chips, laminate wear + cup rings, pebble-grain vinyl + cracked welts on one booth, brushed/fingerprinted/scuffed metals, cap arris wear, door dressing (OPEN/hours/PUSH/cards/kick plate/film edge), carafe stain + scratches. See "System 5". Roughness/metalness/colour/envMapIntensity base values untouched (System 4 owns them). |
 | 6 | Sound design | **built, rev 3** (section above) — 100 % synthesised: AM-radio speech rhythm, AC drone + rattle, fan whoosh, warmer ticks/gurgle, room tone; pour / clink / door one-shots and the exterior heat wall. Rev 3 measured the live mix at six listener poses (BS.1770 LUFS per bus) and re-levelled it: aisle bed −36.2 LUFS, room −44.5, AC / fan / radio −35 / −39 / −33 at 1 m, warmer near-field; pour lands with the stream, clinks −12 dBFS, heat wall −26 LUFS with an equal-power swell, room ducks 3 dB while the door is open, latch on close |
-| 7 | The 3 interactions (sit, pour coffee, open door) | **built, rev 1** (merged into `main` over the loader + System 3 rev 2: shadow-once invalidation on door/pour, audio on the loader's enter click, pour programs pre-issued) — `src/interactions/*` + `src/audio/wiring.ts` (System 6 wired: gesture start, positional beds, pour/clink/door SFX, exterior crossfade). Frames `shots/sys7-{sit-seated,pour-mid,pour-full,door-open}.png`; 23/23 live Playwright checks; update ≈ 0.01 ms; +6 draw calls only while pouring |
-| 8 | Post-processing and final polish | **built, rev 1** (`src/post/`, section above), merged with the loader + System 3 rev 2 (spot sun, shadow-once — see "Integration" above) — MSAA 4× scene target, sun-beam dust (5 k shadow-map-lit motes), half-res volumetric haze through the beam prisms, exterior-only heat shimmer, ambient decanter steam (`SteamEmitter`; System 7's pour has its own `interactions/Steam.ts` — duplication noted above), high-threshold bloom, CA 0.5 px, 0.3 EV vignette, corner softness, ACES/AgX/Neutral tone map, luminance-dependent procedural grain; ~1.3 ms post + ~1.3 ms MSAA at 1080p on the 4060; `?post=0` bypasses everything |
+| 7 | The 3 interactions (sit, pour coffee, open door) | **built, rev 2 — feel polish** (`shots/sys7-seq-{sit,pour,door,door-ext}.png` time-series sheets + 18 key frames from `tools/sequence.mjs`; anticipation beats, arced/tilting pour with continuity-thinning stream, drips and volume-true fill, closer-profile door with hold-while-in-doorway and latch SFX, four-beat sit with lean and cushion settle, System 8 `SteamEmitter` reused (duplicate `interactions/Steam.ts` deleted), first-pour 0.7 s link hitch removed; player accel/decel 0.15/0.12 s, 1.4 cm head-bob, push-out collision that slides round stool bases — see "System 7 rev 2" above). Rev 1 was: (merged into `main` over the loader + System 3 rev 2: shadow-once invalidation on door/pour, audio on the loader's enter click, pour programs pre-issued) — `src/interactions/*` + `src/audio/wiring.ts` (System 6 wired: gesture start, positional beds, pour/clink/door SFX, exterior crossfade). Frames `shots/sys7-{sit-seated,pour-mid,pour-full,door-open}.png`; 23/23 live Playwright checks; update ≈ 0.01 ms; +6 draw calls only while pouring |
+| 8 | Post-processing and final polish | **built, rev 1** (`src/post/`, section above), merged with the loader + System 3 rev 2 (spot sun, shadow-once — see "Integration" above) — MSAA 4× scene target, sun-beam dust (5 k shadow-map-lit motes), half-res volumetric haze through the beam prisms, exterior-only heat shimmer, ambient decanter steam (`SteamEmitter`; System 7 rev 2's pour steam is a second instance of the same class), high-threshold bloom, CA 0.5 px, 0.3 EV vignette, corner softness, ACES/AgX/Neutral tone map, luminance-dependent procedural grain; ~1.3 ms post + ~1.3 ms MSAA at 1080p on the 4060; `?post=0` bypasses everything |
 
 Known simplifications after System 3: no heat shimmer (System 8 post), no
 chain fence, the cars have no interiors (dark glass hides it at 10–30 m), the
