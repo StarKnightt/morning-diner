@@ -7,10 +7,11 @@
  *
  * setOutside(amount 0..1, rampSeconds): the heat wall. As the door opens a
  * bright exterior bed crossfades in and HOLDS while the door stays open:
- * cicadas (4.5–6 kHz, chopped at 100–170 Hz, swelling at 0.2–0.5 Hz), exterior
- * air (2–10 kHz), and a very low, very quiet highway rumble. Emitted from both
- * jambs so it has width at the threshold and still localises to the door from
- * across the room; the rumble is unspatialised. The spectrum of the room tilts
+ * cicadas (4.5–6 kHz, chopped at 100–170 Hz, a gentle 0.2–0.5 Hz swell),
+ * exterior air (2–8 kHz), a distant highway / condenser layer at 60–250 Hz and
+ * a wind-over-scrub texture at 300 Hz–1 kHz. Everything is emitted from both
+ * jambs with independent noise so it has width at the threshold and still
+ * localises to the door from across the room. The spectrum of the room tilts
  * UP when the door opens — that's the heat.
  */
 import { AudioEngine, type Vec3 } from "../AudioEngine";
@@ -88,7 +89,7 @@ export class DoorSfx {
       const swell = ctx.createOscillator();
       swell.frequency.value = i === 0 ? 0.27 : 0.41;
       const swellDepth = ctx.createGain();
-      swellDepth.gain.value = 0.35;
+      swellDepth.gain.value = 0.12; // ±1.5 dB: a breath, not a sag
       swell.connect(swellDepth);
       swellDepth.connect(swellGain.gain);
       swell.start(t0);
@@ -114,35 +115,76 @@ export class DoorSfx {
       airHp.connect(airLp);
       airLp.connect(air);
 
+      // Distant highway + a condenser unit next door: 60–250 Hz, decorrelated per jamb.
+      const lowSrc = engine.noiseSource("brown", i === 0 ? 0.91 : 1.07, t0);
+      const lowHp = ctx.createBiquadFilter();
+      lowHp.type = "highpass";
+      lowHp.frequency.value = 60;
+      lowHp.Q.value = 0.707;
+      const lowLp = ctx.createBiquadFilter();
+      lowLp.type = "lowpass";
+      lowLp.frequency.value = 230;
+      lowLp.Q.value = 0.707;
+      const low = ctx.createGain();
+      low.gain.value = 0.1;
+      lowSrc.connect(lowHp);
+      lowHp.connect(lowLp);
+      lowLp.connect(low);
+      // Condenser hum inside it, wobbling slowly.
+      const condenser = ctx.createOscillator();
+      condenser.frequency.value = i === 0 ? 118 : 121;
+      const condenserGain = ctx.createGain();
+      condenserGain.gain.value = 0.006;
+      const wobble = ctx.createOscillator();
+      wobble.frequency.value = i === 0 ? 0.37 : 0.29;
+      const wobbleDepth = ctx.createGain();
+      wobbleDepth.gain.value = 0.0025;
+      wobble.connect(wobbleDepth);
+      wobbleDepth.connect(condenserGain.gain);
+      condenser.connect(condenserGain);
+      condenser.start(t0);
+      wobble.start(t0);
+
+      // Wind over scrub, 300 Hz–1 kHz, slowly gusting. No birds with pitch.
+      const midSrc = engine.noiseSource("pink", i === 0 ? 1.13 : 0.89, t0);
+      const midHp = ctx.createBiquadFilter();
+      midHp.type = "highpass";
+      midHp.frequency.value = 300;
+      midHp.Q.value = 0.707;
+      const midLp = ctx.createBiquadFilter();
+      midLp.type = "lowpass";
+      midLp.frequency.value = 1000;
+      midLp.Q.value = 0.707;
+      const mid = ctx.createGain();
+      mid.gain.value = 0.066;
+      midSrc.connect(midHp);
+      midHp.connect(midLp);
+      midLp.connect(mid);
+      const gust = ctx.createOscillator();
+      gust.frequency.value = i === 0 ? 0.19 : 0.23;
+      const gustDepth = ctx.createGain();
+      gustDepth.gain.value = 0.02;
+      gust.connect(gustDepth);
+      gustDepth.connect(mid.gain);
+      gust.start(t0);
+
       const jambSum = ctx.createGain();
       cicada.connect(jambSum);
       air.connect(jambSum);
+      low.connect(jambSum);
+      condenserGain.connect(jambSum);
+      mid.connect(jambSum);
       jambSum.gain.value = 0;
       bedLevel.connect(jambSum.gain); // amount × level drives each jamb
       engine.attach(jambSum, jamb, this.outsideBus, { model: "HRTF", refDistance: 1.5, rolloffFactor: 0.55 });
     });
 
-    // Distant highway: brown noise under 120 Hz, unspatialised, barely there (≥ 20 dB under the cicadas).
-    const rumbleSrc = engine.noiseSource("brown", 0.9, t0);
-    const rumbleLp = ctx.createBiquadFilter();
-    rumbleLp.type = "lowpass";
-    rumbleLp.frequency.value = 120;
-    rumbleLp.Q.value = 0.7;
-    const rumble = ctx.createGain();
-    rumble.gain.value = 0;
-    const rumbleTrim = ctx.createGain();
-    rumbleTrim.gain.value = 0.02;
-    bedLevel.connect(rumbleTrim);
-    rumbleTrim.connect(rumble.gain);
-    rumbleSrc.connect(rumbleLp);
-    rumbleLp.connect(rumble);
-    rumble.connect(this.outsideBus);
   }
 
   /**
    * 0 = door shut, 1 = wide open. Ramps over `rampSeconds` (default 0.1 s for
-   * per-frame calls) and holds. The critic's ear: fade in over ~1.5 s when the
-   * door swings, and stay there while it is open.
+   * per-frame calls) and holds. The critic's ear: rise in ≤ 0.7 s when the
+   * door swings, and stay there — level — while it is open.
    */
   setOutside(amount: number, rampSeconds = 0.1): void {
     const a = Math.max(0, Math.min(1, amount));

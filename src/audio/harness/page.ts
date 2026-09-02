@@ -23,7 +23,7 @@ export interface OfflineRequest {
   seed?: number;
   sampleRate?: number;
   listener?: { x: number; y: number; z: number; yawDeg: number };
-  /** Also fire the one-shots at fixed times (pour 1 s, clink 5 s, door 6 s; outside opens over 1.5 s and holds). */
+  /** Also fire the one-shots at fixed times (pour 1 s, clink 5 s, door 6 s; outside opens in 0.7 s and holds). */
   sfx?: boolean;
   /** Bus names to keep; everything else is muted (the mix then contains only these). */
   solo?: string[];
@@ -113,7 +113,7 @@ async function renderOffline(req: OfflineRequest = {}): Promise<OfflineResult> {
         if (now >= 6.0) {
           once("door", () => {
             audio.sfx.doorOpen();
-            audio.sfx.setOutside(1, 1.5); // swings open over 1.5 s and stays open
+            audio.sfx.setOutside(1, 0.7); // swings open in 0.7 s and stays open
           });
         }
       }

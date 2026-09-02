@@ -353,8 +353,58 @@ function analyse({ L, R, sampleRate }, events) {
         if (run === 5) pauses++;
       } else run = 0;
     }
-    return { lo, hi, fan, speech, depth, bursts, pauses };
+    // Coherent AM index m at the blade-pass rate: scan 2.3–3.1 Hz for the
+    // strongest envelope component, m = 2|E(f)| / N / mean(env).
+    let mean = 0;
+    for (const v of env) mean += v;
+    mean /= env.length;
+    let best = 0;
+    for (let f = 2.3; f <= 3.1; f += 0.02) {
+      let re = 0, im = 0;
+      for (let i = 0; i < env.length; i++) {
+        const ph = (-2 * Math.PI * f * i) / envRate;
+        re += (env[i] - mean) * Math.cos(ph);
+        im += (env[i] - mean) * Math.sin(ph);
+      }
+      best = Math.max(best, Math.hypot(re, im));
+    }
+    const m = (2 * best) / env.length / Math.max(mean, 1e-9);
+    return { lo, hi, fan, speech, depth, bursts, pauses, m };
   });
+
+  // --- transients: band envelope (10 ms, louder ear) > 6 dB over its 1 s rolling median ---
+  const transients = [];
+  for (const [lo, hi, label] of [
+    [80, 600, "gurgle"],
+    [250, 2000, "thock"],
+    [3000, 8000, "hiss"],
+    [4000, 8000, "tick"],
+  ]) {
+    const envL = envelope(bandpassFFT(L, sampleRate, lo, hi), hop);
+    const envR = envelope(bandpassFFT(R, sampleRate, lo, hi), hop);
+    const env = envL.map((v, i) => Math.max(v, envR[i]));
+    const envDb = Array.from(env, (v) => 20 * Math.log10(v + 1e-9));
+    const half = 50; // ±0.5 s
+    let run = null;
+    for (let i = 0; i < envDb.length; i++) {
+      const win = envDb.slice(Math.max(0, i - half), Math.min(envDb.length, i + half + 1)).sort((a, b) => a - b);
+      const med = win[Math.floor(win.length / 2)];
+      const excess = envDb[i] - med;
+      if (excess > 6) {
+        if (!run) run = { band: label, lo, hi, t: i / envRate, end: i, excess, level: envDb[i], gap: 0 };
+        else {
+          run.end = i;
+          run.gap = 0;
+          if (excess > run.excess) (run.excess = excess), (run.level = envDb[i]);
+        }
+      } else if (run && ++run.gap > 2) {
+        transients.push({ ...run, dur: (run.end + 1) / envRate - run.t });
+        run = null;
+      }
+    }
+    if (run) transients.push({ ...run, dur: (run.end + 1) / envRate - run.t });
+  }
+  transients.sort((a, b) => a.t - b.t);
 
   // --- events: peak, RMS and L/R correlation over each region ------------------------
   // Correlation is taken on the 800 Hz–6 kHz band (where the one-shots live)
@@ -383,7 +433,7 @@ function analyse({ L, R, sampleRate }, events) {
   const airR = bandpassFFT(R, sampleRate, 5000, 8000);
   const airCorr = pearson(airL, airR, 0, n);
 
-  return { bands, tonal, modulation, events: eventRows, airCorr };
+  return { bands, tonal, modulation, events: eventRows, airCorr, transients };
 }
 
 function sumSq(x, from, to) {
@@ -395,10 +445,16 @@ function sumSq(x, from, to) {
 function printAnalysis(a) {
   console.log(`  bands (dBFS)  ${a.bands.map((b) => `${b.lo}-${b.hi}`.padStart(10)).join("")}`);
   console.log(`                ${a.bands.map((b) => fmt(b.dbfs, 10)).join("")}`);
-  console.log(`  modulation     band        fan 2.3-3.1  speech 3.2-6   AM p90-p10   bursts  pauses(>=250ms)   [50 ms env; burst > p10+6 dB, pause < p90-6 dB]`);
+  console.log(`  modulation     band        fan 2.3-3.1  speech 3.2-6   AM p90-p10   bursts  pauses(>=250ms)  coherent m @2.3-3.1Hz   [50 ms env; burst > p10+6 dB, pause < p90-6 dB]`);
   for (const m of a.modulation) {
     console.log(
-      `                 ${`${m.lo}-${m.hi}`.padEnd(11)} ${fmt(m.fan * 100, 9, 0)}% ${fmt(m.speech * 100, 12, 0)}% ${fmt(m.depth, 11)} dB ${String(m.bursts).padStart(6)} ${String(m.pauses).padStart(7)}`,
+      `                 ${`${m.lo}-${m.hi}`.padEnd(11)} ${fmt(m.fan * 100, 9, 0)}% ${fmt(m.speech * 100, 12, 0)}% ${fmt(m.depth, 11)} dB ${String(m.bursts).padStart(6)} ${String(m.pauses).padStart(7)} ${fmt(m.m, 14, 3)} (${fmt(20 * Math.log10((1 + m.m) / (1 - m.m)), 4)} dB p-t)`,
+    );
+  }
+  console.log(`  transients (band env, louder ear, > 6 dB over 1 s rolling median): ${a.transients.length}`);
+  for (const tr of a.transients) {
+    console.log(
+      `    ${tr.band.padEnd(10)} ${`${tr.lo}-${tr.hi}`.padEnd(10)} t=${fmt(tr.t, 5, 2)} s  dur ${fmt(tr.dur * 1000, 4, 0)} ms  +${fmt(tr.excess, 4)} dB  in-band ${fmt(tr.level, 6)} dBFS`,
     );
   }
   console.log(`  5-8 kHz L/R correlation (whole file): ${fmt(a.airCorr, 5, 2)}`);

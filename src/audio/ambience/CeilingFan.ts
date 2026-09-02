@@ -4,7 +4,7 @@
  * Pink noise confined to 200 Hz–1 kHz (24 dB/oct each side, so the AC's drone
  * below 150 Hz, the radio's speech band and the room air above 2 kHz are untouched), with level and a
  * little cutoff modulated at the blade-pass rate (rev/s × blades). The
- * modulator is a sine, not a pulse — about 2 dB p90–p10 — so it breathes
+ * modulator is a sine, not a pulse — m ≈ 0.27, 4–5 dB peak-to-peak — so it breathes
  * rather than chops, and the rate wanders ±3 % over 5–10 s so it never sounds
  * mechanical. Underneath, a tiny unmodulated 120 Hz motor hum.
  */
@@ -68,13 +68,13 @@ export class CeilingFan extends AmbientLayer {
     lp1.connect(lp2);
     lp2.connect(whoosh);
 
-    // Blade-pass modulator: sine into level (±6 %, ≈ 1 dB peak-to-peak) and a touch
+    // Blade-pass modulator: sine into level (±0.26 on a 0.75 carrier, m ≈ 0.35 alone, ≈ 0.25 once the AC shares the band) and a touch
     // of cutoff (±80 Hz), 90° apart so the brightening leads the loudness.
     const mod = ctx.createOscillator();
     mod.type = "sine";
     mod.frequency.value = bladePass;
     const modGain = ctx.createGain();
-    modGain.gain.value = 0.06;
+    modGain.gain.value = 0.26;
     mod.connect(modGain);
     modGain.connect(whoosh.gain);
     const modCut = ctx.createOscillator();
@@ -89,7 +89,7 @@ export class CeilingFan extends AmbientLayer {
     // The fan hunts: rate ±3 % over 5–10 s, depth wanders. Never a metronome.
     this.wander(mod.frequency, { min: bladePass * 0.97, max: bladePass * 1.03, minHold: 5, maxHold: 10, tau: 3 });
     this.wander(modCut.frequency, { min: bladePass * 0.97, max: bladePass * 1.03, minHold: 5, maxHold: 10, tau: 3 });
-    this.wander(modGain.gain, { min: 0.045, max: 0.075, minHold: 8, maxHold: 20, tau: 4 });
+    this.wander(modGain.gain, { min: 0.22, max: 0.3, minHold: 8, maxHold: 20, tau: 4 });
     this.wander(whoosh.gain, { min: 0.7, max: 0.8, minHold: 10, maxHold: 30, tau: 6 });
     whoosh.connect(out);
 

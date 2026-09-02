@@ -3,10 +3,14 @@
  *
  * pourCoffee(seconds): liquid into ceramic. A 1–5 kHz splash bed with an
  * 8–15 Hz burble, plus the mug's cavity resonance (Q ≈ 10, ~+10 dB) sweeping
- * 800 Hz → 1.8 kHz as the air column shortens; 300 ms taper, then the last
- * resonance rings down. Nothing below 250 Hz — a pour has no thump.
+ * 800 Hz → 1.8 kHz as the air column shortens. Macro shape: the first splash
+ * is ~3 dB louder and brighter, the stream settles 2 dB through the middle and
+ * lifts 1 dB before the 300 ms taper; the last resonance rings down. A trace of
+ * mug body at 150–400 Hz (≈ -60 dBFS), nothing else below 250 Hz — no thump.
  *
- * mugClink(): a tiny inharmonic ceramic ping, 150 ms, ~-30 dBFS at arm's length.
+ * mugClink(): a tiny inharmonic ceramic ping over a 10 ms broadband contact
+ * "thock" (300 Hz–2 kHz) so it reads as mug-on-saucer, not spoon-on-glass;
+ * T20 ≈ 120 ms, ~-30 dBFS at arm's length.
  *
  * Near one-shots use equal-power panning (not HRTF): at arm's length the HRTF's
  * interaural delay decorrelates L/R and reads as phasey. Every call builds a
@@ -62,7 +66,9 @@ export class CoffeeSfx {
     hpB.Q.value = 0.707;
     out.connect(hpA);
     hpA.connect(hpB);
-    const spatial = engine.attach(hpB, at, this.bus, { model: "equalpower" });
+    const pre = ctx.createGain();
+    hpB.connect(pre);
+    const spatial = engine.attach(pre, at, this.bus, { model: "equalpower" });
 
     const noise = engine.noiseSource("white", 1, t);
 
@@ -73,9 +79,11 @@ export class CoffeeSfx {
     bedHp.frequency.setValueAtTime(900, t);
     bedHp.frequency.linearRampToValueAtTime(1500, end);
     bedHp.Q.value = 0.707;
+    // Brighter first splash: 7 kHz → 4.8 kHz over the first half second.
     const bedLp = ctx.createBiquadFilter();
     bedLp.type = "lowpass";
-    bedLp.frequency.value = 5000;
+    bedLp.frequency.setValueAtTime(7000, t);
+    bedLp.frequency.linearRampToValueAtTime(4800, t + 0.5);
     bedLp.Q.value = 0.707;
     const bed = ctx.createGain();
     bed.gain.value = 1;
@@ -100,9 +108,11 @@ export class CoffeeSfx {
     const env = ctx.createGain();
     const g = env.gain;
     g.setValueAtTime(0, t);
-    g.linearRampToValueAtTime(1.3, t + 0.06); // the first splash is the loudest
-    g.linearRampToValueAtTime(1.0, t + 0.3);
-    g.setValueAtTime(1.0, end - 0.3);
+    g.linearRampToValueAtTime(1.45, t + 0.06); // first splash: +3 dB
+    g.setValueAtTime(1.45, t + 0.4);
+    g.linearRampToValueAtTime(0.8, t + 1.0); // stream settles: -2 dB
+    g.setValueAtTime(0.8, Math.max(t + 1.0, end - 0.5));
+    g.linearRampToValueAtTime(0.95, end - 0.3); // lifts ~1.5 dB as the mug nears full
     g.linearRampToValueAtTime(0, end); // 300 ms taper
     const burble = ctx.createOscillator();
     burble.frequency.value = rng.range(8, 15);
@@ -132,8 +142,25 @@ export class CoffeeSfx {
     cavityGain.connect(ring);
     ring.connect(out);
 
+    // Mug body: the ceramic hums a little at 150–400 Hz, bypassing the high-pass.
+    const bodySrc = engine.noiseSource("pink", 1, t);
+    const body = ctx.createBiquadFilter();
+    body.type = "bandpass";
+    body.frequency.value = 260;
+    body.Q.value = 1.0;
+    const bodyGain = ctx.createGain();
+    bodyGain.gain.value = 0;
+    bodyGain.gain.setValueAtTime(0, t);
+    bodyGain.gain.linearRampToValueAtTime(0.019, t + 0.15);
+    bodyGain.gain.setValueAtTime(0.019, end - 0.3);
+    bodyGain.gain.linearRampToValueAtTime(0, end);
+    bodySrc.connect(body);
+    body.connect(bodyGain);
+    bodyGain.connect(pre);
+
     const stopAt = end + 0.8;
     noise.stop(stopAt);
+    bodySrc.stop(stopAt);
     burble.stop(stopAt);
     burble2.stop(stopAt);
     scheduleCleanup(noise, stopAt, spatial, engine);
@@ -144,17 +171,18 @@ export class CoffeeSfx {
     const ctx = engine.ctx;
     const rng = engine.rng;
     const t = engine.now + 0.01;
-    engine.logEvent("sfx.clink", t, 0.08);
+    engine.logEvent("sfx.clink", t, 0.12);
     const out = ctx.createGain();
-    // Partials sum to ≈ -6 dBFS peak; land the ping at ≈ -30 dBFS.
-    out.gain.value = dbToGain(-24);
+    // Ring ≈ -36 dBFS peak, thock ≈ -43, contact tick ≈ -33: the clink lands ≈ -32 dBFS.
+    out.gain.value = dbToGain(-20);
     const spatial = engine.attach(out, at, this.bus, { model: "equalpower" });
 
     // Ceramic: a few inharmonic partials, the higher ones dying first.
     const base = rng.range(2500, 3300);
     const partials = [1, 1.51, 2.32, 3.06];
-    const decays = [0.16, 0.09, 0.06, 0.04];
-    const amps = [1, 0.5, 0.3, 0.15];
+    // τ/4 below: fundamental τ ≈ 33 ms → T20 ≈ 75 ms dry, ≈ 120 ms with the room.
+    const decays = [0.13, 0.09, 0.06, 0.04];
+    const amps = [0.65, 0.4, 0.25, 0.12];
     let last: OscillatorNode | null = null;
     partials.forEach((ratio, i) => {
       const o = ctx.createOscillator();
@@ -170,17 +198,30 @@ export class CoffeeSfx {
       o.stop(t + 0.5);
       last = o;
     });
-    // Contact noise: a 5 ms tick.
+    // Contact: a 5 ms high tick plus a ~10 ms broadband "thock" (300 Hz–2 kHz) —
+    // the body of the mug meeting the saucer, under the ring.
     const tick = engine.noiseSource("white", 1, t);
     const tickHp = ctx.createBiquadFilter();
     tickHp.type = "highpass";
     tickHp.frequency.value = 3000;
     const tickGain = ctx.createGain();
-    tickGain.gain.setValueAtTime(0.35, t);
+    tickGain.gain.setValueAtTime(0.18, t);
     tickGain.gain.setTargetAtTime(0, t + 0.002, 0.003);
     tick.connect(tickHp);
     tickHp.connect(tickGain);
     tickGain.connect(out);
+    const thockBp = ctx.createBiquadFilter();
+    thockBp.type = "bandpass";
+    thockBp.frequency.value = 800;
+    thockBp.Q.value = 0.55;
+    const thock = ctx.createGain();
+    thock.gain.setValueAtTime(0, t);
+    thock.gain.linearRampToValueAtTime(0.9, t + 0.0012);
+    thock.gain.setValueAtTime(0.9, t + 0.004);
+    thock.gain.setTargetAtTime(0, t + 0.004, 0.0035);
+    tick.connect(thockBp);
+    thockBp.connect(thock);
+    thock.connect(out);
     tick.stop(t + 0.1);
     if (last) scheduleCleanup(last, t + 0.5, spatial, engine);
   }
