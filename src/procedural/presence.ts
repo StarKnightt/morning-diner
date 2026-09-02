@@ -407,7 +407,7 @@ export function presenceAtlas(size = 1024): PresenceSet {
           height[(Y0 + y) * S + X0 + x] = 0.25;
         } else {
           const tone = tones[ty * N + tx] * (0.99 + 0.02 * (grainN(u * 2, v * 2) - 0.5));
-          px(X0 + x, Y0 + y, 0.93 * tone, 0.93 * tone, 0.9 * tone);
+          px(X0 + x, Y0 + y, 0.9 * tone, 0.92 * tone, 0.93 * tone); // a cool white: the glaze must not read cream under 4100 K
           rough[(Y0 + y) * S + X0 + x] = 0.17 + 0.03 * (grainN(u * 5, v * 5) - 0.5);
           height[(Y0 + y) * S + X0 + x] = 0.25 + 0.4 * cushion;
         }

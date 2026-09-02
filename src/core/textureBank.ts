@@ -66,7 +66,7 @@ const SHAPES: Record<string, Record<string, Shape>> = {
     blockWall: ["map", "roughnessMap"],
     contactShadowAlpha: "direct",
   },
-  // System 9 (src/procedural/presence.ts): the apron / cardigan / newspaper / plate atlas.
+  // System 9 (src/procedural/presence.ts): the apron / plate / cup / kitchen-tile atlas.
   pres: {
     presenceAtlas: ["map", "roughnessMap", "normalMap"],
   },

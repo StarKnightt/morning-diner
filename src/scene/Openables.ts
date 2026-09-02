@@ -16,7 +16,7 @@
  * a 2.7 m deep room in white 4" wall tile to 1.5 m over a red quarry floor, a stainless prep
  * table with a shelf over it along the -x wall, a range under a stainless hood on the far
  * wall, a fluorescent strip fixture on the -x wall (palette `fixtureLens` emissive, the
- * troffers' 4100 K tube tint) and one shadowless FLUORESCENT spot at the ceiling (9,000 lm,
+ * troffers' tube tint) and one shadowless 5000 K spot at the ceiling (16,000 lm,
  * aimed down and away from the door so its cone stops inside the kitchen — no light on the
  * dining-room floor). Lit surfaces reach the probe, so the vision glass shows them too.
  *
@@ -35,7 +35,7 @@ import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { PRESENCE_UV } from "../procedural/presence";
 import { BACK_BAR, KITCHEN_DOOR, ROOM } from "./layout";
-import { FLUORESCENT, nits } from "./Lighting";
+import { nits } from "./Lighting";
 import { lathe, ribbon, SAUCER_PROFILE, tiledRect, uvIntoRect } from "./Presence";
 
 export interface HingedLeaf {
@@ -55,6 +55,8 @@ export interface OpenablesResult {
   kitchenDoor: HingedLeaf;
   /** The kitchen slice's fluorescent spot (Lighting-independent; here so Diner can count it). */
   kitchenLight: THREE.SpotLight;
+  /** Door materials whose metal lives in the vertex alpha: Diner gives them the metal probe. */
+  envMetals: THREE.MeshStandardMaterial[];
 }
 
 const V2 = (x: number, y: number) => new THREE.Vector2(x, y);
@@ -107,10 +109,12 @@ export function tint(g: THREE.BufferGeometry, hex: number, metal = false): THREE
 
 export function buildOpenables(parent: THREE.Group, pal: Palette, statics: MergedBuilder, cloth: THREE.Material): OpenablesResult {
   const kitchen = buildKitchenDoor(parent, pal, statics, cloth);
+  const cabinet = buildCabinet(parent, pal, statics, cloth);
   return {
-    cabinet: buildCabinet(parent, pal, statics, cloth),
+    cabinet: cabinet.leaves,
     kitchenDoor: kitchen.leaf,
     kitchenLight: kitchen.light,
+    envMetals: [cabinet.material, kitchen.material],
   };
 }
 
@@ -118,7 +122,7 @@ export function buildOpenables(parent: THREE.Group, pal: Palette, statics: Merge
 /* Under-counter cabinet                                                                  */
 /* ------------------------------------------------------------------------------------ */
 
-function buildCabinet(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth: THREE.Material): [HingedLeaf, HingedLeaf] {
+function buildCabinet(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth: THREE.Material): { leaves: [HingedLeaf, HingedLeaf]; material: THREE.MeshStandardMaterial } {
   const [x0, x1] = BACK_BAR.cabinet;
   const zFront = BACK_BAR.zFront, zBack = zFront - BACK_BAR.depth;
   const y0 = 0.1, y1 = BACK_BAR.height - 0.03 - 0.02; // the bay Counter.ts cuts: kick to under the top
@@ -364,7 +368,7 @@ function buildCabinet(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth
       }
     };
   }
-  return leaves;
+  return { leaves, material: doorMat };
 }
 
 /* ------------------------------------------------------------------------------------ */
@@ -376,7 +380,7 @@ const VISION = { w: 0.229, h: 0.356, centerY: 1.5 };
 /** Kitchen slice depth and width (m) behind the partition. */
 const KITCHEN_DEPTH = 2.7;
 
-function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth: THREE.Material): { leaf: HingedLeaf; light: THREE.SpotLight } {
+function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth: THREE.Material): { leaf: HingedLeaf; light: THREE.SpotLight; material: THREE.MeshStandardMaterial } {
   const T = ROOM.wallThickness, zBack = ROOM.zBack;
   const x0 = KITCHEN_DOOR.centerX - KITCHEN_DOOR.width / 2, x1 = KITCHEN_DOOR.centerX + KITCHEN_DOOR.width / 2;
   const h = KITCHEN_DOOR.height;
@@ -626,7 +630,10 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
   // the door (what the vision glass shows); its +z edge misses every dining-room point
   // (≥ 52° off-axis at the wall's foot, through the partition — there is no shadow map), so
   // no light pools on the dining floor. `distance` 6 m clips the rest.
-  const light = new THREE.SpotLight(FLUORESCENT, nits(16_000 / Math.PI), 6, THREE.MathUtils.degToRad(46), 0.35, 2);
+  // Cooler than the dining room's FLUORESCENT (a 5000 K "daylight" tube against the 3500 K
+  // troffers): the mixed-light cast through the doorway is what says "kitchen" in a photo.
+  const KITCHEN_TUBE = new THREE.Color().setRGB(232 / 255, 241 / 255, 1, THREE.SRGBColorSpace);
+  const light = new THREE.SpotLight(KITCHEN_TUBE, nits(16_000 / Math.PI), 6, THREE.MathUtils.degToRad(46), 0.35, 2);
   light.castShadow = false;
   light.name = "kitchen-fluorescent";
   light.position.set(kx0 + 0.3, H - 0.1, zIn - 0.2);
@@ -642,5 +649,6 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
       width: w,
     },
     light,
+    material: leafMat,
   };
 }

@@ -171,6 +171,9 @@ export class Diner {
       for (const m of Object.values(this.palette)) {
         if (m instanceof THREE.MeshStandardMaterial && m.metalness >= 0.9 && !propSet.has(m) && !exteriorMats.has(m)) metalMats.push(m);
       }
+      // System 9's two door materials carry their stainless / chrome in the vertex alpha
+      // (one bucket per door): they take the metal probe so the plates and pulls mirror the room.
+      metalMats.push(...this.sys9.openables.envMetals);
       const assign = (mats: Iterable<THREE.MeshStandardMaterial>, env: THREE.Texture | null) => {
         for (const m of mats) {
           m.envMap = env;
