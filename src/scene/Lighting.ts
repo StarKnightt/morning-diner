@@ -58,18 +58,19 @@ export const K = 1e-4;
 /** nits (or lux) → scene units. */
 export const nits = (n: number): number => n * K;
 
-/** Camera: ISO 100, f/5.6, 1/125 s. EV100 = log2(N²/t) − log2(ISO/100) = 11.94. */
-export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 125 } as const;
+/** Camera: ISO 100, f/5.6, 1/160 s. EV100 = log2(N²/t) − log2(ISO/100) = 12.29. */
+export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 160 } as const;
 export const EV100 = Math.log2((CAMERA.fNumber * CAMERA.fNumber) / CAMERA.shutter) - Math.log2(CAMERA.iso / 100);
-/** Saturation luminance for that exposure (Lagarde: L_sat = 1.2 · 2^EV) ≈ 4,700 nits. */
+/** Saturation luminance for that exposure (Lagarde: L_sat = 1.2 · 2^EV) ≈ 6,000 nits. */
 export const L_SAT_NITS = 1.2 * Math.pow(2, EV100);
 /**
- * `renderer.toneMappingExposure`: scene value 1.0 = L_sat. ≈ 2.13 at K = 1e-4.
- * Middle grey (0.18) then sits at ≈ 845 nits (measured on the sys4 frames, REFERENCE §8):
- * sunlit red vinyl (≈ 2,400 nits) +1.5 EV over grey, the sunlit Formica table (≈ 12,000
- * nits) +3.8 EV with its core clipping, the sky seen through the windows (≈ 13,000 nits)
- * +3.9 EV, the lot asphalt (≈ 2,700 nits) +1.7 EV, the counter top on the fluorescent
- * side (≈ 300 nits) −1.5 EV, the counter die (≈ 110 nits) −2.9 EV.
+ * `renderer.toneMappingExposure`: scene value 1.0 = L_sat. ≈ 1.67 at K = 1e-4.
+ * Middle grey (0.18) then sits at ≈ 1,080 nits (measured on the sys4 frames, REFERENCE §8):
+ * the sunlit stripes on the red vinyl (≈ 3,000 nits) +1.5 EV over grey, the sunlit Formica
+ * table (≈ 14,000 nits) +3.7 EV with its core clipping, the sky seen through the slats
+ * (≈ 12,000 nits) +3.5 EV, the lot asphalt (≈ 2,700 nits) +1.3 EV, the counter top on the
+ * fluorescent side (≈ 500 nits) −1.1 EV, the back wall (≈ 500) −1.1, the counter die
+ * (≈ 170 nits) −2.7 EV, the vinyl seat in shade (≈ 140) −2.9 EV.
  */
 export const EXPOSURE = 1 / (L_SAT_NITS * K);
 /** Tone curve. AgX keeps the clipped red channel of sunlit vinyl red (ACES pulls it to orange). */
@@ -121,11 +122,11 @@ const TROFFER_LUMENS = 10_500;
 const WINDOW_SKY = new THREE.Color().setRGB(205 / 255, 215 / 255, 232 / 255, THREE.SRGBColorSpace);
 const WINDOW_SKY_NITS = 1_200;
 /**
- * Sky dome: the shader's horizon (≈ 0.9) is authored at display scale; ×0.66 puts the
- * horizon haze at 6,000 nits. `scaleSky` adds the circumsolar brightening on top (up to
- * ×2.2 at the sun, ×1.55 at 35° from it — the part of the sky the windows look at, ≈ 9,300).
+ * Sky dome: the shader's horizon (≈ 0.9) is authored at display scale; ×0.77 puts the
+ * horizon haze at 7,000 nits. `scaleSky` adds the circumsolar brightening on top (up to
+ * ×3 at the sun, ×1.9 at 35° from it — the part of the sky the windows look at, ≈ 13,000).
  */
-const SKY_HORIZON_NITS = 6_000;
+const SKY_HORIZON_NITS = 7_000;
 /**
  * Aisle floor under a window's beam, averaged over lit and shaded stripes: ρ 0.45 × 22.7
  * klux / π = 3,250 nits for a clear patch; ×0.6 because the booth backs and the stools
@@ -569,7 +570,7 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
  * Multiply the sky shader's output before tone mapping, through an injected uniform, so
  * System 3's authored gradient keeps its shape while reading in nits (horizon ≈ 7,000,
  * zenith ≈ 3,800, glare and disc above that). A circumsolar term is added on top: on a
- * hazy summer morning the sky within ~40° of the sun is 1.5–2× brighter than the opposite
+ * hazy summer morning the sky within ~40° of the sun is 2–3× brighter than the opposite
  * horizon (forward scattering by dust; CIE clear-sky types 11–12), and that is the part
  * of the sky the windows face (sun 38° off the window normal). `c` = cos(angle to the
  * sun) is a local of the sky shader's main(). Done here rather than in Exterior.ts so the
@@ -582,7 +583,7 @@ export function scaleSky(sky: THREE.Mesh, scale: number): void {
     prev?.call(mat, shader, renderer);
     shader.uniforms.skyScale = { value: scale };
     const boost = shader.fragmentShader.includes("float c = clamp( dot( d, sunDir )") || shader.fragmentShader.includes("float c = clamp(dot(d, sunDir)")
-      ? "gl_FragColor.rgb *= skyScale * ( 1.0 + 1.2 * pow( c, 4.0 ) );"
+      ? "gl_FragColor.rgb *= skyScale * ( 1.0 + 2.0 * pow( c, 4.0 ) );"
       : "gl_FragColor.rgb *= skyScale;";
     shader.fragmentShader = shader.fragmentShader
       .replace("varying vec3 vDir;", "varying vec3 vDir;\nuniform float skyScale;")
@@ -729,6 +730,19 @@ export function buildContactShadows(parent: THREE.Object3D): THREE.Mesh {
   floorX(ROOM.halfX - 3.4, ROOM.halfX, ROOM.zBack, 1, 0.12, 0.35);
   floorX(-ROOM.halfX, BACK_BAR.xMin, ROOM.zBack, 1, 0.12, 0.35);
 
+  /* ---- ceiling cove: the tiles meet the walls, 0.25 m of falling occlusion on the tile face ---- */
+  {
+    const yc = ROOM.height - CEILING.teeDepth - CEILING.tegularDrop - 0.0015;
+    const cX = (x0: number, x1: number, z: number, dz: number) =>
+      strip(new THREE.Vector3(x0, yc, z), new THREE.Vector3(x1, yc, z), new THREE.Vector3(0, 0, dz), 0.25, 0.3);
+    const cZ = (z0: number, z1: number, x: number, dx: number) =>
+      strip(new THREE.Vector3(x, yc, z0), new THREE.Vector3(x, yc, z1), new THREE.Vector3(dx, 0, 0), 0.25, 0.3);
+    cX(-ROOM.halfX, ROOM.halfX, ROOM.zBack, 1);
+    cX(-ROOM.halfX, ROOM.halfX, ROOM.zFront, -1);
+    cZ(ROOM.zBack, ROOM.zFront, -ROOM.halfX, 1);
+    cZ(ROOM.zBack, ROOM.zFront, ROOM.halfX, -1);
+  }
+
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
@@ -740,6 +754,7 @@ export function buildContactShadows(parent: THREE.Object3D): THREE.Mesh {
     blending: THREE.MultiplyBlending,
     premultipliedAlpha: true,
     transparent: true,
+    side: THREE.DoubleSide,
     depthWrite: false,
     toneMapped: false,
     polygonOffset: true,
