@@ -651,6 +651,40 @@ export function blockWall(size: number, seed: number): { map: THREE.Texture; rou
   return { map: finish(c, true, 8), roughnessMap: finish(rc, false, 8) };
 }
 
+/**
+ * Tyre tread (rev 6): a greyscale multiplier map, u around the tyre, v across the section
+ * (sidewall → tread → sidewall). The tread band (v 0.17–0.83) is 72 blocks around in three
+ * ribs with dark cross-grooves and a hairline sipe per block; the shoulder rows are wider
+ * blocks; the sidewalls are plain with a faint mould grain. The lathe's circumferential
+ * grooves are geometry — this adds the blocks between them.
+ */
+export function tyreTread(size: number, seed: number): THREE.Texture {
+  const w = size, h = size / 4;
+  const { c, ctx } = canvas(w, h);
+  const rng = makeRng(seed);
+  ctx.fillStyle = "#f4f4f4"; ctx.fillRect(0, 0, w, h);
+  const grain = makeFbm(seed + 1, 40, 2);
+  const img = ctx.getImageData(0, 0, w, h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const o = (y * w + x) * 4, n = 235 + (grain(x / w, y / h) - 0.5) * 30; img.data[o] = img.data[o + 1] = img.data[o + 2] = n; }
+  ctx.putImageData(img, 0, 0);
+  const v0 = 0.17 * h, v1 = 0.83 * h, gap = Math.max(2, w / 340);
+  const rows = [[v0, 0.31 * h, 36], [0.31 * h, 0.5 * h, 72], [0.5 * h, 0.69 * h, 72], [0.69 * h, v1, 36]] as Array<[number, number, number]>;
+  for (const [ya, yb, n] of rows) {
+    const bw = w / n, off = rng() * bw;
+    for (let i = 0; i < n; i++) {
+      const x = (i * bw + off) % w;
+      ctx.fillStyle = "#3a3a3a"; ctx.fillRect(x, ya, gap, yb - ya); // cross groove
+      ctx.fillStyle = "#7a7a7a"; ctx.fillRect(x + gap, ya, 1, yb - ya); // lit groove edge
+      const sx = x + gap + rng() * (bw - 2 * gap);
+      ctx.fillStyle = "#8a8a8a"; ctx.fillRect(sx, ya + (yb - ya) * 0.15, 1, (yb - ya) * 0.7); // sipe
+      ctx.fillStyle = `rgba(0,0,0,${(rng() * 0.08).toFixed(3)})`; ctx.fillRect(x + gap, ya, bw - gap, yb - ya); // block tone
+    }
+  }
+  // Rib edges (the geometry grooves sit here; a darker seam either side keeps them crisp)
+  for (const y of [v0, 0.31 * h, 0.5 * h, 0.69 * h, v1]) { ctx.fillStyle = "#5a5a5a"; ctx.fillRect(0, y - 1, w, 2); }
+  return finish(c, false, 8);
+}
+
 /** Radial falloff alpha for the vehicles' and scrub patches' contact-shadow decals. */
 export function contactShadowAlpha(size: number): THREE.Texture {
   const { c, ctx } = canvas(size, size);

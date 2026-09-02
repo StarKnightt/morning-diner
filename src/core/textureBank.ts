@@ -53,6 +53,7 @@ const SHAPES: Record<string, Record<string, Shape>> = {
     precast: "direct",
     blockWall: ["map", "roughnessMap"],
     contactShadowAlpha: "direct",
+    tyreTread: "direct",
   },
 };
 
@@ -80,6 +81,7 @@ const LABELS: Record<string, string> = {
   precast: "precast concrete",
   blockWall: "block wall",
   contactShadowAlpha: "contact shadows",
+  tyreTread: "tyre tread",
 };
 
 /** Rough pixel count so the pool starts the big jobs first (longest-processing-time first). */
