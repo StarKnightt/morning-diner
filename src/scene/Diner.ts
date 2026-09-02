@@ -14,14 +14,13 @@ import { issueCompile, waitForPrograms } from "../core/compile";
 import { createPalette, type Palette } from "../core/materials";
 import type { Collider } from "../core/merge";
 import type { TextureBank } from "../core/textureBank";
-import { buildEnvironment } from "../procedural/environment";
 import { buildBlinds } from "./Blinds";
 import { buildBooths } from "./Booths";
 import { buildCeiling } from "./Ceiling";
 import { buildCounter } from "./Counter";
 import { buildDoor } from "./Door";
 import { buildExterior } from "./Exterior";
-import { buildLighting, installShadowMasks, sunDirection } from "./Lighting";
+import { buildContactShadows, buildLighting, installShadowMasks, sunDirection } from "./Lighting";
 import { buildProps } from "./Props";
 import { buildShell } from "./Shell";
 import { FAN } from "./layout";
@@ -49,6 +48,12 @@ export class Diner {
   /** Interior sun (narrow distant spot) and the lot sun (wide directional); see Lighting.ts. */
   sun!: THREE.SpotLight;
   sunLot!: THREE.DirectionalLight;
+  /**
+   * `sun`'s detached twin with a compare-mode (`sampler2DShadow`) copy of the building
+   * shadow map, for the post pipeline's haze/dust march — `sun`'s own map is a raw depth
+   * texture for the PCSS stripes. See Lighting.ts → LightingResult.sunBeam.
+   */
+  sunBeam!: THREE.SpotLight;
   /** Named props later systems animate: the mug that gets filled, the decanter that pours. */
   pourMug!: THREE.Mesh;
   coffeePot!: THREE.Group;
@@ -80,6 +85,9 @@ export class Diner {
     buildBlinds(this.group, this.palette);
     await hooks.stage("Hanging the blinds", 7 / 8);
     const exterior = buildExterior(this.group, this.palette, sunDirection(), this.bank);
+    // System 4: baked contact occlusion along every base line (nothing else in the rig
+    // shadows those regions). Casts nothing, so it stays out of the shadow-mask lists.
+    buildContactShadows(this.group);
     this.pourMug = props.pourMug;
     this.coffeePot = props.coffeePot;
     this.fanRotor = ceiling.fanRotor;
@@ -88,28 +96,30 @@ export class Diner {
     scene.add(this.group);
     const lights = buildLighting(scene);
     this.sun = lights.sun;
+    this.sunBeam = lights.sunBeam;
     this.sunLot = lights.sunLot;
     // Interior casters stay out of the lot sun's shadow map: the cone occluder already
     // blacks the whole building out of that light, and this saves ~120 depth draws/frame.
     installShadowMasks(renderer, this.group, lights);
 
-    scene.background = new THREE.Color(0x9cc0ea);
+    // Background and fog in the sky's physical scale (Lighting.ts): the horizon colour.
+    scene.background = lights.horizon.clone();
     // Atmospheric perspective for the desert: linear fog to the sky's horizon colour from
     // 40 m (nothing inside the building or the lot is within reach) to 200 m, so the dirt
     // plane, scrub and both ridge rings dissolve into the sky instead of meeting it on a
     // hard line (the dirt plane's edge at 210 m is fully fogged).
-    scene.fog = new THREE.Fog(new THREE.Color(0.9, 0.915, 0.93), 40, 200);
+    scene.fog = new THREE.Fog(lights.horizon.clone(), 40, 200);
     await hooks.stage("Paving the lot", 8 / 8);
     hooks.mark("geometry");
     await hooks.stage("Lighting the room", 1);
 
-    // Reflection environment: a one-time CubeCamera capture of the real interior
-    // from counter height between the stools, PMREM-filtered. The chrome then
-    // carries the actual checker floor, red seats and window wall. During that
-    // capture pass the metals borrow the procedural room map so they are not
-    // black in their own reflections. Metals take the result at full strength;
-    // dielectrics only at ~0.1 (materials.ts) so the sun/fill balance holds.
-    scene.environment = buildEnvironment(renderer);
+    // Reflection environment = global illumination. Three CubeCamera probes of the real,
+    // physically lit scene (room / props / lot), PMREM-filtered, are the diffuse AND
+    // specular environment for every material at full strength (materials.ts): the
+    // bounce off the sunlit floor and vinyl onto the ceiling and the undersides, the sky
+    // through the windows, the lot's own sky dome — all come from there, not from a
+    // uniform ambient. Two passes: pass 1 is captured under direct light only (a black
+    // environment), pass 2 under pass 1's probes, so the result carries two bounces.
     scene.environmentIntensity = 1;
     hooks.mark("environment");
     await hooks.stage("Compiling shaders", 1);
@@ -120,51 +130,77 @@ export class Diner {
       const saved = vinyls.map((v) => v.color.clone());
       for (const v of vinyls) v.color.set("#6a1c20");
       const cubeRT = new THREE.WebGLCubeRenderTarget(512, { type: THREE.HalfFloatType, generateMipmaps: false });
-      const cubeCam = new THREE.CubeCamera(0.05, 80, cubeRT);
+      // Far 250 m: the sky dome (r = 170 m) has to be in the lot probe.
+      const cubeCam = new THREE.CubeCamera(0.05, 250, cubeRT);
       const probe = (x: number, y: number, z: number) => {
         cubeCam.position.set(x, y, z);
         scene.add(cubeCam);
         cubeCam.update(renderer, scene);
         scene.remove(cubeCam);
-        return pmrem.fromCubemap(cubeRT.texture).texture;
+        return pmrem.fromCubemap(cubeRT.texture);
       };
       // For the prop probe the checker is swapped for a plain grey floor (see below).
       const floorMesh = scene.getObjectByName("floor") as THREE.Mesh | undefined;
       const plainFloor = new THREE.MeshStandardMaterial({ color: 0x8c8780, roughness: 0.6 });
       const floorMat = floorMesh?.material;
+      // Every exterior surface samples the lot probe (sky + asphalt + facade). Exterior.ts
+      // lists the car/glass/chrome materials; the asphalt, kerb, wall, dirt and scrub are
+      // collected here so the outdoor sky light does not come from the room probe.
+      const exteriorMats = new Set<THREE.MeshStandardMaterial>(exterior.envMaterials as THREE.MeshStandardMaterial[]);
+      scene.getObjectByName("exterior")?.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+        for (const mat of Array.isArray(m) ? m : m ? [m] : []) {
+          if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) exteriorMats.add(mat as THREE.MeshStandardMaterial);
+        }
+      });
+      // `glassCarafe` is System 5's scratched clone of `glassClear` (the decanter) — a clone has
+      // its own envMap slot, so it is listed alongside its base.
+      const propMats = [this.palette.glassClear, this.palette.glassCarafe, this.palette.glassFluted, this.palette.coffee, this.palette.coffeeStain, this.palette.ceramic, this.palette.bisque, this.palette.chromeSoft, this.palette.sugar, this.palette.salt];
+      // Interior metals (chrome, stool rings, edge banding, T-bar): a mirror shows the room as
+      // it is, sun stripes included, so they take the probe captured WITH the sun. Dielectrics
+      // take `scene.environment`, captured with the interior sun off: their first bounce off
+      // the sun patches comes from the floor-patch RectAreaLights instead (Lighting.ts), which
+      // fall off with distance — a probe cannot — and would otherwise be counted twice.
+      const propSet = new Set<THREE.Material>(propMats);
+      const metalMats: THREE.MeshStandardMaterial[] = [];
+      for (const m of Object.values(this.palette)) {
+        if (m instanceof THREE.MeshStandardMaterial && m.metalness >= 0.9 && !propSet.has(m) && !exteriorMats.has(m)) metalMats.push(m);
+      }
+      const assign = (mats: Iterable<THREE.MeshStandardMaterial>, env: THREE.Texture | null) => {
+        for (const m of mats) {
+          m.envMap = env;
+          m.needsUpdate = true;
+        }
+      };
 
       // Every program the scene will ever need is issued here, at once, so the driver
       // links them all in parallel while the texture workers are still drawing
-      // (core/compile.ts). Variants B (canvas) and C (render target: the transmission
-      // pass behind the window and door glass) run against the probes, which do not
-      // exist yet. A program keys on the environment map's PMREM *height*, never its
-      // content, so a blank cubemap of the probes' size stands in; the real probes
-      // reuse the very same programs from the cache. C used to link lazily the first
-      // time a pane of glass entered the view — a multi-second hitch mid-walk.
+      // (core/compile.ts). Variants B (canvas) and C (render target: the probe passes and
+      // the transmission pass behind the window and door glass) run against the probes,
+      // which do not exist yet. A program keys on the environment map's PMREM *height*,
+      // never its content, so a blank cubemap of the probes' size stands in; the real
+      // probes reuse the very same programs from the cache. C used to link lazily the
+      // first time a pane of glass entered the view — a multi-second hitch mid-walk.
       //
       // The stand-in is made first, while the driver's link queue is still empty: the
       // PMREM generator's own small programs link synchronously, and a synchronous link
-      // queued behind the scene's programs waits for all of them (~2 s).
+      // queued behind the scene's programs waits for all of them (~2 s). It is black, and
+      // doubles as the "no indirect light" environment of probe pass 1.
       renderer.setRenderTarget(cubeRT, 0);
       renderer.clear();
       renderer.setRenderTarget(null);
       const standIn = pmrem.fromCubemap(cubeRT.texture);
-      const roomMap = scene.environment;
+      scene.environment = standIn.texture;
       hooks.mark("stand-in");
       await hooks.stage("Compiling shaders", 1);
 
-      // Variant A — render target + procedural room environment — is what the probe
-      // pass uses; both floor materials are in the batch.
+      // Render-target variant with both floor materials (the prop probe swaps the floor).
       if (floorMesh) floorMesh.material = plainFloor;
       issueCompile(renderer, scene, hooks.camera, cubeRT);
       if (floorMesh && floorMat) floorMesh.material = floorMat;
       issueCompile(renderer, scene, hooks.camera, cubeRT);
-      // Variants B and C against the stand-in.
-      scene.environment = standIn.texture;
+      // Canvas variant.
       issueCompile(renderer, scene, hooks.camera, null);
-      issueCompile(renderer, scene, hooks.camera, cubeRT);
-      scene.environment = roomMap;
-      standIn.dispose();
       hooks.mark("compile-issued");
 
       const linked = waitForPrograms(renderer, hooks.shaders);
@@ -180,35 +216,56 @@ export class Diner {
       renderer.shadowMap.autoUpdate = false;
       renderer.shadowMap.needsUpdate = true;
 
-      // Room probe (aisle, counter height): chrome, stools, footrail, T-mould.
-      const roomEnv = probe(-2.3, 0.8, 0.95);
-      await hooks.probes(1);
-      // Prop probe: taken 0.5 m in front of the brewer at 1.1 m, so the back-counter
-      // props (decanter glass, coffee, mugs) reflect cabinets, wall and counter top —
-      // NOT the checker floor, which from there is hidden behind the counter. The
-      // room probe's lower hemisphere is half checkerboard and it printed straight
-      // through the glassware in rev 3.
-      // For this probe the checker is swapped for a plain grey floor: the pattern is
-      // physically visible from there, but on a Ø 170 glass it prints as a sharp
-      // checkerboard inside the decanter and reads as a CG artefact.
-      if (floorMesh) floorMesh.material = plainFloor;
-      const propEnv = probe(-1.7, 1.15, -1.9);
-      await hooks.probes(2);
-      // Lot probe: sky, facade and asphalt for the vehicles' paint, glass and chrome.
-      const lotEnv = probe(1.0, 1.4, 8.0);
-      if (floorMesh && floorMat) floorMesh.material = floorMat;
+      let roomEnv: THREE.WebGLRenderTarget | null = null;
+      let roomSpecEnv: THREE.WebGLRenderTarget | null = null;
+      let propEnv: THREE.WebGLRenderTarget | null = null;
+      let lotEnv: THREE.WebGLRenderTarget | null = null;
+      for (let pass = 0; pass < 2; pass++) {
+        // Metals' probe first, with the sun (both maps render inside its first face).
+        const roomSpec = probe(-2.3, 1.3, -0.2);
+        const sunIntensity = this.sun.intensity;
+        this.sun.intensity = 0;
+        // Room probe: over the counter's front edge at 1.3 m. It is the far-field ambient of
+        // the whole interior (walls, ceiling, floor, chrome, stools), so it must NOT sit over
+        // the aisle sun patches — from there (rev 1: (-2.3, 0.8, 0.95)) the bounce off the
+        // patches filled its lower hemisphere and every counter-side surface read 1.3 stops
+        // over the daylight-factor estimate (REFERENCE §8). From the counter edge the patches
+        // are 1.5–2.5 m away and oblique; the near-window daylight comes from the window and
+        // floor-patch RectAreaLights (Lighting.ts), which fall off with distance as it should.
+        const room = probe(-2.3, 1.3, -0.2);
+        this.sun.intensity = sunIntensity;
+        if (pass === 0) await hooks.probes(1);
+        // Prop probe: taken 0.5 m in front of the brewer at 1.1 m, so the back-counter
+        // props (decanter glass, coffee, mugs) reflect cabinets, wall and counter top —
+        // NOT the checker floor, which from there is hidden behind the counter. The
+        // room probe's lower hemisphere is half checkerboard and it printed straight
+        // through the glassware in rev 3.
+        // For this probe the checker is swapped for a plain grey floor: the pattern is
+        // physically visible from there, but on a Ø 170 glass it prints as a sharp
+        // checkerboard inside the decanter and reads as a CG artefact.
+        if (floorMesh) floorMesh.material = plainFloor;
+        const prop = probe(-1.7, 1.15, -1.9);
+        if (floorMesh && floorMat) floorMesh.material = floorMat;
+        if (pass === 0) await hooks.probes(2);
+        // Lot probe: sky dome, facade and asphalt for everything outdoors.
+        const lot = probe(1.0, 1.4, 8.0);
+
+        roomEnv?.dispose();
+        roomSpecEnv?.dispose();
+        propEnv?.dispose();
+        lotEnv?.dispose();
+        roomEnv = room;
+        roomSpecEnv = roomSpec;
+        propEnv = prop;
+        lotEnv = lot;
+        scene.environment = room.texture;
+        assign(metalMats, roomSpec.texture);
+        assign(propMats, prop.texture);
+        assign(exteriorMats, lot.texture);
+      }
+      standIn.dispose();
       plainFloor.dispose();
       vinyls.forEach((v, i) => v.color.copy(saved[i]));
-      scene.environment.dispose();
-      scene.environment = roomEnv;
-      for (const m of [this.palette.glassClear, this.palette.glassCarafe, this.palette.glassFluted, this.palette.coffee, this.palette.coffeeStain, this.palette.ceramic, this.palette.bisque, this.palette.chromeSoft, this.palette.sugar, this.palette.salt]) {
-        m.envMap = propEnv;
-        m.needsUpdate = true;
-      }
-      for (const m of exterior.envMaterials) {
-        (m as THREE.MeshStandardMaterial).envMap = lotEnv;
-        m.needsUpdate = true;
-      }
       pmrem.dispose();
       cubeRT.dispose();
       await hooks.probes(3);

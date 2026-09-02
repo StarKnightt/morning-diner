@@ -48,11 +48,13 @@ src/
                           sedan (extruded profiles, wheels, chrome, dark glass, contact-shadow
                           decals), desert dirt with instanced scrub, fBm mesa/ridge ring, shader
                           sky dome (horizon → zenith gradient + sun glare on the REFERENCE bearing)
-    Lighting.ts           PLACEHOLDER lighting; System 4 replaces this file. Exports `sunDirection()`
-                          (az 38° / el 35° from REFERENCE) so the sky glare and the shadows agree.
-                          Sun = spot (building, 3.5 mm shadow texels) + directional (lot) tiled by a
-                          caster-only cone; `installShadowMasks` gives each map its own caster list
-                          and re-raises `shadowMap.needsUpdate` per light so shadow-once renders both
+    Lighting.ts           System 4: the physical light rig (see "System 4" below). `K` scene scale,
+                          `CAMERA`/`EV100`/`EXPOSURE`, `configureRenderer()` (AgX, exposure, sRGB,
+                          BasicShadowMap + `installPcss`), `sunDirection()` (az 38° / el 35°),
+                          `buildLighting()` (spot sun with PCSS + detached `sunBeam` twin for post,
+                          directional lot sun, troffer / window / floor-bounce RectAreaLights, sky
+                          dome scaled to nits), `installShadowMasks` (per-light caster lists,
+                          shadow-once), `buildContactShadows()` (multiply decals)
   player/FirstPerson.ts   pointer-lock look, WASD at 1.4 m/s, eye 1.62 m, AABB sliding collision
   core/
     materials.ts          shared material palette: vinyl (plain + crazed), boomerang / speckle
@@ -546,6 +548,241 @@ at a booth seat and table under the slat shadows.
   final balance, but the asphalt still needs its aggregate speckle (±0.2 albedo
   contrast) to read as asphalt and not as concrete at that exposure.
 
+## System 4 — lighting (`src/scene/Lighting.ts`, probes in `Diner.ts`, additive material tweaks in `materials.ts`)
+
+Goal: a paused frame that exposes like a photograph — ISO 100, f/5.6, 1/160 s — of a
+room lit by a 90-klux sun through venetian blinds, with the fluorescents on and losing.
+Every light is in physical units (lux / nits / lumens / kelvin) times one scale `K`, and
+the exposure is derived from the camera, not tuned to taste. Numbers, measurements and
+the trial history are in `docs/REFERENCE.md §8`; this section is the how.
+
+### Units and exposure
+
+- `K = 1e-4`: 1 scene unit = 10,000 nits (or lux). `nits(n)` converts. Half-float
+  targets (System 8's chain is HalfFloat) hold the 90-klux sun (9.0) and the sun disc
+  in the sky dome (≈ 30) with room to spare; k = 0.01 (REFERENCE §7's suggestion)
+  overflowed on the chrome's sun lobe.
+- `CAMERA = { iso 100, f/5.6, 1/160 }` → `EV100 = 12.29` → `L_SAT_NITS = 1.2 · 2^EV ≈ 6,000`
+  (Lagarde) → `EXPOSURE = 1 / (L_SAT · K) ≈ 1.67`. Middle grey = 1,080 nits. `main.ts`
+  applies `?ev=±n` (stops) and `?tm=aces|agx|neutral` on top for A/B shoots.
+- Tone curve **AgX**, `outputColorSpace = SRGBColorSpace`, no gamma or contrast hacks.
+  System 8's `finish` pass reads `renderer.toneMapping` / `toneMappingExposure`, so
+  `?post=0` and post-on agree on exposure.
+
+### The rig (`buildLighting`)
+
+- **`sun`** — SpotLight 150 m out on `sunDirection()` (az 38° / el 35°), cone 2.1° over the
+  building, `intensity = 90,000 · 150² · K` candela so the irradiance at the glass is 90 klux
+  (the 0.88 glass transmission is deliberately not applied — 0.2 EV; the glass is not in the
+  shadow path). Colour 5500 K. 4096² map, 3.5 mm texels, `bias −1.2e-4`, `normalBias 0.012`.
+  **PCSS**: `renderer.shadowMap.type = BasicShadowMap` (raw depths) and `installPcss()` patches
+  `THREE.ShaderChunk.shadowmap_pars_fragment` so `getShadow` does a 16-tap blocker search
+  (radius 0.2 × `shadowRadius`) and a 24-tap PCF with `penumbra = (dReceiver −
+  dBlocker) · lightAngularRadius / dBlocker`. `shadow.radius` is re-purposed: positive =
+  penumbra growth per unit depth (`penumbraPerDepth(camera, dist, 0.265°)`), negative =
+  fixed PCF in texels. A `primeShadowMapType()` dummy render at boot avoids the
+  recompile-everything cost the type switch would otherwise trigger later.
+- **`sunBeam`** — a detached twin of `sun` (same transform, map size, biases) whose shadow
+  map is a `WebGLRenderTarget` with a `compareFunction = LessEqualCompare` depth texture.
+  System 8's dust and haze sample the sun's map through `sampler2DShadow`, which a
+  BasicShadowMap depth texture cannot serve; `installShadowMasks` renders `sunBeam`'s map
+  right after `sun`'s with the same caster list, and `main.ts` passes `diner.sunBeam` to
+  `createPostPipeline`. It is not in `scene` — no lighting cost.
+- **`sunLot`** — DirectionalLight, 90 klux, ortho frustum over the lot, 4096² (≈ 8 mm
+  texels), fixed 1.2-texel 8-tap PCF (`shadow.radius = −1.2`), `normalBias 0.03`. Casters:
+  exterior objects + the caster-only cone that puts the building's footprint in shadow
+  (System 3 rev 2's split). The lot's shadows are hard; its softness comes from the sky.
+- **Sky dome** — `scaleSky(mesh)` patches Exterior's `ShaderMaterial` with a `skyScale`
+  uniform (`nits(5,500) / 0.91` so the authored horizon lands at 5,500 nits, zenith ≈ 2,800)
+  and multiplies by `1 + 1.5 · cos⁴(angle to sun)` for the circumsolar haze. The same dome
+  is `scene.background`, the fog colour (`horizon`), and what the probes and windows see.
+- **Window fills** — one RectAreaLight per window in the glass plane, 1,200 nits, bluish
+  white (205, 215, 232), facing in: the sky + lot the slats let through, minus the part
+  the room probe already delivers.
+- **Floor-patch bounce** — one upward RectAreaLight per window on the aisle floor where the
+  beam lands (window heights × cot 35°, shifted −x by tan 38° per metre), 2,000 nits average
+  in sun × warm-checker colour: the room's second key light (ceiling, table undersides,
+  counter die). Needed because the dielectrics' probe is captured with the sun off.
+- **Troffers** — RectAreaLight 1.11 × 0.51 m per 2×4 fixture, `power = 7,500 lm`, 4100 K with
+  a 4 % green bias; the lens material's emissive is 4,500 nits (`materials.ts`). 7,500 lm is
+  above the maintained-lumen estimate (5,800) and below the brief's initial-lumen figure
+  (10,500 was tried: ceiling at 0 EV, counter side too lit).
+- **Contact occlusion** (`buildContactShadows`) — merged multiply-blended, vertex-coloured
+  strips (`MeshBasicMaterial`, `MultiplyBlending`, `premultipliedAlpha`, `DoubleSide`,
+  `polygonOffset`) under booth bases, stool bases, the counter toe, table pedestals, the
+  wall–floor junctions and a 0.25 m ceiling cove. One draw call, no shadow maps.
+- `?nospot`, `?nolot`, `?nofluor`, `?nofill`, `?nobounce` drop each group for A/B.
+
+### Probes (`Diner.ts`)
+
+Two 512² cube probes at (−2.3, 1.3, −0.2) — chest height, mid-aisle, away from the sun
+patches — captured in two passes (pass 2 sees pass-1 lighting = one bounce of indirect):
+`room` with the interior sun **off** → `scene.environment` (dielectrics' diffuse + specular
+ambient, no double-counted sun patches through the PMREM blur); `roomSpec` with the sun
+**on** → every material with `metalness ≥ 0.9`, so chrome mirrors the real sun patches and
+windows. Prop and lot probes as before, re-baked under the physical rig.
+
+### `materials.ts` (additive only)
+
+`envMapIntensity = 1` everywhere (the probes are physical now); emissives rewritten in
+nits × K (`fixtureLens` 0.54 ≈ 4,500 nits after the lens map; `rockerLit` 0.15, `pilotRed` 0.3,
+`kitchenDim` 0.07 — × the emissive colour's luminance ≈ 700 / 700 / 30 nits);
+vinyl base `#AA1A15` (from `#A8141C`) so the AgX-desaturated sunlit stripes go orange-red
+instead of pink.
+
+### Verification (rev 1)
+
+- Float render-target probe (`renderer.render` into an RGBA16F target, region means /
+  p10 / p90 in nits) on `length`, `booth`, `counter`, `stripes`, `window`, `warmer`,
+  `ceiling`: table in sun +3.8 EV (core clips), vinyl stripe cores +0.9 … +1.7, sky through
+  the slats +2.3 … +3.1, troffer lens +2.05, ceiling −0.85 … −0.2, back wall −1.1, counter
+  top −1.1 … −1.3, die −2.7, seat in shade −2.9. Display clipping (≥ 250/255) 0.3–5.5 % on
+  interior poses, 5–12 % on `window`.
+- Against the references: Reitz "Shadows in a Diner" (stripes crisp on near tables, softer
+  with distance, interior dropped) — the PCSS penumbra grows from ≈ 1 slat gap at the sill
+  to ≈ 3 at the far wall; Shore / Eggleston reds — two reds on the vinyl, the sunlit one
+  orange-red, the shaded one deep; Crewdson — the counter side reads as fluorescent-lit
+  space that the sun does not reach, the lens visibly lit but not hot.
+- Bench (RTX 4060, 1080p, shadow-once, probe script): 267–278 draw calls, 5.0–5.7 ms per
+  frame with post, 5.0–6.9 ms without (the scene pass dominates; MSAA + post ≈ 1 ms here).
+  Trials before rev 1 are in REFERENCE §8 (probe placement, 10.5 klm troffers, 7,000-nit
+  sky, 1/125 s).
+
+### Lessons
+
+- The room's ambient is set by the probe's *placement*: a probe that sees the sun patches
+  at close range turns them into a diffuse glow on every surface. Keep it away from the
+  brightest thing in the room and split diffuse (sun off) from specular (sun on).
+- Brightening the sky to make the exterior hotter brightens the interior more than the
+  exterior on the display (AgX shoulder), and flattens the lot's shadows. Exposure and the
+  sun : sky ratio decide the exterior, not the dome.
+- A shader-chunk PCSS survives three.js updates only if it searches for code signatures
+  (`float getShadow( sampler2D shadowMap`), not comments; and BasicShadowMap depth textures
+  cannot be bound as `sampler2DShadow` — anything else that samples the sun's map needs its
+  own compare-mode copy.
+
+## System 5 — textures and surface detail (rev 1, `materials` branch)
+
+Everything that does not depend on the light rig: what the surfaces are made
+of and what has happened to them. All maps are procedural
+(`src/procedural/textures.ts`), run in the TextureBank workers, and are
+additive to the palette — no base roughness / metalness / colour value that
+System 4 tunes was changed. New materials are *derived* (`palette.x.clone()` +
+maps) so the lighting pass's numbers carry through (`withRough` in
+`materials.ts`). Frames: `shots/sys5-*.png`; new poses `door-dressing`,
+`floor-macro`, `wall-macro`, `welt-macro`, `ceiling-stain`.
+
+Real-world numbers used (cited so the next pass can argue with them):
+
+| Surface | Measurement | Source |
+|---|---|---|
+| Floor tile | 300 mm quarry/ceramic checker, 6 mm sanded cementitious joint (TCNA: sanded grout for joints ≥ 1/8"; pressed-edge ceramic typically 3/16"), joint 1.5 mm below the glaze, lippage ≤ 1/32" (ANSI A108.02 4.3.8) | [TCNA grout FAQ](https://tcnatile.com/resource-center/faq/grout/), [TCNA/ANSI install guide](https://remodelcalculators.com/blog/floor-tile-installation-guide) |
+| Wall paint | 3/8" nap roller stipple: 1–3 mm paint domes, 0.1–0.2 mm high, ~60 % coverage; gypsum board 4 ft (1.22 m) wide → taped seam every 1.2 m under a 250 mm feathered compound band | trade practice (USG Gypsum Construction Handbook: 48" boards, 10–12" feathered joints) |
+| Ceiling | Armstrong Cortega 704: 24 × 24 × 5/8" wet-formed mineral fibre, angled tegular, 15/16" grid face, factory latex paint, LR 0.80–0.82 ("medium texture" fissured, ASTM E1264 Pattern C D) | [Armstrong 704](https://www.armstrongceilings.com/commercial/en/commercial-ceilings-walls/cortega-lay-in-ceiling-tiles/item/704.html), [Cortega spec sheet](https://hdsupplysolutions.com/wcsstore/ExtendedSitesCatalogAssetStore/product/hdpro/additional/PR/PRO_303314_Specification_303314_SpecSheet.pdf) |
+| Kick plate | 8" (203 mm) high — BHMA: 8/10/12/16" typical — width 2" less than door width (LDW), 18 ga / .050" 304 stainless #4 satin, ANSI/BHMA A156.6 J102 | [BHMA terminology](https://buildershardware.com/Resources/Guide-to-Builders-Hardware-Terminology/Architectural-Door-Trim), [A156.6](https://buildershardware.com/ANSI-BHMA-Standards/Hardware-Highlights/A1566-2026-Architectural-Door-Trim), [Activar kickplate submittal](https://www.activarcpg.com/wp-content/uploads/Door-Protection-Kickplate-Hiawatha-Series-Submittal.pdf) |
+| Vinyl | expanded (foam-backed) upholstery vinyl, emboss grain 0.4–0.7 mm pebbles / 0.1 mm creases (measured off a Naugahyde-class swatch), crazing cells ≈ 3.5 mm in plasticiser-starved areas | trade practice |
+| Laminate | HPL wipe haze + 10–40 mm curved scratches, mug ring ghosts 80 mm Ø (standard diner mug 3.2" base) | trade practice |
+| Bare tee metal | hot-dip galvanised steel under the baked white (chips read grey, Ra ≈ 0.55, one rust hairline) | trade practice |
+
+Per item:
+
+1. **Floor** — `checkerFloor` rewritten (2040 × 1020 map + roughness, 40 × 20
+   tiles at 51 px / 300 mm) with a world-space wear description from the plan
+   (`dinerFloorWear()`: aisle lane between stools and booths, counter standing
+   zone, door path, staff run, sheltered rectangles under the booth seats and
+   the back bar, wall lines for dust, one crack by the door). ±1.5 % tile tone
+   (blacks 3 %), whites grey off and blacks scuff lighter in the lanes,
+   roughness +0.28 in the lanes / −0.09 sheltered, grout dust (pale, matte)
+   within 0.4 m of a wall, 220 heel-scuff arcs (6–15 mm, two thirds in the
+   lanes), hairline crack with a light catch on one lip. Grout relief is a
+   separate 2 × 2-tile detail normal (`floorGrout`, 1024 px = 0.6 m: 1.5 mm
+   trench with rounded shoulders, ±0.4 mm lippage per tile, 0.1 mm glaze
+   waviness) repeated `w/0.6 × d/0.6`. Slow fields (fbm, lane and wall
+   distances) are evaluated on a 4 px grid and bilinearly sampled — the
+   per-pixel polyline distances were 10 s of the boot, now 0.5 s.
+2. **Walls** — `paintedWall` takes `WallOpts`: drywall seams every 1.2 m
+   (0.8 % lighter compound band, 7 % glossier), a scuff band at 0.95–1.12 m
+   (chair-back / booth-cap height: ragged 30–150 mm rub bundles + small dark
+   knocks, burnished under them), sun fade near the window jambs (window wall
+   only, `wallPaintWindow`, +2.5 % between sill and head, reaching 0.25 m). The
+   roller stipple is a detail normal (`wallStipple`, 1024 px = 0.6 m, jittered
+   2.2 mm cell grid of domes with 15 % skipped on a 0.05 mm swell). Interior
+   walls use **world-aligned UVs** (`worldBoxUv`, merge.ts) so seams and fades
+   land at real heights and are continuous across the punched wall boxes.
+   Baseboards: `baseboardScuff` (mop-water tide mark at the toe, heel/broom
+   streaks) on metric UVs, `baseboardWorn`.
+3. **Ceiling tiles** — `acousticTile` rewritten: worm-track fissures 2–8 mm ×
+   0.7–1.5 mm, 0.7–1.4 mm deep (~1.1 per cm²), soft 1.5–2.5 mm pinholes, fibre
+   nap, depth carried as height → normal AND as shading (a fissure floor is in
+   its own shadow: no black dots), same reveal shade on all four tegular edges.
+   Per-instance tint: ±1.5 %, warm yellowing on 30 %, 1 in 25 a shade greyer
+   (`InstancedMesh.setColorAt`). Two water-stained tiles (`stain: true`: wobbly
+   130–200 mm tan wash, dark tide rim, two inner rims) as their own small mesh
+   (+1 draw call — two instances cannot carry a different map). Three tiles sag
+   0.5–0.7° on a bowed cross tee. Grid tees: `teePaint` (1 m of tee per canvas,
+   ±2 % yellowing drift, 3–8 chips per metre to bare galvanised with a rust
+   hairline, chips in the last 2.4 % of v — the 24 mm face).
+4. **Laminate** — `laminateWear`: wipe haze (anisotropic fbm), 140 curved
+   scratches + a few long ones, cup-ring ghosts (rings only near where a mug
+   sits: 3 per booth table, 6 along the counter). Tables get per-table UV
+   offsets so no two share a scratch pattern; counter uses a 2048 map over
+   2.05 m. T-mould edge: `formicaEdgeBrushed` (brushed roughness along the
+   band, softer at the corner radii).
+5. **Vinyl** — `vinylSurface` rewritten as pebble grain (Voronoi on a jittered
+   0.55 mm grid, flat-topped domes with rounded creases) instead of noise, on
+   a 0.25 m canvas so the grain is true size; burnished blotches (−0.1
+   roughness) where hands and seats polish it, crazing in patches on the
+   backs (pre-existing `vinylRedCrazed`). **One booth (the second) has cracked
+   welts**: `vinylRedWeltCracked` — `vinylSurface(..., weltCracks)` puts a
+   4–18 mm crazed band and long seam-parallel cracks at u ≈ 0, and Booths.ts
+   remaps that booth's back-panel u to the distance from the nearest cord
+   (+1 draw call).
+6. **Chrome / stainless** — `formicaEdgeBrushed` (T-mould), `stainlessTouched`
+   (dispensers, brewer rails: anisotropic brush + 8–14 fingerprints with 0.45 mm
+   ridge pitch + wiped smears), `chromeScuffed` (stool footrings + footrail:
+   rub streaks with the UVs turned so they run along the ring), `chromeBar`
+   (push bar + pull: polished grip zone toward the latch, haze shoulders, 40
+   finger smears).
+7. **Wood** — `capSlab` lightens the cap's arris vertices by normal direction
+   and grip-point proximity (worn finish), `woodVeneer(..., dings: 3)` stamps
+   dents into the height/colour.
+8. **Door dressing** — one atlas (`doorDecals`, `DECAL` regions in shapes.ts,
+   `atlasQuad`) for the OPEN card (suction hooks), hours vinyl, PUSH sticker
+   with a lifted corner, "WE ACCEPT" card sticker (generic marks), and the
+   window-film edge (bare-glass hairline, lifted corner, trapped motes) applied
+   to the five windows. All door decals are on the INSIDE face of the glass:
+   OPEN/PUSH read from the room, hours/cards are applied reversed and read
+   from the lot (mirrored from inside, as in life). 8" satin stainless kick
+   plate on the push side. +1 draw call (decal material).
+9. **Glass** — `glassCarafe` (`carafeScratches`: dishwasher etching + fine
+   scratches, base roughness lifted so they read), coffee-stain tide line as
+   an alpha map on the existing stain mesh (`tideLineAlpha`: irregular rim,
+   drips).
+10. **Anti-tell** — no pure black/white in any generator (floor blacks 26,
+    whites 220, decal card #f4efe2, marks #f4f4f2); every large surface has a
+    roughness map with wear structure, not uniform noise; repetition broken by
+    per-tile tint, per-table UV offsets, world-aligned wall UVs, panel jitter
+    on metric UVs, and quarter-turned tile instances.
+
+Draw calls: **+8 at the spawn pose (131 → 139), +8–14 in the poses** — not the
+"maps only" zero the brief asked for. Each is one new material bucket inside
+an existing merged mesh: window-wall paint (sun fade), window-film decals,
+stained tiles, the welt-cracked booth, scuffed footrail/footring chrome next
+to plain bracket chrome, the counter's worn top next to the back-bar laminate,
+the door decals, the brewer's touched trim. All are maps, none is geometry;
+each could be folded back by giving the base material the same maps (e.g. one
+`wallPaint` with the fade baked into the world-UV map, `chromeScuffed` on the
+brackets too) if the budget needs it. Startup (same warm shader cache, same
+port): 12.1–12.5 s to ready vs 14.8 s at the base commit `5ab934f` — no
+measurable cost; textures 9.4–10.0 s wall on 8 workers either way. Serial CPU
+for all 42 generator jobs is 19.2 s, of which the rewritten floor is 0.5 s
+(was 10 s before the coarse-grid fix), the two big walls 1.1 s each, and every
+new small map < 0.1 s.
+
+Lessons from this pass are in "Lessons recorded" (CanvasTexture v is
+upside-down relative to canvas rows; transparent decals behind transmissive
+glass; per-pixel distance fields).
+
 ## System 6 — sound (rev 3: the live mix)
 
 Everything is synthesised in `src/audio/` (Web Audio, no files; details in
@@ -737,127 +974,6 @@ while pouring (stream, liquid, live decanter clone, steam), 0 otherwise — plus
 both shadow passes on frames where the leaf or the decanter moved. The hint is
 shown in the `sys7-*` frames and hidden by the harness for every scene pose.
 
-## System 5 — textures and surface detail (rev 1, `materials` branch)
-
-Everything that does not depend on the light rig: what the surfaces are made
-of and what has happened to them. All maps are procedural
-(`src/procedural/textures.ts`), run in the TextureBank workers, and are
-additive to the palette — no base roughness / metalness / colour value that
-System 4 tunes was changed. New materials are *derived* (`palette.x.clone()` +
-maps) so the lighting pass's numbers carry through (`withRough` in
-`materials.ts`). Frames: `shots/sys5-*.png`; new poses `door-dressing`,
-`floor-macro`, `wall-macro`, `welt-macro`, `ceiling-stain`.
-
-Real-world numbers used (cited so the next pass can argue with them):
-
-| Surface | Measurement | Source |
-|---|---|---|
-| Floor tile | 300 mm quarry/ceramic checker, 6 mm sanded cementitious joint (TCNA: sanded grout for joints ≥ 1/8"; pressed-edge ceramic typically 3/16"), joint 1.5 mm below the glaze, lippage ≤ 1/32" (ANSI A108.02 4.3.8) | [TCNA grout FAQ](https://tcnatile.com/resource-center/faq/grout/), [TCNA/ANSI install guide](https://remodelcalculators.com/blog/floor-tile-installation-guide) |
-| Wall paint | 3/8" nap roller stipple: 1–3 mm paint domes, 0.1–0.2 mm high, ~60 % coverage; gypsum board 4 ft (1.22 m) wide → taped seam every 1.2 m under a 250 mm feathered compound band | trade practice (USG Gypsum Construction Handbook: 48" boards, 10–12" feathered joints) |
-| Ceiling | Armstrong Cortega 704: 24 × 24 × 5/8" wet-formed mineral fibre, angled tegular, 15/16" grid face, factory latex paint, LR 0.80–0.82 ("medium texture" fissured, ASTM E1264 Pattern C D) | [Armstrong 704](https://www.armstrongceilings.com/commercial/en/commercial-ceilings-walls/cortega-lay-in-ceiling-tiles/item/704.html), [Cortega spec sheet](https://hdsupplysolutions.com/wcsstore/ExtendedSitesCatalogAssetStore/product/hdpro/additional/PR/PRO_303314_Specification_303314_SpecSheet.pdf) |
-| Kick plate | 8" (203 mm) high — BHMA: 8/10/12/16" typical — width 2" less than door width (LDW), 18 ga / .050" 304 stainless #4 satin, ANSI/BHMA A156.6 J102 | [BHMA terminology](https://buildershardware.com/Resources/Guide-to-Builders-Hardware-Terminology/Architectural-Door-Trim), [A156.6](https://buildershardware.com/ANSI-BHMA-Standards/Hardware-Highlights/A1566-2026-Architectural-Door-Trim), [Activar kickplate submittal](https://www.activarcpg.com/wp-content/uploads/Door-Protection-Kickplate-Hiawatha-Series-Submittal.pdf) |
-| Vinyl | expanded (foam-backed) upholstery vinyl, emboss grain 0.4–0.7 mm pebbles / 0.1 mm creases (measured off a Naugahyde-class swatch), crazing cells ≈ 3.5 mm in plasticiser-starved areas | trade practice |
-| Laminate | HPL wipe haze + 10–40 mm curved scratches, mug ring ghosts 80 mm Ø (standard diner mug 3.2" base) | trade practice |
-| Bare tee metal | hot-dip galvanised steel under the baked white (chips read grey, Ra ≈ 0.55, one rust hairline) | trade practice |
-
-Per item:
-
-1. **Floor** — `checkerFloor` rewritten (2040 × 1020 map + roughness, 40 × 20
-   tiles at 51 px / 300 mm) with a world-space wear description from the plan
-   (`dinerFloorWear()`: aisle lane between stools and booths, counter standing
-   zone, door path, staff run, sheltered rectangles under the booth seats and
-   the back bar, wall lines for dust, one crack by the door). ±1.5 % tile tone
-   (blacks 3 %), whites grey off and blacks scuff lighter in the lanes,
-   roughness +0.28 in the lanes / −0.09 sheltered, grout dust (pale, matte)
-   within 0.4 m of a wall, 220 heel-scuff arcs (6–15 mm, two thirds in the
-   lanes), hairline crack with a light catch on one lip. Grout relief is a
-   separate 2 × 2-tile detail normal (`floorGrout`, 1024 px = 0.6 m: 1.5 mm
-   trench with rounded shoulders, ±0.4 mm lippage per tile, 0.1 mm glaze
-   waviness) repeated `w/0.6 × d/0.6`. Slow fields (fbm, lane and wall
-   distances) are evaluated on a 4 px grid and bilinearly sampled — the
-   per-pixel polyline distances were 10 s of the boot, now 0.5 s.
-2. **Walls** — `paintedWall` takes `WallOpts`: drywall seams every 1.2 m
-   (0.8 % lighter compound band, 7 % glossier), a scuff band at 0.95–1.12 m
-   (chair-back / booth-cap height: ragged 30–150 mm rub bundles + small dark
-   knocks, burnished under them), sun fade near the window jambs (window wall
-   only, `wallPaintWindow`, +2.5 % between sill and head, reaching 0.25 m). The
-   roller stipple is a detail normal (`wallStipple`, 1024 px = 0.6 m, jittered
-   2.2 mm cell grid of domes with 15 % skipped on a 0.05 mm swell). Interior
-   walls use **world-aligned UVs** (`worldBoxUv`, merge.ts) so seams and fades
-   land at real heights and are continuous across the punched wall boxes.
-   Baseboards: `baseboardScuff` (mop-water tide mark at the toe, heel/broom
-   streaks) on metric UVs, `baseboardWorn`.
-3. **Ceiling tiles** — `acousticTile` rewritten: worm-track fissures 2–8 mm ×
-   0.7–1.5 mm, 0.7–1.4 mm deep (~1.1 per cm²), soft 1.5–2.5 mm pinholes, fibre
-   nap, depth carried as height → normal AND as shading (a fissure floor is in
-   its own shadow: no black dots), same reveal shade on all four tegular edges.
-   Per-instance tint: ±1.5 %, warm yellowing on 30 %, 1 in 25 a shade greyer
-   (`InstancedMesh.setColorAt`). Two water-stained tiles (`stain: true`: wobbly
-   130–200 mm tan wash, dark tide rim, two inner rims) as their own small mesh
-   (+1 draw call — two instances cannot carry a different map). Three tiles sag
-   0.5–0.7° on a bowed cross tee. Grid tees: `teePaint` (1 m of tee per canvas,
-   ±2 % yellowing drift, 3–8 chips per metre to bare galvanised with a rust
-   hairline, chips in the last 2.4 % of v — the 24 mm face).
-4. **Laminate** — `laminateWear`: wipe haze (anisotropic fbm), 140 curved
-   scratches + a few long ones, cup-ring ghosts (rings only near where a mug
-   sits: 3 per booth table, 6 along the counter). Tables get per-table UV
-   offsets so no two share a scratch pattern; counter uses a 2048 map over
-   2.05 m. T-mould edge: `formicaEdgeBrushed` (brushed roughness along the
-   band, softer at the corner radii).
-5. **Vinyl** — `vinylSurface` rewritten as pebble grain (Voronoi on a jittered
-   0.55 mm grid, flat-topped domes with rounded creases) instead of noise, on
-   a 0.25 m canvas so the grain is true size; burnished blotches (−0.1
-   roughness) where hands and seats polish it, crazing in patches on the
-   backs (pre-existing `vinylRedCrazed`). **One booth (the second) has cracked
-   welts**: `vinylRedWeltCracked` — `vinylSurface(..., weltCracks)` puts a
-   4–18 mm crazed band and long seam-parallel cracks at u ≈ 0, and Booths.ts
-   remaps that booth's back-panel u to the distance from the nearest cord
-   (+1 draw call).
-6. **Chrome / stainless** — `formicaEdgeBrushed` (T-mould), `stainlessTouched`
-   (dispensers, brewer rails: anisotropic brush + 8–14 fingerprints with 0.45 mm
-   ridge pitch + wiped smears), `chromeScuffed` (stool footrings + footrail:
-   rub streaks with the UVs turned so they run along the ring), `chromeBar`
-   (push bar + pull: polished grip zone toward the latch, haze shoulders, 40
-   finger smears).
-7. **Wood** — `capSlab` lightens the cap's arris vertices by normal direction
-   and grip-point proximity (worn finish), `woodVeneer(..., dings: 3)` stamps
-   dents into the height/colour.
-8. **Door dressing** — one atlas (`doorDecals`, `DECAL` regions in shapes.ts,
-   `atlasQuad`) for the OPEN card (suction hooks), hours vinyl, PUSH sticker
-   with a lifted corner, "WE ACCEPT" card sticker (generic marks), and the
-   window-film edge (bare-glass hairline, lifted corner, trapped motes) applied
-   to the five windows. All door decals are on the INSIDE face of the glass:
-   OPEN/PUSH read from the room, hours/cards are applied reversed and read
-   from the lot (mirrored from inside, as in life). 8" satin stainless kick
-   plate on the push side. +1 draw call (decal material).
-9. **Glass** — `glassCarafe` (`carafeScratches`: dishwasher etching + fine
-   scratches, base roughness lifted so they read), coffee-stain tide line as
-   an alpha map on the existing stain mesh (`tideLineAlpha`: irregular rim,
-   drips).
-10. **Anti-tell** — no pure black/white in any generator (floor blacks 26,
-    whites 220, decal card #f4efe2, marks #f4f4f2); every large surface has a
-    roughness map with wear structure, not uniform noise; repetition broken by
-    per-tile tint, per-table UV offsets, world-aligned wall UVs, panel jitter
-    on metric UVs, and quarter-turned tile instances.
-
-Draw calls: **+8 at the spawn pose (131 → 139), +8–14 in the poses** — not the
-"maps only" zero the brief asked for. Each is one new material bucket inside
-an existing merged mesh: window-wall paint (sun fade), window-film decals,
-stained tiles, the welt-cracked booth, scuffed footrail/footring chrome next
-to plain bracket chrome, the counter's worn top next to the back-bar laminate,
-the door decals, the brewer's touched trim. All are maps, none is geometry;
-each could be folded back by giving the base material the same maps (e.g. one
-`wallPaint` with the fade baked into the world-UV map, `chromeScuffed` on the
-brackets too) if the budget needs it. Startup (same warm shader cache, same
-port): 12.1–12.5 s to ready vs 14.8 s at the base commit `5ab934f` — no
-measurable cost; textures 9.4–10.0 s wall on 8 workers either way. Serial CPU
-for all 42 generator jobs is 19.2 s, of which the rewritten floor is 0.5 s
-(was 10 s before the coarse-grid fix), the two big walls 1.1 s each, and every
-new small map < 0.1 s.
-
-Lessons from this pass are in "Lessons recorded" (CanvasTexture v is
-upside-down relative to canvas rows; transparent decals behind transmissive
-glass; per-pixel distance fields).
 ## System 8 — post-processing & atmosphere (`src/post/`)
 
 Everything is procedural, scene-linear until the finish pass, and expressed
@@ -1019,7 +1135,7 @@ lazily, once).
 | 1 | Interior geometry and floor plan | **done** (rev 4 close-out: empty L-return, footrail at 200 mm on cast brackets, bell pedestals, head bulkhead + 25 mm wall angle, 60 × 40 caps, 100 mm saddle + stepped exterior slab) |
 | 2 | Booth and counter detail | **PASSED at rev 7 (`9adefff`)**; System 3 rev 1 polish: 3 condiment sets on 9 stools (centred between stool pairs), boomerangs in two classes (32–38 mm + 15–20 mm) with a few outline-only shapes, channels pillowed 4 mm outward with the 1–2 mm valley at the welt, stool seats with a 17 mm crown + 10 mm roll over the band, near-white granular sugar. Rev 7 was: flicker audit + fixes (see Lessons); stools built per stool into the merged buckets (no instancing): ±6 mm column height, any yaw with the welt junction + boxing seam travelling with it, ±5 % squash, 250 × 200 mm sit-hollow 6–9 mm deep in its own shade, one 2.5° worn swivel, three chrome wear grades (roughness 0.07/0.12/0.17), four bolt caps per base; glass `transmission 1`/roughness 0/thin, granular sugar top tilted 7° at 75 %, grey-blue granular salt standing in front of the pepper; black SplashGard funnel (Ø 178 × 100, paddle handle) in the rails, stainless fill lid so one black warmer disc tops the hood, 7 mugs staggered ±15 mm on the mat; napkin tip with folded leaf + crease, domed cast pedestal with collar, pass-through surround in wall-trim paint. Rev 6 was: A1 veneer at true scale (lines 1.5–2.5 mm, one decaying cathedral per 0.5 m, ≤ 9 % contrast, per-panel UV jitter + flips; oak caps / walnut panels + die / maple cabinets + fan blades kept); A2 cords proud of the channels (centre +1 mm over the crowns, 6 mm, baked line shadows, 6 puckers in the last 30 mm at both tucks), 6 mm piped head-roll seam, seat welt + boxing seam + dark top-stitch line at the nose, 6 mm welt torus round every stool seat over a 1" band; vinyl roughness ≈ 0.32–0.5, grain normal 1.25, clearcoat 0.1. B1 boomerangs as straight-armed 100–130° elbows with rounded tapered tips, 28–52 mm, ~3.5 / 100 cm², three tones, on a 2048 px / 1.2 m tile (no repeat on a table). B2 one fluted jar (14 cos² ribs, 2.5 mm) in `glassFluted` (10 mm refraction thickness) with the sugar at 97 % of the bore to 65 %, full-diameter 12 mm lid with 1" side-hinged flap; S&P 1.5 mm glass walls, fills at 97 % of the bore to 60 %, opaque `salt`. B3 hood in light `stainlessCool` (albedo 0.6, roughness 0.3, anisotropic, room probe) with black control band + black 150 mm warmer discs top and base, stainless base plate over a black base, 25 × 14 mm lit rocker switches with pivot line. B4 mug 7–8 mm walls / 13 mm floor / 6.5 mm rim, dark `bisque` foot ring, stubby handle; 8 spares inverted on a ribbed rubber bar mat, 2 upright, saucers only at the two stools. B5 stools: seat parts pivot on the column top with ±1.2° tilt, ±10 mm height, ±5 % cushion squash, ±10 mm pitch with two nudged 22–30 mm. C: 2" fluted T-mould with 4 grooves on the counter, 28 mm push bar on cast rose/post/saddle standoffs, 4.5" × ½" five-rib saddle threshold, 5 mm dark-steel spider plate with 4 screws on a dark-sealed underside, ½" troffer recess in a 1" frame, shaped cast fan irons with bosses, 1.8 mm rolled dispenser lid edge. Rev 5 was: mugs are `MeshPhysicalMaterial` ivory china (opaque, roughness 0.15, clearcoat 0.6, env 0.45; runtime probe confirmed transmission/transparent were never set — the rev 4 "frosted" read was a shaded white body mirroring the counter); Skylark laminate as sparse (~30 %) round-capped stroked chevrons, three tones pulled toward cream, non-touching; Tablecraft-221 dispenser in smooth `stainlessBrushed` (roughness 0.2, anisotropy 0.4 — at 1.0 the sun lobe whited the face) with 70 × 22 slots on both long faces, napkin fans, flange lid, rubber feet; BUNN tower in matte `blackPowder` with brushed stainless side panels and a Ø 190 × 110 stainless funnel with forward handle; channel depth 20 mm with 6 mm cords riding 2 mm under the crowns, vinyl #A8141C roughness ≈ 0.3–0.4, 0.4 mm grain, clearcoat 0.15; veneer ridge pitch 1–4 mm with ~300 mm cathedral figure at ≤ 12 % contrast (caps satin 0.3, laminates 0.5); shaker fill fitted to the glass, half-moon side-hinged sugar flap, 13 mm troffer reveal. Rev 4 was: prop-side reflection probe (no checker in glassware), opaque #2A1408 coffee at 55 % with fill line/meniscus/tide line, 12 mm D-handle facing the aisle, 100 mm-deep funnel; opaque ivory mugs (roughness 0.14, env 0.2) inverted on 140 mm saucers on the drip tray + 3 loose uprights + `pourMug`; Skylark boomerangs as bent chevrons (62/72 mm, 12–15 mm, tan/grey-blue/white, ~40 %); three grain sources via `woodVeneer` (oak caps, walnut panels/die, maple cabinets); seat boxing seam 25 mm below the crown, brighter valley cords, ±3–4 mm puckers; stools ±8 mm height/±10 mm pitch/±25 mm off-line, concave rim band mirrors the checker; Tablecraft-221 dispenser with 52 × 42 arch, napkin tip, lid seam; bright 4" saddle; kitchen box with its own emissive ambient. Rev 3 was: — 5 mm welt cords proud in every channel valley + 7 mm roll-seam and boxing-seam welts, puckers at both tucks, broad sheen (roughness map 0.35–0.55, clearcoat 0.25); 512 px interior-capture PMREM; irregular vertical veneer grain on end panels/counter die/cabinets (contrast 0.10), horizontal cap grain; T-mould with 3 real 2 mm grooves + returned lip, 38 mm tops with sparse two-tone boomerang; counter sheet seams every 3.6 m; steep-rimmed bell stool bases that mirror the floor, per-stool rim seam, ±12 mm height/±25 mm offset; footrail elbow + return flange; 300 mm brushed spider plate; BUNN VPR brewer with one lower + one upper warmer, deep SplashGard funnel, brushed body; 173 × 178 decanter with opaque 55 % coffee, fill line, tide line, black collar/handle, stainless base ring; closed 98 × 117 × 184 dispenser with recessed faceplates and one napkin tip; 12-flute sugar pourer at 65 %; glass shakers with visible fill; glossy waisted mugs (roughness 0.1); 6 mm prism troffer lens; 14 mm fan blades; alu threshold plate |
 | 3 | Windows, blinds, exterior view | **built, rev 3 (proof crops in `shots/crops/`, debug exterior frames `shots/sys3-dbg-*.png`)**. Rev 3 (critic items A–F): **A** vehicles rebuilt as lofted bodies through 24-point cross-sections (`Station`/`loftBody` in `Exterior.ts`: 20 mm sill radius, side bulge to the belt, tumblehome to a 70–90 mm roof radius, plan taper at the ends, analytic normals with one-sided tangents at the hood/roof creases) with the wheel arches cut into the lower edge so four lathed tyres (rounded shoulders, sidewall bulge, 0.19 m bead) show under the fenders; ride height 0.31 m sill / 0.35 m tyre (sedan), 0.42 / 0.38 (pickup); chrome bumpers 0.45–0.58 m with rubber guards over a painted valance; sealed beams (2 × round 5¾" per side on the pickup, 2 × rectangular on the sedan) as glassy `MeshPhysicalMaterial` lenses in chrome bezels; amber signals; egg-crate grille texture (`grilleTexture`); plates front + rear (`plateTexture`); door mirrors on chrome arms, wipers on the glass, chrome pulls, rubber + chrome side moulding, drip rails, shut-line slivers, wheel-well liners and underbody mass; glass metalness 0 (rev 2's 0.55 tinted the sky reflection black — see Lessons), dust-film paint (`carDust` map + roughness). **B** route holes 12 × 6 mm ovals (annulus-triangulated patches in the slat mesh) — 5 px at booth distance, showing whatever is behind (`crop-route-hole`). **C** slats are real per-blind geometry (`appendSlat`): tilt 25 ± 5° per blind, drop 0 or 3–8 cm with the spare slats stacked on the bottom rail, 1–3 mm parabolic sag between ladders + free-end droop, 1–3 creased slats per run, ±2.5° per-slat jitter, ±4 % tone via vertex colours; ladders front + rear with rungs; 25 × 38 mm pale headrail; moulded plastic tassel in slat colour (the `lot-wide` "dark 15 cm band" is the window's transom bar behind the slats, not the headrail — see Lessons). **D** Ø 0.6 m poured piers 0.75 m high with chamfer, grout collar, steel base plate, four anchor bolts + nuts and a pole flange; 150 mm kerb + 0.7 m gravel strip along the CMU base; 90 mm precast cap with 25 mm overhang; two-lane frontage road 16 m behind the wall (shoulders, edge lines, faded centre line) with creosoted utility poles / crossarms / insulators every 38 m and 1 px catenary wires; 110 instanced 1–2 m creosote bushes (stem fan + olive foliage clumps). **E** verified, no leak: with the spot off (`sunLot` only) the room has no sun patches at all; the "unstriped" wall patches in `length`/`counter` are the last window's blinded throw on the end wall — striped at 2–3 px pitch (oblique compression + penumbra), invisible at frame scale; the seat patch in `stripes` is shadowed vinyl mirroring the bright window. **F** door smudge redrawn as a palm-heel smear arc + scattered fingertip dabs + diagonal drag streaks (nothing periodic), alpha × (0.3 + 0.7·(1 − N·V)²) so it brightens at grazing angles (`crop-smudge`). Draw calls unchanged (114–271 by pose, worst `length`); triangles 1.30 M. Rev 2: two-light sun split (spot for the building, directional + caster-only cone for the lot — see Lessons) so poles, cars, stops and the CMU wall cast onto the lot; exterior fill ×0.45; A1/A2 measured and documented as critic mis-reads (`crop-wall-under-sill`, `crop-stripes-rectified`); blinds: 1.3 mm ladders front + rear with a rung under every slat, 10 × 6 mm route slots with the lift cord through them, ±2.5° tilt jitter + 3–4 kinked slats, ±4 % tone, enamel crown highlight (smooth 0.3 roughness base + sparse dust streaks to 0.6, metalness 0.1, env 0.7), 1" × ½" bottom rail with end caps, headrail + valance lip, 12 mm tan tilt wand (0.5 m, right jamb), two pull cords + equaliser + turned-wood acorn tassel (left jamb, ending 15 mm over the stool); cars re-bodied (lofted profile with sloped hood/trunk, raked pillars, flared arches, rocker, door shut lines, B/C pillars, drip rails, chrome bumpers/belt line/mirrors, sky-reflecting glass, recessed lamps); 1.8 × 0.15 m trapezoid concrete wheel stops; 3 more branching cracks with 3–4 cm black filler, oil blotch at a stall head, tyre scuffs; CMU tones randomised per block on an 8 × 4 tile; satin stainless push-bar mounts; sky brightened toward the sun azimuth with a haze band at the ridge foot and a fainter second range; scrub in three size classes / three tones with down-sun contact-shadow decals; ceiling/fan/overlays/car trim no longer cast (draw calls 179–338, worst `length`, with the per-frame shadow passes; lower since the shadow maps are rendered once at boot — see Startup). Rev 1 was: venetian blinds on all five windows (none on the door: the reference diners keep the door pane clear for the OPEN sign and the view of who is coming), instanced curved 1" slats at 22 mm pitch / 45°, ±0.5° tilt, ±0.3 mm sag, a kinked slat per window, ±4 % tone, dust streaks on the up-faces, rails, two ladders + lift cords + wand each; slats cast the hard stripe shadows through the existing sun (tight 3.3 mm shadow texels). Window/door glass `MeshPhysicalMaterial` T = 1 with the 12 % loss in the colour, IOR 1.52, 6 mm, green-grey attenuation, room-probe reflection, dust haze heavier at the lower edge/corners, wipe streaks, five handprints at push-bar height (roughness patch + haze decal). Exterior: 150 mm kerb + 1.5 m sidewalk, 12 stalls of re-striped asphalt (drift, tyre polish, sealcoat patches, alligator + long cracks with dusty/sealed fills, oil drips, old + new lines) over a plain surround, kerb stops, 1.2 m CMU wall at the far edge, two 7 m light standards on concrete bases, dusty white pickup (5.3 m, 2.9 m wheelbase, 0.71 m tyres) and maroon sedan (4.9 m, faded clearcoat) with dark glass, chrome bumpers/trim, recessed headlamps with chrome bezels, contact-shadow decals, `lotEnv` probe; desert dirt with 900 instanced scrub patches, fBm mesa/ridge ring fading into the sky, shader sky dome (near-white horizon → pale desaturated blue, sun glare on az 38° / el 35°), linear fog 45–260 m for atmospheric perspective. Draw calls 181–335 (worst: `length`). |
-| 4 | Lighting | pending (placeholder sun/hemi/troffers in `Lighting.ts`) |
+| 4 | Lighting | **built, rev 1** (`shots/sys4-*.png`, post on; `shots/sys4-raw-*.png`, `?post=0`). Physical units at K = 1e-4 with camera exposure ISO 100 f/5.6 1/160 (EV 12.29, grey 1,080 nits, AgX); 90 klux 5500 K spot sun with PCSS (0.53° disc, 3.5 mm texels) + directional lot sun; sky dome scaled to 5,500-nit horizon with circumsolar boost and baked into split PMREM probes (sun-off for dielectrics, sun-on for metals); 8 × 7,500 lm 4100 K troffer RectAreaLights with 4,500-nit lenses; window sky fills + floor-patch bounce RectAreaLights; contact-occlusion decals; `sunBeam` compare-map twin so System 8's dust/haze keep working under BasicShadowMap. Measured: sunlit vinyl stripes +0.9…+1.7 EV, table core +3.8 (clips), sky through slats +2.3…+3.1, counter top −1.1…−1.3, die −2.7, seat in shade −2.9 — see REFERENCE §8 |
 | 5 | Materials and textures | **built, rev 1 (textures)**, merged into `main` over System 3 rev 3 + System 8 — the light-independent half: floor wear/grout relief, wall stipple/seams/scuffs/fade, fissured tiles + stains/sag/tee chips, laminate wear + cup rings, pebble-grain vinyl + cracked welts on one booth, brushed/fingerprinted/scuffed metals, cap arris wear, door dressing (OPEN/hours/PUSH/cards/kick plate/film edge), carafe stain + scratches. See "System 5". Roughness/metalness/colour/envMapIntensity base values untouched (System 4 owns them). |
 | 6 | Sound design | **built, rev 3** (section above) — 100 % synthesised: AM-radio speech rhythm, AC drone + rattle, fan whoosh, warmer ticks/gurgle, room tone; pour / clink / door one-shots and the exterior heat wall. Rev 3 measured the live mix at six listener poses (BS.1770 LUFS per bus) and re-levelled it: aisle bed −36.2 LUFS, room −44.5, AC / fan / radio −35 / −39 / −33 at 1 m, warmer near-field; pour lands with the stream, clinks −12 dBFS, heat wall −26 LUFS with an equal-power swell, room ducks 3 dB while the door is open, latch on close |
 | 7 | The 3 interactions (sit, pour coffee, open door) | **built, rev 1** (merged into `main` over the loader + System 3 rev 2: shadow-once invalidation on door/pour, audio on the loader's enter click, pour programs pre-issued) — `src/interactions/*` + `src/audio/wiring.ts` (System 6 wired: gesture start, positional beds, pour/clink/door SFX, exterior crossfade). Frames `shots/sys7-{sit-seated,pour-mid,pour-full,door-open}.png`; 23/23 live Playwright checks; update ≈ 0.01 ms; +6 draw calls only while pouring |
@@ -1029,7 +1145,10 @@ Known simplifications after System 3: no heat shimmer (System 8 post), no
 chain fence, the cars have no interiors (dark glass hides it at 10–30 m), the
 sky has no clouds, L-return top empty (register is a later prop),
 kitchen box holds dim grey silhouettes only, no second (restroom) door on the
-far end wall, sun-facing vinyl reads a little washed under the placeholder
-light rig (System 4/5 own that balance), the troffer lens prism pattern is a
-faint 6 mm cell map + normal map that will only really read once System 4
-lights it, cap rails have no separate end-grain material.
+far end wall, the troffer lens prism pattern is a faint 6 mm cell map +
+normal map, cap rails have no separate end-grain material. After System 4:
+the lot asphalt sits at +1.4 EV rather than the brief's +2.5 (its albedo is
+0.135; System 5 can pale the sealcoat), the sky through the slats peaks at
+≈ +3.1 EV rather than +3.5–4.5 (raising the dome lights the room through the
+glass and flattens the lot shadows — REFERENCE §8 Lessons), the chrome does
+not "blow out" because the stools' sun highlights are small at 1080p.
