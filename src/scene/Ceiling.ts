@@ -208,16 +208,17 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
     arm.rotation.y = (i / 4) * Math.PI * 2;
     arm.rotation.z = THREE.MathUtils.degToRad(-4); // slight droop
     const iron = new THREE.Mesh(ironGeo, pal.darkMetal);
-    iron.castShadow = true;
     arm.add(iron);
     const blade = new THREE.Mesh(bladeGeo, pal.fanBlade);
     blade.rotation.x = THREE.MathUtils.degToRad(12);
     iron.rotation.x = THREE.MathUtils.degToRad(12);
-    blade.castShadow = true;
     arm.add(blade);
     rotor.add(arm);
   }
-  for (const m of [canopy, rod, housing, topCap, bottomCap]) m.castShadow = true;
+  // The fan casts nothing: the only shadow light is the sun, which enters below it at 35°
+  // elevation heading down, so 13 depth draws per frame would never land on a lit surface.
+  // (System 4 can re-enable this if it adds a ceiling light that throws blade shadows.)
+  fan.traverse((o) => { o.castShadow = false; });
   parent.add(fan);
 
   return { fanRotor: rotor };

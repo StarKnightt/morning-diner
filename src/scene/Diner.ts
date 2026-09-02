@@ -12,7 +12,7 @@ import { buildCeiling } from "./Ceiling";
 import { buildCounter } from "./Counter";
 import { buildDoor } from "./Door";
 import { buildExterior } from "./Exterior";
-import { buildLighting, sunDirection } from "./Lighting";
+import { buildLighting, installShadowMasks, sunDirection } from "./Lighting";
 import { buildProps } from "./Props";
 import { buildShell } from "./Shell";
 import { FAN } from "./layout";
@@ -22,7 +22,9 @@ export class Diner {
   readonly colliders: Collider[] = [];
   readonly palette: Palette;
   readonly door: THREE.Group;
-  readonly sun: THREE.DirectionalLight;
+  /** Interior sun (narrow distant spot) and the lot sun (wide directional); see Lighting.ts. */
+  readonly sun: THREE.SpotLight;
+  readonly sunLot: THREE.DirectionalLight;
   /** Named props later systems animate: the mug that gets filled, the decanter that pours. */
   readonly pourMug: THREE.Mesh;
   readonly coffeePot: THREE.Group;
@@ -46,13 +48,19 @@ export class Diner {
     this.colliders.push(...shell.colliders, ...booths.colliders, ...counter.colliders);
 
     scene.add(this.group);
-    this.sun = buildLighting(scene).sun;
+    const lights = buildLighting(scene);
+    this.sun = lights.sun;
+    this.sunLot = lights.sunLot;
+    // Interior casters stay out of the lot sun's shadow map: the cone occluder already
+    // blacks the whole building out of that light, and this saves ~120 depth draws/frame.
+    installShadowMasks(renderer, this.group, lights);
 
     scene.background = new THREE.Color(0x9cc0ea);
     // Atmospheric perspective for the desert: linear fog to the sky's horizon colour from
-    // 45 m (nothing inside the building or the lot is within reach) to 260 m, so the dirt
-    // plane, scrub and ridge dissolve into the sky instead of meeting it on a hard line.
-    scene.fog = new THREE.Fog(new THREE.Color(0.9, 0.915, 0.93), 45, 260);
+    // 40 m (nothing inside the building or the lot is within reach) to 200 m, so the dirt
+    // plane, scrub and both ridge rings dissolve into the sky instead of meeting it on a
+    // hard line (the dirt plane's edge at 210 m is fully fogged).
+    scene.fog = new THREE.Fog(new THREE.Color(0.9, 0.915, 0.93), 40, 200);
 
     // Reflection environment: a one-time CubeCamera capture of the real interior
     // from counter height between the stools, PMREM-filtered. The chrome then

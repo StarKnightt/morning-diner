@@ -48,16 +48,18 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   bar.translate(leafW / 2, barY, z0 - 0.07);
   b.add(bar, pal.chrome);
   for (const x of [stile + 0.02, leafW - stile - 0.02]) {
-    // Cast standoff: 45 × 60 mm rose on the stile, tapered post out to a saddle under the bar
-    b.rbox(pal.chrome, [x - 0.0225, barY - 0.03, z0 - 0.01], [x + 0.0225, barY + 0.03, z0], 0.004);
+    // Cast standoff: 45 × 60 mm rose on the stile, tapered post out to a saddle under the bar.
+    // Satin stainless, not mirror chrome: a mirror this close to the dark-bronze stile
+    // reflects nothing but bronze and reads as copper (System 3 rev 1 critic).
+    b.rbox(pal.stainlessCool, [x - 0.0225, barY - 0.03, z0 - 0.01], [x + 0.0225, barY + 0.03, z0], 0.004);
     const post = new THREE.CylinderGeometry(0.012, 0.016, 0.052, 20);
     post.rotateX(Math.PI / 2);
     post.translate(x, barY, z0 - 0.036);
-    b.add(post, pal.chrome);
+    b.add(post, pal.stainlessCool);
     const saddle = new THREE.CylinderGeometry(0.019, 0.019, 0.03, 24);
     saddle.rotateZ(Math.PI / 2);
     saddle.translate(x, barY, z0 - 0.07);
-    b.add(saddle, pal.chrome);
+    b.add(saddle, pal.stainlessCool);
   }
   // Pull handle (exterior side, +z): vertical chrome bar
   const pull = new THREE.CylinderGeometry(0.014, 0.014, 0.45, 20);
