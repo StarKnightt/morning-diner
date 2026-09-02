@@ -546,6 +546,108 @@ at a booth seat and table under the slat shadows.
   final balance, but the asphalt still needs its aggregate speckle (±0.2 albedo
   contrast) to read as asphalt and not as concrete at that exposure.
 
+## System 6 — sound (rev 3: the live mix)
+
+Everything is synthesised in `src/audio/` (Web Audio, no files; details in
+`src/audio/INTEGRATION.md`). Revs 1–2 passed the individual sources through the
+numerical critics; rev 3 measured **the mix the player hears** — the wired graph
+(`wiring.ts` positions) rendered through an `OfflineAudioContext` with the
+listener at six poses, every bus tapped (post-panner, pre-reverb), integrated
+loudness per ITU-R BS.1770-4 (K-weighting, −70 LUFS absolute / −10 LU relative
+gating, coefficients verified against the 48 kHz table to 1e-14) — and then
+re-levelled it. `node tools/audio-harness.mjs --poses | --calib |
+--scenario=pour|door [--tag=]` writes `tmp/<tag>-*.wav` + `tmp/<tag>-report*.json`;
+Vite on :5320 (`--port=`; the visual harnesses own 5210–5260). Deterministic
+(seed 20260902): the numbers below reproduce exactly.
+
+**Per-pose loudness (LUFS, 12 s, listener eye 1.62 m; booth seated 1.15 m).**
+`mix` is the master output; the source columns are the solo taps at that pose.
+Targets from the brief: room ≈ −45, AC ≈ −38 @ 1 m, fan ≈ −42 under it, radio
+≈ −36 @ 1 m, warmer only within ~1.5 m, aisle bed ≈ −34…−36. Those add up to
+≈ −39 at the aisle, 3 LU under the bed range, so the spatial sources were set
+2–3 LU over their nominal marks (AC −35, fan −39, radio −33 at 1 m) with the
+room at −44.5, which lands the aisle at −36.2 and keeps the ordering.
+
+| pose (x, z, yaw) | mix before → **after** | AC (d) | fan (d) | radio (d) | warmer (d) | room |
+|---|---|---|---|---|---|---|
+| door, facing in (4.95, 2.45, 90°) | −36.8 → **−40.0** | −50.4 (10.8 m) | −49.8 (6.4) | −43.0 (5.7) | −64 (8.2) | −44.5 |
+| aisle centre (0, 0.9, 90°) | −31.0 → **−36.2** | −45.4 (5.7) | −41.0 (1.6) | −40.4 (3.6) | −58 (3.7) | −44.5 |
+| booth 3, seated (−1.7, 2.6, 215°, −9°) | −31.1 → **−37.0** | −44.6 (4.6) | −41.1 (1.9) | −43.6 (5.9) | −65 (5.0) | −44.5 |
+| counter at the brewer (−1.5, −1.3, 0°) | −31.4 → **−36.3** | −44.0 (4.8) | −44.4 (2.7) | −39.1 (3.4) | −50.2 (1.2) | −44.5 |
+| under the AC (−4.9, 0.9, 90°) | −26.6 → **−34.7** | −36.2 (1.3) | −46.8 (3.7) | −46.7 (7.3) | −64 (4.6) | −44.5 |
+| at the radio (1.7, −1.3, 0°) | −30.6 → **−33.5** | −47.4 (7.7) | −46.4 (4.1) | −33.6 (1.1) | −58 (3.6) | −44.5 |
+
+Before, the AC dominated everything (−27 LUFS under it, −36 from the aisle —
+11 dB over target), the fan was 8 dB hot, the radio 3 dB, and the room tone 7 LU
+too quiet to read as a room. Mix crest factor 13.5–17 dB at every pose (nothing
+is compressed; the limiter idles). Mix spectral centroid 390–1020 Hz: warm.
+
+**Calibration at 1 m and distance (solo taps, listener facing the source).**
+All fixed emitters use the PannerNode `inverse` model, `refDistance` 1 m,
+`rolloffFactor` 0.55, `maxDistance` 18 m — measured against the model:
+
+| source | 1 m LUFS before → **after** | 1.5 m | 2 m | 4 m | 6 m | 10 m | model at 6 m |
+|---|---|---|---|---|---|---|---|
+| AC (HRTF) | −26.5 → **−35.5** (1.1 m) | −1.3 | −3.0 | −7.2 | −10.2 | −14.2 | −11.0 |
+| radio (HRTF) | −31.1 → **−33.1** | −1.1 | −2.8 | −7.8 | −10.8 | — | −11.5 |
+| fan (HRTF) | −32.5 → **−39.0** | −1.9 | −3.2 | −7.3 | — | — | −8.5 @ 4 m |
+| warmer (HRTF, ref 0.7 / rolloff 1.4) | −48.8 → **−47.9** | −2.5 | −5.3 | −7.6 @ 3 m | | | −10.9 @ 3 m |
+
+Every source loses 10–14 dB across the room: no source is "uniformly loud
+everywhere". Measured falls sit 0.3–1.2 dB shallower than the bare model because
+the HRTF adds level as the source moves off-axis (the listener path turns), and
+because the taps include each source's own width. The warmer was the one that
+did not fall (−3.2 dB over 3 m — an event source, its integrated loudness is set
+by the ticks): it now has its own steeper model and is a near-field detail
+(ticks peak −34 dBFS at the brewer against a −38 dBFS bed; 20 dB under the bed
+at the aisle). Panner choice is consistent: HRTF for the fixed emitters and the
+door jambs, equal-power for arm's-length one-shots (pour, clinks, latch) where
+the HRTF's interaural delay reads as phase. L/R balance follows geometry at
+every pose (radio +7.2 dB R−L when 0.87 to the right, −6.8 when 0.94 left; AC
+0.0 dead ahead).
+
+**SFX timelines (`--scenario`, System 7's exact clocks).** Pour, listener at the
+counter: the clink fires at 0, `pourCoffee(2.5)` at +1.30 s, the set-down clink
+at +5.30 s. The splash now starts **169 ms after the call** — when the stream,
+falling 60 mm to the rim and 76 mm to the mug floor, lands (167 ms; Pour.ts
+ripples at +170 ms). Before rev 3 it started at +19 ms, 150 ms before the
+coffee arrived. Cavity resonance climbs 824 → 1299 Hz across the pour (rising
+pitch as the mug fills); the 300 ms taper + ring lets it die 0.8 s after the
+stream stops. Pour −30.3 LUFS (target −30; was −33.3), clink peaks −11.8 /
+−10.5 dBFS in the mix (target −12; were −21 / −23). Pour start / stop steps
+0.07 / 0.015 FS, ≤ 2.4× the local RMS — no discontinuities (the clinks' own
+0.15 FS onsets are the ceramic contact, a 1.5 ms attack).
+
+Door, listener inside the leaf: `doorOpen()` at 0, leaf 30° at +124 ms, 85° at
++1.1 s, hold to +5.1 s, closer sweep to 8° by +6.9 s, latch +7.15 s. Heat wall
+holds at **−26.2 LUFS** on the outside bus (target −26; was −22.2), mix −26.0
+while open vs −40.4 before — a 14 dB wall. The crossfade is equal-power in
+shape (exterior sin(π/2·a), interior √(1 − ½ sin²) — the two powers sum to a
+constant — replacing a^0.6 with the room untouched), smoothed with τ = 0.22 s
+opening / 0.07 s closing: half power at +450 ms, within 1 dB of hold at
++0.75–0.9 s, i.e. 0.6–0.8 s after the leaf clears 30° (the bed itself breathes
+±1.5 dB, hence the range). Interior bed −40.5 → **−43.4 while open (−3.0 dB)**
+→ −40.2 after the latch (was: no duck at all). Closing: −2 dB at mid-sweep,
+−16 dB at 8°, gone after the latch. The latch itself now clicks (−23 dBFS at
+0.85 m; the open latch peaks −17.9) — `setOutside(0)` after an opening fires
+`doorClose()`, since DoorSwing only calls `open()` + `outside(p)`. Steps at
+open / sweep / latch ≤ 5.1× local RMS.
+
+**Start path (read, not edited).** `main.ts` calls `interactions.startAudio()`
+after `loader.waitForEnter()` resolves and again on the first canvas click; the
+overlay's enter click also bubbles to `window`, where `startAudioOnGesture`'s
+one-shot listener constructs and resumes the `AudioContext` *inside* the
+gesture (no `stopPropagation` on the way), and Enter/Space take the same
+`keydown` route. Every later call is a resume retry. One change on the audio
+side: `start()` used to await the first `resume()` before building the graph —
+Chromium leaves that promise pending until a gesture, so a premature first call
+would have postponed the whole build. It now builds synchronously and returns
+the resume.
+
+Files: `src/audio/{index,AudioEngine,wiring}.ts`, `ambience/{AirConditioner,
+CeilingFan,Radio,RoomTone,CoffeeWarmer}.ts`, `sfx/{Coffee,Door}.ts`,
+`harness/page.ts`, `tools/audio-harness.mjs`, `src/audio/INTEGRATION.md`.
+
 ## System 7 — interactions + System 6 audio wiring
 
 All of it lives in `src/interactions/` and `src/audio/wiring.ts`; `main.ts` has
@@ -919,7 +1021,7 @@ lazily, once).
 | 3 | Windows, blinds, exterior view | **built, rev 3 (proof crops in `shots/crops/`, debug exterior frames `shots/sys3-dbg-*.png`)**. Rev 3 (critic items A–F): **A** vehicles rebuilt as lofted bodies through 24-point cross-sections (`Station`/`loftBody` in `Exterior.ts`: 20 mm sill radius, side bulge to the belt, tumblehome to a 70–90 mm roof radius, plan taper at the ends, analytic normals with one-sided tangents at the hood/roof creases) with the wheel arches cut into the lower edge so four lathed tyres (rounded shoulders, sidewall bulge, 0.19 m bead) show under the fenders; ride height 0.31 m sill / 0.35 m tyre (sedan), 0.42 / 0.38 (pickup); chrome bumpers 0.45–0.58 m with rubber guards over a painted valance; sealed beams (2 × round 5¾" per side on the pickup, 2 × rectangular on the sedan) as glassy `MeshPhysicalMaterial` lenses in chrome bezels; amber signals; egg-crate grille texture (`grilleTexture`); plates front + rear (`plateTexture`); door mirrors on chrome arms, wipers on the glass, chrome pulls, rubber + chrome side moulding, drip rails, shut-line slivers, wheel-well liners and underbody mass; glass metalness 0 (rev 2's 0.55 tinted the sky reflection black — see Lessons), dust-film paint (`carDust` map + roughness). **B** route holes 12 × 6 mm ovals (annulus-triangulated patches in the slat mesh) — 5 px at booth distance, showing whatever is behind (`crop-route-hole`). **C** slats are real per-blind geometry (`appendSlat`): tilt 25 ± 5° per blind, drop 0 or 3–8 cm with the spare slats stacked on the bottom rail, 1–3 mm parabolic sag between ladders + free-end droop, 1–3 creased slats per run, ±2.5° per-slat jitter, ±4 % tone via vertex colours; ladders front + rear with rungs; 25 × 38 mm pale headrail; moulded plastic tassel in slat colour (the `lot-wide` "dark 15 cm band" is the window's transom bar behind the slats, not the headrail — see Lessons). **D** Ø 0.6 m poured piers 0.75 m high with chamfer, grout collar, steel base plate, four anchor bolts + nuts and a pole flange; 150 mm kerb + 0.7 m gravel strip along the CMU base; 90 mm precast cap with 25 mm overhang; two-lane frontage road 16 m behind the wall (shoulders, edge lines, faded centre line) with creosoted utility poles / crossarms / insulators every 38 m and 1 px catenary wires; 110 instanced 1–2 m creosote bushes (stem fan + olive foliage clumps). **E** verified, no leak: with the spot off (`sunLot` only) the room has no sun patches at all; the "unstriped" wall patches in `length`/`counter` are the last window's blinded throw on the end wall — striped at 2–3 px pitch (oblique compression + penumbra), invisible at frame scale; the seat patch in `stripes` is shadowed vinyl mirroring the bright window. **F** door smudge redrawn as a palm-heel smear arc + scattered fingertip dabs + diagonal drag streaks (nothing periodic), alpha × (0.3 + 0.7·(1 − N·V)²) so it brightens at grazing angles (`crop-smudge`). Draw calls unchanged (114–271 by pose, worst `length`); triangles 1.30 M. Rev 2: two-light sun split (spot for the building, directional + caster-only cone for the lot — see Lessons) so poles, cars, stops and the CMU wall cast onto the lot; exterior fill ×0.45; A1/A2 measured and documented as critic mis-reads (`crop-wall-under-sill`, `crop-stripes-rectified`); blinds: 1.3 mm ladders front + rear with a rung under every slat, 10 × 6 mm route slots with the lift cord through them, ±2.5° tilt jitter + 3–4 kinked slats, ±4 % tone, enamel crown highlight (smooth 0.3 roughness base + sparse dust streaks to 0.6, metalness 0.1, env 0.7), 1" × ½" bottom rail with end caps, headrail + valance lip, 12 mm tan tilt wand (0.5 m, right jamb), two pull cords + equaliser + turned-wood acorn tassel (left jamb, ending 15 mm over the stool); cars re-bodied (lofted profile with sloped hood/trunk, raked pillars, flared arches, rocker, door shut lines, B/C pillars, drip rails, chrome bumpers/belt line/mirrors, sky-reflecting glass, recessed lamps); 1.8 × 0.15 m trapezoid concrete wheel stops; 3 more branching cracks with 3–4 cm black filler, oil blotch at a stall head, tyre scuffs; CMU tones randomised per block on an 8 × 4 tile; satin stainless push-bar mounts; sky brightened toward the sun azimuth with a haze band at the ridge foot and a fainter second range; scrub in three size classes / three tones with down-sun contact-shadow decals; ceiling/fan/overlays/car trim no longer cast (draw calls 179–338, worst `length`, with the per-frame shadow passes; lower since the shadow maps are rendered once at boot — see Startup). Rev 1 was: venetian blinds on all five windows (none on the door: the reference diners keep the door pane clear for the OPEN sign and the view of who is coming), instanced curved 1" slats at 22 mm pitch / 45°, ±0.5° tilt, ±0.3 mm sag, a kinked slat per window, ±4 % tone, dust streaks on the up-faces, rails, two ladders + lift cords + wand each; slats cast the hard stripe shadows through the existing sun (tight 3.3 mm shadow texels). Window/door glass `MeshPhysicalMaterial` T = 1 with the 12 % loss in the colour, IOR 1.52, 6 mm, green-grey attenuation, room-probe reflection, dust haze heavier at the lower edge/corners, wipe streaks, five handprints at push-bar height (roughness patch + haze decal). Exterior: 150 mm kerb + 1.5 m sidewalk, 12 stalls of re-striped asphalt (drift, tyre polish, sealcoat patches, alligator + long cracks with dusty/sealed fills, oil drips, old + new lines) over a plain surround, kerb stops, 1.2 m CMU wall at the far edge, two 7 m light standards on concrete bases, dusty white pickup (5.3 m, 2.9 m wheelbase, 0.71 m tyres) and maroon sedan (4.9 m, faded clearcoat) with dark glass, chrome bumpers/trim, recessed headlamps with chrome bezels, contact-shadow decals, `lotEnv` probe; desert dirt with 900 instanced scrub patches, fBm mesa/ridge ring fading into the sky, shader sky dome (near-white horizon → pale desaturated blue, sun glare on az 38° / el 35°), linear fog 45–260 m for atmospheric perspective. Draw calls 181–335 (worst: `length`). |
 | 4 | Lighting | pending (placeholder sun/hemi/troffers in `Lighting.ts`) |
 | 5 | Materials and textures | **built, rev 1 (textures)**, merged into `main` over System 3 rev 3 + System 8 — the light-independent half: floor wear/grout relief, wall stipple/seams/scuffs/fade, fissured tiles + stains/sag/tee chips, laminate wear + cup rings, pebble-grain vinyl + cracked welts on one booth, brushed/fingerprinted/scuffed metals, cap arris wear, door dressing (OPEN/hours/PUSH/cards/kick plate/film edge), carafe stain + scratches. See "System 5". Roughness/metalness/colour/envMapIntensity base values untouched (System 4 owns them). |
-| 6 | Sound design | pending |
+| 6 | Sound design | **built, rev 3** (section above) — 100 % synthesised: AM-radio speech rhythm, AC drone + rattle, fan whoosh, warmer ticks/gurgle, room tone; pour / clink / door one-shots and the exterior heat wall. Rev 3 measured the live mix at six listener poses (BS.1770 LUFS per bus) and re-levelled it: aisle bed −36.2 LUFS, room −44.5, AC / fan / radio −35 / −39 / −33 at 1 m, warmer near-field; pour lands with the stream, clinks −12 dBFS, heat wall −26 LUFS with an equal-power swell, room ducks 3 dB while the door is open, latch on close |
 | 7 | The 3 interactions (sit, pour coffee, open door) | **built, rev 1** (merged into `main` over the loader + System 3 rev 2: shadow-once invalidation on door/pour, audio on the loader's enter click, pour programs pre-issued) — `src/interactions/*` + `src/audio/wiring.ts` (System 6 wired: gesture start, positional beds, pour/clink/door SFX, exterior crossfade). Frames `shots/sys7-{sit-seated,pour-mid,pour-full,door-open}.png`; 23/23 live Playwright checks; update ≈ 0.01 ms; +6 draw calls only while pouring |
 | 8 | Post-processing and final polish | **built, rev 1** (`src/post/`, section above), merged with the loader + System 3 rev 2 (spot sun, shadow-once — see "Integration" above) — MSAA 4× scene target, sun-beam dust (5 k shadow-map-lit motes), half-res volumetric haze through the beam prisms, exterior-only heat shimmer, ambient decanter steam (`SteamEmitter`; System 7's pour has its own `interactions/Steam.ts` — duplication noted above), high-threshold bloom, CA 0.5 px, 0.3 EV vignette, corner softness, ACES/AgX/Neutral tone map, luminance-dependent procedural grain; ~1.3 ms post + ~1.3 ms MSAA at 1080p on the 4060; `?post=0` bypasses everything |
 

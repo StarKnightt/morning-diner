@@ -58,7 +58,13 @@ export interface DinerSfx {
   pourCoffee(durationSeconds?: number, at?: Vec3): void;
   mugClink(at?: Vec3): void;
   doorOpen(): void;
-  /** 0 = shut, 1 = wide open. Crossfades the exterior heat wall in over `rampSeconds` (default 0.1) and holds. */
+  /** The leaf meeting the frame (latch). setOutside(0) after an opening fires it by itself. */
+  doorClose(): void;
+  /**
+   * 0 = shut, 1 = wide open. Equal-power crossfade: the exterior heat wall in, the interior bed
+   * down 3 dB. Per-frame calls (no `rampSeconds`) follow the leaf through a 0.25 s swell /
+   * 0.07 s cut; with `rampSeconds` it is a linear ramp. Holds.
+   */
   setOutside(amount: number, rampSeconds?: number): void;
 }
 
@@ -105,7 +111,6 @@ class DinerAudioImpl implements DinerAudio {
   private readonly opts: DinerAudioOptions;
   private volume = 1;
   private pendingOutside = 0;
-  private starting: Promise<void> | null = null;
   private readonly tmpPos = new Vector3();
   private readonly tmpFwd = new Vector3();
   private readonly tmpUp = new Vector3();
@@ -118,6 +123,7 @@ class DinerAudioImpl implements DinerAudio {
       pourCoffee: (d = 3.5, at) => this.coffee?.pourCoffee(d, at),
       mugClink: (at) => this.coffee?.mugClink(at),
       doorOpen: () => this.door?.doorOpen(),
+      doorClose: () => this.door?.doorClose(),
       setOutside: (a, ramp) => {
         this.pendingOutside = a;
         this.door?.setOutside(a, ramp);
@@ -129,20 +135,22 @@ class DinerAudioImpl implements DinerAudio {
     return this.engine !== null;
   }
 
+  /**
+   * Idempotent. The graph is built synchronously on the first call (whether or
+   * not that call came from a gesture — a context created early simply sits
+   * suspended with its schedulers primed at t = 0); every call, first or later,
+   * then asks the context to resume, which the browser honours as soon as the
+   * page has had a real gesture. Rev 3: the build used to wait on the first
+   * resume() — in Chromium that promise pends until a gesture arrives, so a
+   * premature first call postponed the whole build.
+   */
   start(): Promise<void> {
-    if (this.starting) {
-      // Built already; if the first call wasn't a real gesture the context is
-      // still suspended, so every later call retries the resume.
-      return this.starting.then(() => this.engine?.resume());
-    }
-    this.starting = (async () => {
+    if (!this.engine) {
       const engine = new AudioEngine({
         context: this.opts.context,
         seed: this.opts.seed,
         masterDb: this.opts.masterDb ?? DEFAULT_MASTER_DB,
       });
-      // Non-fatal: the graph is built regardless and the next start() retries.
-      await engine.resume().catch(() => undefined);
       const p = this.pos;
       this.layers = [
         new AirConditioner(engine, p.ac),
@@ -158,8 +166,9 @@ class DinerAudioImpl implements DinerAudio {
       // Prime the schedulers so the first second isn't empty.
       engine.tick();
       this.engine = engine;
-    })();
-    return this.starting;
+    }
+    // Non-fatal: a rejected/pending resume just means the next call (the next gesture) retries.
+    return this.engine.resume().catch(() => undefined);
   }
 
   update(camera: Camera): void {

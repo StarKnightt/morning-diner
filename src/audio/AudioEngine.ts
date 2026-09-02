@@ -1,9 +1,14 @@
 /**
  * AudioEngine — the diner's audio backbone.
  *
- *   sources → PannerNode (HRTF, inverse distance) → layer bus → sum bus
- *             layer bus → reverb send → ConvolverNode (procedural IR) → sum bus
+ *   sources → PannerNode (HRTF, inverse distance) → layer bus → interior bus → sum bus
+ *             layer bus → reverb send → ConvolverNode (procedural IR) → interior bus
+ *             door / outside buses → sum bus (not ducked)
  *   sum bus → gentle compressor/limiter → master gain → destination
+ *
+ * The interior bus is the one gain the door ducks (−3 dB while the leaf is
+ * open, DoorSfx.setOutside) so the heat wall reads as replacing the room, not
+ * stacking on it.
  *
  * Works on a real-time AudioContext (created lazily on the first user gesture)
  * or on an OfflineAudioContext (the harness renders the same graph to a WAV).
@@ -76,6 +81,8 @@ export class AudioEngine implements Tickable {
   readonly rng: Rng;
   /** Pre-compressor sum of every layer. */
   readonly input: GainNode;
+  /** Everything that belongs to the room (ambient layers, their reverb, near one-shots); ducked by the door. */
+  readonly interior: GainNode;
   readonly compressor: DynamicsCompressorNode;
   readonly master: GainNode;
   readonly reverb: ConvolverNode;
@@ -96,6 +103,9 @@ export class AudioEngine implements Tickable {
 
     const ctx = this.ctx;
     this.input = ctx.createGain();
+    this.interior = ctx.createGain();
+    this.interior.gain.value = 1;
+    this.interior.connect(this.input);
 
     // Gentle safety limiter. Ambience lives 30–40 dB under the threshold, so
     // this only ever touches the door and the coffee pour. (Chromium's
@@ -125,7 +135,7 @@ export class AudioEngine implements Tickable {
     this.compressor.connect(this.master);
     this.master.connect(ctx.destination);
     this.reverb.connect(this.reverbReturn);
-    this.reverbReturn.connect(this.input);
+    this.reverbReturn.connect(this.interior);
 
     this.setListener({ x: 0, y: 1.62, z: 0.9 }, { x: -1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 });
   }
@@ -176,11 +186,15 @@ export class AudioEngine implements Tickable {
     return src;
   }
 
-  /** Create a named layer bus feeding the sum, with an optional reverb send. */
-  createBus(name: string, reverbDb = -Infinity): GainNode & { layerName: string } {
+  /**
+   * Create a named layer bus feeding the sum, with an optional reverb send.
+   * Interior buses (the default) pass through the door's duck; the exterior bed
+   * and the door's own sounds set `interior: false`.
+   */
+  createBus(name: string, reverbDb = -Infinity, opts: { interior?: boolean } = {}): GainNode & { layerName: string } {
     const bus = this.ctx.createGain() as GainNode & { layerName: string };
     bus.layerName = name;
-    bus.connect(this.input);
+    bus.connect(opts.interior === false ? this.input : this.interior);
     if (Number.isFinite(reverbDb)) {
       const send = this.ctx.createGain();
       send.gain.value = dbToGain(reverbDb);

@@ -10,8 +10,12 @@
  * `startAudio` is idempotent. As a fallback the first click / keydown /
  * pointerdown anywhere on the window also starts it, so audio comes up on the
  * first WASD press or the pointer-lock click even without a loader.
+ *
+ * `wiredPositions()` is the single source of the scene's emitter overrides:
+ * the offline harness (src/audio/harness/page.ts) builds its graph from the
+ * same object, so tools/audio-harness.mjs measures the mix the player hears.
  */
-import { createDinerAudio, startAudioOnGesture, type DinerAudio } from "./index";
+import { createDinerAudio, startAudioOnGesture, type DinerAudio, type DinerAudioPositions } from "./index";
 import { BACK_BAR, PROPS } from "../scene/layout";
 
 export interface DinerAudioWiring {
@@ -22,13 +26,30 @@ export interface DinerAudioWiring {
   dispose(): void;
 }
 
-export function wireDinerAudio(): DinerAudioWiring {
-  const yBar = BACK_BAR.height;
-  const audio = createDinerAudio({
-    // The warmer is the brewer's lower plate under the decanter, not the layout's nominal coffeeX.
+/** Height of the back bar (where the brewer, decanter and pour mug stand). */
+const yBar = BACK_BAR.height;
+
+/**
+ * Scene-specific emitter positions layered over `defaultPositions()`.
+ * The warmer is the brewer's lower plate under the decanter (Props.ts: `zBack + 0.21`,
+ * plate top at `yBar + 0.058`), not the layout's nominal `coffeeX`; the mug is the
+ * named `pourMug`, whose rim (System 7's `mugTop`) is 89 mm over the bar.
+ */
+export function wiredPositions(): DinerAudioPositions {
+  return {
     coffeeWarmer: { x: PROPS.brewer.x, y: yBar + 0.09, z: PROPS.brewer.zBack + 0.21 },
     mug: { x: PROPS.pourMug.x, y: yBar + 0.08, z: PROPS.pourMug.z },
-  });
+  };
+}
+
+/** Where System 7 fires the one-shots: decanter rest (Pour.ts `potRest`) and the mug rim (`mugTop`). */
+export const POUR_POINTS = {
+  potRest: { x: PROPS.brewer.x, y: yBar + 0.058, z: PROPS.brewer.zBack + 0.21 },
+  mugTop: { x: PROPS.pourMug.x, y: yBar + 0.089, z: PROPS.pourMug.z },
+} as const;
+
+export function wireDinerAudio(): DinerAudioWiring {
+  const audio = createDinerAudio(wiredPositions());
   const off = startAudioOnGesture(audio, window);
   const startAudio = (): Promise<void> => audio.start();
   return {

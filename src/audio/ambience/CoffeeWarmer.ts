@@ -43,7 +43,10 @@ export class CoffeeWarmer extends AmbientLayer {
     const ctx = engine.ctx;
     const t0 = engine.now;
     this.out = ctx.createGain();
-    this.out.gain.value = dbToGain((opts.levelDb ?? -32) + CAL_DB);
+    // Rev 3 live-mix calibration: louder at the plate (−27, was −32) and — see attach() below —
+    // a much steeper rolloff, so it is a near-field detail: ticks poke through the bed at the
+    // brewer (1.2 m), 20 dB under it by the aisle (3.7 m).
+    this.out.gain.value = dbToGain((opts.levelDb ?? -27) + CAL_DB);
 
     // ---- constant plate hiss, 2.8–4.5 kHz ------------------------------------------------
     const plate = engine.noiseSource("white", 0.95, t0);
@@ -140,7 +143,8 @@ export class CoffeeWarmer extends AmbientLayer {
     this.every(3, 8, (t) => this.scheduleCrackle(t), 0.5);
     this.every(6, 12, (t) => this.scheduleTick(t), 2.0);
 
-    engine.attach(this.out, position, this.bus);
+    // Near-field: −8 dB at 1.5 m, −15 dB at 3 m (the shared 1 m / 0.55 model gives −2 / −6).
+    engine.attach(this.out, position, this.bus, { refDistance: 0.7, rolloffFactor: 1.4 });
   }
 
   private scheduleTick(t: number): void {
