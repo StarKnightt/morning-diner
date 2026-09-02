@@ -737,7 +737,8 @@ function verdict(result, { sfx }) {
   const mix = result.stats.find((s) => s.name === "mix");
   const issues = [];
   if (!sfx && !SOLO.length) {
-    if (mix.rmsDb < -38 || mix.rmsDb > -30) issues.push(`mix RMS ${mix.rmsDb.toFixed(1)} dBFS outside -38..-30`);
+    // Rev 3 bed: −36 LUFS ≈ −38 dBFS RMS mid-aisle, −41 by the door, −36 at the radio.
+    if (mix.rmsDb < -43 || mix.rmsDb > -33) issues.push(`mix RMS ${mix.rmsDb.toFixed(1)} dBFS outside -43..-33`);
   }
   if (mix.peakDb > -6) issues.push(`mix peak ${mix.peakDb.toFixed(1)} dBFS above -6`);
   if (mix.clipped > 0) issues.push(`${mix.clipped} clipped samples`);
