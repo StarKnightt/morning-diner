@@ -33,7 +33,7 @@ src/
     Ceiling.ts            tegular tiles (instanced), main/cross tee grid with end clips,
                           wall angle (also along the bulkhead), 6 troffers with a lipped door
                           frame in a shadow gap + recessed lens, ceiling fan
-    Door.ts               front door leaf on its own hinged Group (static until System 7);
+    Door.ts               front door leaf on its own hinged Group (swung by System 7 — `src/interactions/DoorSwing.ts`);
                           `glassDoor` pane + 1 mm-proud handprint haze decal at push-bar height
     Blinds.ts             System 3: 1" venetian blinds on the five windows — instanced curved
                           slats (25 × 0.2 mm, 22 mm pitch, 45° half-open, ±0.5° tilt / ±0.3 mm
@@ -316,6 +316,78 @@ at a booth seat and table under the slat shadows.
   final balance, but the asphalt still needs its aggregate speckle (±0.2 albedo
   contrast) to read as asphalt and not as concrete at that exposure.
 
+## System 7 — interactions + System 6 audio wiring
+
+All of it lives in `src/interactions/` and `src/audio/wiring.ts`; `main.ts` has
+two hooks (`initInteractions({ renderer, scene, camera, player, diner })` after
+the player is built, `interactions.update(dt)` after `diner.update(dt)`).
+Nothing in `src/scene/*` was changed: the pot, mug, door leaf and colliders are
+taken from the `Diner` instance (`diner.coffeePot`, `diner.pourMug`,
+`diner.door`, `diner.colliders`); the HemisphereLight is found by traversal.
+
+```
+src/interactions/
+  index.ts       initInteractions(ctx) → { update, startAudio, audio, sit, pour, door, onDoorOpen, target, interact, dispose }
+                 target pick: reach + look-cone test against each interactable's focus point
+                 (no raycast: 3 candidates, 12 benches — an angle test is cheaper and never misses
+                 through a mug handle); keys E / F, or left-click while the pointer is locked
+  Prompt.ts      centre-bottom hint "E — Sit" / "E — Stand" / "E — Pour coffee" / "E — Open door";
+                 system font, 180 ms fade, `?shoot` makes it instant for deterministic frames
+  Sit.ts         10 benches (5 window booths × 2 sides); 0.9 s eased glide to the seated pose
+                 (eye 1.15 m, centred on the bench, turned 35° to the window, −9° pitch) then a
+                 12 mm head settle over 0.25 s; movement locked, look clamped ±70° / ±40° around
+                 the seated heading; E again glides back to the aisle spot. Any window booth works.
+  Pour.ts        decanter lift 12 cm → over the mug → tilt 45° → 2.5 s hold → return, 6.3 s total;
+                 stream = wobbling tapered cylinder (onBeforeCompile), mug liquid = lathe disc with
+                 meniscus lip + rippled surface (shader, coffee material), decanter coffee clipped
+                 by a plane that drops 9 mm; steam = Steam.ts; clink at pick-up/put-down, pour SFX
+                 for the stream duration. Once full, E gives a 4 mm / 0.22 s bob and no refill.
+  Steam.ts       1 InstancedMesh, 22 billboard quads, procedural noise alpha in the shader, rise +
+                 drift, 30 s then fades. Modest by design (System 8 may extend).
+  DoorSwing.ts   leaf 0 → 85° over 1.1 s with overshoot + settle, 4 s hold, closer-style slow →
+                 latch (7.15 s cycle); one AABB collider that follows the leaf every frame
+                 (disabled for the frame if the player's centre is inside it, so they are never
+                 trapped); `onDoorOpen(progress)` listeners (default one brightens the hemi fill
+                 +12 % at full open); audio `setOutside(progress)` crossfades the heat wall.
+  debug.ts       window.__interact / __interactPose / __interactions (below)
+  util.ts        easings + the Interactable interface
+src/audio/wiring.ts   createDinerAudio() with the warmer at the brewer's lower plate and the mug at
+                 `pourMug`; radio / AC / fan / door from System 6's defaultPositions();
+                 startAudio() (idempotent) + first click/keydown/pointerdown fallback;
+                 listener follows the camera in update()
+```
+
+Controls: E (F, or click under pointer lock) on the highlighted target. Reach:
+benches 1.4 m, mug 1.25 m, door 1.4 m; look cone 22–30° half-angle.
+
+Debug / capture API (`src/interactions/debug.ts`, on `window`):
+
+| Call | Meaning |
+|---|---|
+| `__interact("sit" \| "pour" \| "door")` | run the interaction live (sit picks the nearest bench; `{booth, side}` as 3rd arg) |
+| `__interact(name, t)` | seek to `t` seconds into that interaction and freeze the clocks (silent) |
+| `__interact("stand" \| "resume" \| "reset")` | stand up / unfreeze / everything back to rest |
+| `__interactPose("sit-seated" \| "pour-mid" \| "pour-full" \| "door-open")` | state + camera for `tools/shoot.mjs` |
+| `__interactions` | the live object: `.sit.state`, `.pour.state`, `.door.progress`, `.target`, `.audio.state()`, `.startAudio()` |
+
+Poses (`tools/shoot.mjs --tag=sys7 --poses=sit-seated,pour-mid,pour-full,door-open`,
+`--port=` to run beside another worktree's harness): `sit-seated` = booth 2,
++x bench, seated eye line filling the window with the stripe shadows on the
+table; `pour-mid` = 1.2 s into the stream (mug half full, stream, first steam)
+from the back bar looking down the counter; `pour-full` = 6 s (decanter back
+9 mm lower, mug full, steam); `door-open` = 2 s, leaf settled at 85°, seen
+from the +x side of the vestibule through the opening with the sedan behind it.
+
+Live verification (Playwright against `vite` dev, not committed): the whole
+flow — prompt appears at the bench, E sits, look clamps, movement locks, F
+stands; prompt at the mug, E pours, mid-pour stream/liquid/steam, full mug,
+decanter clip plane −9 mm, bob without refill; closed leaf blocks the player,
+E opens, hemi fill up, `setOutside(1)`, player walks out through the opening,
+door latches after the cycle — 23/23 checks. `interactions.update` costs
+≈ 0.01 ms idle and while pouring + swinging (budget 0.5 ms); no per-frame
+allocations (scratch vectors are members). Draw calls: +6 at the pour camera
+while pouring (stream, liquid, live decanter clone, steam), 0 otherwise.
+
 ## System status
 
 | # | System | Status |
@@ -326,7 +398,7 @@ at a booth seat and table under the slat shadows.
 | 4 | Lighting | pending (placeholder sun/hemi/troffers in `Lighting.ts`) |
 | 5 | Materials and textures | pending (placeholder palette in `materials.ts`) |
 | 6 | Sound design | pending |
-| 7 | The 3 interactions (sit, pour coffee, open door) | pending — door is already a hinged Group; door leaf has no collider yet |
+| 7 | The 3 interactions (sit, pour coffee, open door) | **built, rev 1** — `src/interactions/*` + `src/audio/wiring.ts` (System 6 wired: gesture start, positional beds, pour/clink/door SFX, exterior crossfade). Frames `shots/sys7-{sit-seated,pour-mid,pour-full,door-open}.png`; 23/23 live Playwright checks; update ≈ 0.01 ms; +6 draw calls only while pouring |
 | 8 | Post-processing and final polish | pending |
 
 Known simplifications after System 3: no heat shimmer (System 8 post), no
