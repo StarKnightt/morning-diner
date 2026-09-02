@@ -573,42 +573,61 @@ export function desertDirt(size: number, seed: number): THREE.Texture {
 }
 
 /**
- * Precast concrete (wheel stops): grey cement paste with exposed aggregate — 2–6 mm dark and
- * pale stones at ~900 per 0.25 m², a few 1–2 cm pits, and a faint yellow-brown rebar-rust
- * bleed. Tile = 1 m; the bars are UV-mapped in metres.
+ * Precast concrete (wheel stops, rev 6): a smooth steel-mould face — cement paste with a
+ * faint float grain, dust films and grey-brown water stains running down from the pin holes,
+ * a yellow rebar-rust bleed, and exposed aggregate ONLY where the surface is broken: a few
+ * chipped patches where the paste has spalled to the stones (rev 5's all-over speckle read as
+ * terrazzo — real precast shows aggregate at breaks, not on the mould face). Tile = 1 m.
  */
 export function precast(size: number, seed: number): THREE.Texture {
   const { c, ctx } = canvas(size, size);
   const rng = makeRng(seed);
   const fbm = makeFbm(seed + 3, 5, 3);
-  const grain = makeFbm(seed + 4, 200, 2);
+  const grain = makeFbm(seed + 4, 160, 2);
+  const stain = makeFbm(seed + 5, 3, 3);
   const img = ctx.createImageData(size, size);
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
       const u = x / size, v = y / size;
-      const n = (fbm(u, v) - 0.5) * 0.14 + (grain(u, v) - 0.5) * 0.1;
+      const n = (fbm(u, v) - 0.5) * 0.1 + (grain(u, v) - 0.5) * 0.05;
+      // Dust/stain film: darker, warmer blotches stretched along v (water runs)
+      const st = Math.max(0, stain(u * 3, v) - 0.55) * 0.9;
       const o = (y * size + x) * 4;
-      img.data[o] = 172 * (1 + n); img.data[o + 1] = 168 * (1 + n); img.data[o + 2] = 160 * (1 + n * 1.05); img.data[o + 3] = 255;
+      img.data[o] = 176 * (1 + n) * (1 - st * 0.35); img.data[o + 1] = 171 * (1 + n) * (1 - st * 0.4); img.data[o + 2] = 162 * (1 + n * 1.05) * (1 - st * 0.5); img.data[o + 3] = 255;
     }
   ctx.putImageData(img, 0, 0);
-  // Aggregate: dark basalt / pale quartz stones, slightly oval
   const px = size / 1000; // px per mm at 1 m tile
-  for (let i = 0; i < 3600; i++) {
-    const r = (1 + rng() * 2) * px, dark = rng() < 0.6;
-    const t = dark ? 60 + rng() * 40 : 190 + rng() * 40;
-    ctx.fillStyle = `rgba(${t | 0},${(t * 0.97) | 0},${(t * 0.92) | 0},${0.55 + rng() * 0.35})`;
-    ctx.beginPath(); ctx.ellipse(rng() * size, rng() * size, r * (0.8 + rng() * 0.6), r, rng() * Math.PI, 0, Math.PI * 2); ctx.fill();
+  // Runs down from the pin holes / cracks: 3 narrow grey-brown streaks
+  for (let i = 0; i < 3; i++) {
+    const x = rng() * size, y0 = rng() * size * 0.4, len = (150 + rng() * 300) * px, w = (6 + rng() * 10) * px;
+    const gr = ctx.createLinearGradient(0, y0, 0, y0 + len);
+    gr.addColorStop(0, "rgba(90,80,66,0.35)"); gr.addColorStop(1, "rgba(90,80,66,0)");
+    ctx.fillStyle = gr; ctx.fillRect(x - w / 2, y0, w, len);
   }
-  // Pits and a rust bleed
-  for (let i = 0; i < 24; i++) {
-    const r = (4 + rng() * 8) * px;
-    ctx.fillStyle = `rgba(70,66,60,${0.35 + rng() * 0.3})`;
+  // Chipped patches: irregular blobs of exposed aggregate (dark paste shadow + stones)
+  for (let i = 0; i < 6; i++) {
+    const cx = rng() * size, cy = rng() * size, r = (12 + rng() * 26) * px;
+    ctx.fillStyle = "rgba(120,114,104,0.9)";
+    ctx.beginPath();
+    for (let k = 0; k <= 14; k++) { const a = (k / 14) * Math.PI * 2, rr = r * (0.7 + rng() * 0.5); ctx.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.8); }
+    ctx.closePath(); ctx.fill();
+    for (let k = 0; k < 40; k++) {
+      const a = rng() * Math.PI * 2, d = Math.sqrt(rng()) * r * 0.85, sr = (1 + rng() * 2.5) * px, dark = rng() < 0.6;
+      const t = dark ? 55 + rng() * 40 : 185 + rng() * 40;
+      ctx.fillStyle = "rgba(" + (t | 0) + "," + ((t * 0.97) | 0) + "," + ((t * 0.92) | 0) + "," + (0.6 + rng() * 0.3).toFixed(2) + ")";
+      ctx.beginPath(); ctx.ellipse(cx + Math.cos(a) * d, cy + Math.sin(a) * d * 0.8, sr * (0.8 + rng() * 0.6), sr, rng() * Math.PI, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  // A few small pits (bug holes) in the mould face and one rust bleed
+  for (let i = 0; i < 14; i++) {
+    const r = (2 + rng() * 4) * px;
+    ctx.fillStyle = "rgba(90,86,80," + (0.3 + rng() * 0.3).toFixed(2) + ")";
     ctx.beginPath(); ctx.arc(rng() * size, rng() * size, r, 0, Math.PI * 2); ctx.fill();
   }
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 2; i++) {
     const x = rng() * size, y = rng() * size, r = (40 + rng() * 60) * px;
     const gr = ctx.createRadialGradient(x, y, 0, x, y, r);
-    gr.addColorStop(0, "rgba(150,105,60,0.35)"); gr.addColorStop(1, "rgba(150,105,60,0)");
+    gr.addColorStop(0, "rgba(150,105,60,0.3)"); gr.addColorStop(1, "rgba(150,105,60,0)");
     ctx.fillStyle = gr; ctx.fillRect(x - r, y - r, r * 2, r * 2);
   }
   return finish(c, true, 8);

@@ -472,14 +472,14 @@ function loftBody(stations: Station[], L: number, glassOf: GlassOf = () => null)
 }
 
 /** Rounded box (all edges radius r) via ExtrudeGeometry of a rounded rectangle. */
-function roundedBox(w: number, h: number, d: number, r: number): THREE.BufferGeometry {
+function roundedBox(w: number, h: number, d: number, r: number, segs = 2): THREE.BufferGeometry {
   const s = new THREE.Shape();
   const x0 = -w / 2 + r, x1 = w / 2 - r, y0 = -h / 2 + r, y1 = h / 2 - r;
   s.moveTo(x0, -h / 2); s.lineTo(x1, -h / 2); s.absarc(x1, y0, r, -Math.PI / 2, 0, false);
   s.lineTo(w / 2, y1); s.absarc(x1, y1, r, 0, Math.PI / 2, false);
   s.lineTo(x0, h / 2); s.absarc(x0, y1, r, Math.PI / 2, Math.PI, false);
   s.lineTo(-w / 2, y0); s.absarc(x0, y0, r, Math.PI, Math.PI * 1.5, false);
-  const g = new THREE.ExtrudeGeometry(s, { depth: Math.max(0.001, d - 2 * r), bevelEnabled: true, bevelThickness: r, bevelSize: r * 0.999, bevelSegments: 2, curveSegments: 4 });
+  const g = new THREE.ExtrudeGeometry(s, { depth: Math.max(0.001, d - 2 * r), bevelEnabled: true, bevelThickness: r, bevelSize: r * 0.999, bevelSegments: segs, curveSegments: segs * 2 });
   g.translate(0, 0, -(d - 2 * r) / 2);
   g.computeVertexNormals();
   return g;
@@ -614,8 +614,8 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
     g.translate((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
     place(g, mat);
   };
-  const rbox = (mat: THREE.Material, min: [number, number, number], max: [number, number, number], r: number) => {
-    const g = roundedBox(max[0] - min[0], max[1] - min[1], max[2] - min[2], r);
+  const rbox = (mat: THREE.Material, min: [number, number, number], max: [number, number, number], r: number, segs = 2) => {
+    const g = roundedBox(max[0] - min[0], max[1] - min[1], max[2] - min[2], r, segs);
     g.translate((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
     place(g, mat);
   };
@@ -805,7 +805,9 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
       // sedan's deep-cowl standoffs there and the arms floated 3 cm off the glass at 12°.
       const steep = dy / dz > 1.2;
       const rake = THREE.MathUtils.degToRad(steep ? 5 : 12);
-      const drop = steep ? -0.005 : -0.06, hArm = steep ? 0.014 : 0.03, hBlade = steep ? 0.008 : 0.017, hRub = steep ? 0.003 : 0.01;
+      // Rev 6: the sedan's arms sit 35 mm below the glass base (was 60: the hood's trailing edge
+      // hid the pivots and most of the arm, leaving 1 px bars).
+      const drop = steep ? -0.005 : -0.035, hArm = steep ? 0.014 : 0.03, hBlade = steep ? 0.008 : 0.017, hRub = steep ? 0.003 : 0.01;
       for (const [xp, len] of [[0.34, 0.44], [-0.24, 0.42]] as Array<[number, number]>) {
         // Root below the glass base in the (extended) glass plane: down in the cowl channel,
         // so the hood's trailing edge hides the post and the lower part of the blade.
@@ -1062,7 +1064,7 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
           if (fn.dot(vn) < 0) { p.setXYZ(i + 1, C.x, C.y, C.z); p.setXYZ(i + 2, B.x, B.y, B.z); }
         }
         place(tub, mats.dark);
-        box(mats.dark, [Math.min(0, xIn), 0.15, wz - arch.w], [Math.max(0, xIn), R + arch.h - 0.01, wz + arch.w]);
+        box(mats.dark, [Math.min(0, xIn), 0.06, wz - arch.w], [Math.max(0, xIn), R + arch.h - 0.01, wz + arch.w]); // inner wall down to 6 cm (rev 5's 15 cm let the lot show through the well)
       }
     }
   // Underbody mass between the wheels (frame, tank, exhaust — one dark block)
@@ -1072,16 +1074,18 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
 
   /* ---- bumpers, valance lamps, plates ---- */
   const bw = hw * 2 + 0.06;
-  rbox(mats.chrome, [-bw / 2, 0.45, -0.13], [bw / 2, 0.58, 0.01], 0.03);
-  rbox(mats.chrome, [-bw / 2, 0.45, L - 0.01], [bw / 2, 0.58, L + 0.13], 0.03);
+  // Bumpers and their returns at 6 bevel segments: the 2-segment default showed as five flat
+  // facets around the wrap in the 1 m frames.
+  rbox(mats.chrome, [-bw / 2, 0.45, -0.13], [bw / 2, 0.58, 0.01], 0.03, 6);
+  rbox(mats.chrome, [-bw / 2, 0.45, L - 0.01], [bw / 2, 0.58, L + 0.13], 0.03, 6);
   for (const sx of [-1, 1]) { // rubber bumper guards, a mirrored pair flanking the plate
     rbox(mats.rubber, [sx * 0.3 - 0.035, 0.44, -0.16], [sx * 0.3 + 0.035, 0.59, -0.1], 0.012);
     rbox(mats.rubber, [sx * 0.3 - 0.035, 0.44, L + 0.1], [sx * 0.3 + 0.035, 0.59, L + 0.16], 0.012);
     // Bumper end returns: the bar wraps the corner onto the flank (the plan taper leaves the
     // body 4 cm inside the bar's end at the nose — rev 4 showed that as a dark recess).
     const xo = sx * (bw / 2), xi = sx * (hw - 0.05);
-    rbox(mats.chrome, [Math.min(xo, xi), 0.45, -0.1], [Math.max(xo, xi), 0.58, 0.34], 0.03);
-    rbox(mats.chrome, [Math.min(xo, xi), 0.45, L - 0.34], [Math.max(xo, xi), 0.58, L + 0.1], 0.03);
+    rbox(mats.chrome, [Math.min(xo, xi), 0.45, -0.1], [Math.max(xo, xi), 0.58, 0.34], 0.03, 6);
+    rbox(mats.chrome, [Math.min(xo, xi), 0.45, L - 0.34], [Math.max(xo, xi), 0.58, L + 0.1], 0.03, 6);
     // Sedan: amber turn signals in the valance under the bumper ends
     if (spec.lamps === "rect2") rbox(mats.amber, [sx * 0.72 - 0.11, 0.375, -0.03], [sx * 0.72 + 0.11, 0.435, 0.0], 0.008);
   }
@@ -1096,12 +1100,28 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
     for (const sx of [-1, 1]) {
       const xg = sx * tg.xIn;
       box(mats.gap, [xg - 0.004, tg.y0 - 0.02, L - 0.01], [xg + 0.004, tg.y1 + 0.005, zF]); // gap
-      // Vertical lamp unit: chrome bezel, red lens with a clear reverse segment low down
+      // Vertical lamp unit, flush in the bedside corner (rev 5's stood 20 mm proud and showed as
+      // blocks from the side): a 3 mm chrome bezel with a dark reveal inside it for depth, the
+      // lens 1 mm behind the bezel face, horizontal rib lines across the lens, a pale reverse
+      // segment low down.
       const xl = sx * (hw - 0.055);
-      box(mats.chrome, [xl - 0.055, tg.y0 + 0.02, L], [xl + 0.055, tg.y1 - 0.04, L + 0.014]);
-      box(mats.tail, [xl - 0.045, tg.y0 + 0.11, L + 0.012], [xl + 0.045, tg.y1 - 0.05, L + 0.02]);
-      box(mats.chrome, [xl - 0.045, tg.y0 + 0.03, L + 0.012], [xl + 0.045, tg.y0 + 0.1, L + 0.018]); // reverse lens (reads as pale)
-      box(mats.dark, [xl - 0.045, tg.y0 + 0.1, L + 0.012], [xl + 0.045, tg.y0 + 0.11, L + 0.02]); // divider
+      box(mats.chrome, [xl - 0.055, tg.y0 + 0.02, L], [xl + 0.055, tg.y1 - 0.04, L + 0.002]);
+      box(mats.dark, [xl - 0.047, tg.y0 + 0.028, L + 0.0015], [xl + 0.047, tg.y1 - 0.048, L + 0.0025]); // reveal
+      box(mats.tail, [xl - 0.043, tg.y0 + 0.11, L + 0.002], [xl + 0.043, tg.y1 - 0.052, L + 0.0035]);
+      box(mats.chrome, [xl - 0.043, tg.y0 + 0.032, L + 0.002], [xl + 0.043, tg.y0 + 0.1, L + 0.0035]); // reverse lens (reads as pale)
+      box(mats.dark, [xl - 0.043, tg.y0 + 0.1, L + 0.002], [xl + 0.043, tg.y0 + 0.11, L + 0.0036]); // divider
+      for (let y = tg.y0 + 0.125; y < tg.y1 - 0.06; y += 0.014) box(mats.dark, [xl - 0.043, y, L + 0.0034], [xl + 0.043, y + 0.0015, L + 0.0038]); // lens ribs
+    }
+    // Tailgate relief: the stamped centre panel, 3 mm proud with rolled edges, under the handle
+    rbox(spec.paint, [-tg.xIn + 0.09, tg.y0 + 0.05, L - 0.004], [tg.xIn - 0.09, tg.y1 - 0.25, zF + 0.003], 0.012, 3);
+    // Fuel filler door on the left bedside behind the cab, a 150 mm square shut line
+    {
+      const fz = 3.3, fy = 0.86, xo = -(hw - 0.001);
+      const sq = (min: [number, number, number], max: [number, number, number]) => box(mats.gap, min, max);
+      sq([xo - 0.004, fy - 0.075, fz - 0.075], [xo + 0.004, fy + 0.075, fz - 0.072]);
+      sq([xo - 0.004, fy - 0.075, fz + 0.072], [xo + 0.004, fy + 0.075, fz + 0.075]);
+      sq([xo - 0.004, fy - 0.075, fz - 0.075], [xo + 0.004, fy - 0.072, fz + 0.075]);
+      sq([xo - 0.004, fy + 0.072, fz - 0.075], [xo + 0.004, fy + 0.075, fz + 0.075]);
     }
     box(mats.gap, [-tg.xIn, tg.y0 - 0.004, L - 0.01], [tg.xIn, tg.y0 + 0.004, zF]); // hinge / latch line
     // Centre handle: recessed dark pocket with a chrome pull bar
@@ -1114,12 +1134,29 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
     const st = stations[stations.length - 1];
     const yP = Math.min(st.yTop - 0.12, 0.72);
     box(spec.plateMat, [-0.1525, yP - 0.076, L + 0.001], [0.1525, yP + 0.076, L + 0.012]);
-    // Tail lamps: wide red lenses with a chrome surround
+    // Tail lamps: wide red lenses in a 3 mm chrome bezel with a dark reveal (depth), the lens
+    // 1 mm inside the bezel face, horizontal rib lines, amber segment inboard.
     for (const sx of [-1, 1]) {
       const xc = sx * (hw - 0.3);
-      box(mats.chrome, [xc - 0.24, yP - 0.085, L], [xc + 0.24, yP + 0.085, L + 0.012]);
-      box(mats.tail, [xc - 0.225, yP - 0.07, L + 0.01], [xc + 0.225, yP + 0.07, L + 0.02]);
-      box(mats.amber, [xc - sx * 0.05 - 0.05, yP - 0.06, L + 0.012], [xc - sx * 0.05 + 0.05, yP + 0.06, L + 0.022]);
+      box(mats.chrome, [xc - 0.24, yP - 0.085, L], [xc + 0.24, yP + 0.085, L + 0.002]);
+      box(mats.dark, [xc - 0.232, yP - 0.077, L + 0.0015], [xc + 0.232, yP + 0.077, L + 0.0025]); // reveal
+      box(mats.tail, [xc - 0.226, yP - 0.071, L + 0.002], [xc + 0.226, yP + 0.071, L + 0.0035]);
+      box(mats.amber, [xc - sx * 0.05 - 0.05, yP - 0.062, L + 0.002], [xc - sx * 0.05 + 0.05, yP + 0.062, L + 0.0036]);
+      for (let y = yP - 0.06; y < yP + 0.065; y += 0.014) box(mats.dark, [xc - 0.226, y, L + 0.0035], [xc + 0.226, y + 0.0015, L + 0.0039]); // lens ribs
+    }
+    // Trunk lock cylinder above the plate, and the fuel filler door on the left rear quarter
+    {
+      const lock = new THREE.CylinderGeometry(0.014, 0.014, 0.006, 16);
+      lock.rotateX(Math.PI / 2);
+      lock.translate(0, yP + 0.13, L + 0.003);
+      place(lock, mats.chrome);
+      box(mats.dark, [-0.002, yP + 0.122, L + 0.005], [0.002, yP + 0.138, L + 0.007]);
+      const fz = 4.35, fy = beltY - 0.14, xo = -(hw - 0.04 * (1 - Math.min(1, (L - fz) / 0.6)) - 0.001);
+      const sq = (min: [number, number, number], max: [number, number, number]) => box(mats.gap, min, max);
+      sq([xo - 0.004, fy - 0.075, fz - 0.075], [xo + 0.004, fy + 0.075, fz - 0.072]);
+      sq([xo - 0.004, fy - 0.075, fz + 0.072], [xo + 0.004, fy + 0.075, fz + 0.075]);
+      sq([xo - 0.004, fy - 0.075, fz - 0.075], [xo + 0.004, fy - 0.072, fz + 0.075]);
+      sq([xo - 0.004, fy + 0.072, fz - 0.075], [xo + 0.004, fy + 0.075, fz + 0.075]);
     }
   }
 
@@ -1228,13 +1265,20 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
       const [dz0, dz1] = spec.dripRail ?? [g0.z0 - 0.08, g1.z1 + 0.1];
       box(mats.chrome, [Math.min(sx * (xo - 0.004), sx * (xo + 0.005)), y - 0.007, dz0], [Math.max(sx * (xo - 0.004), sx * (xo + 0.005)), y + 0.007, dz1]);
     }
-    // Door mirror: 150 × 100 × 70 mm painted head on a chrome arm at the A-pillar base, chrome face aft
+    // Door mirror (rev 6): a 150 × 100 × 45 mm shell on a chrome stalk — base plate on the door
+    // skin below the belt, a 10 mm tube rising 90 mm outward, the shell's chrome face aft
+    // (rev 5's 70 mm head on a 20 mm bar read as a brick glued to the pillar).
     {
-      const z = spec.sideGlass[0].z0 + 0.06, y = beltY + 0.19;
-      const xo = flankX(y, z);
-      box(mats.chrome, [Math.min(sx * xo, sx * (xo + 0.075)), y - 0.01, z - 0.01], [Math.max(sx * xo, sx * (xo + 0.075)), y + 0.01, z + 0.01]);
-      rbox(spec.paint, [Math.min(sx * (xo + 0.06), sx * (xo + 0.13)), y - 0.05, z - 0.075], [Math.max(sx * (xo + 0.06), sx * (xo + 0.13)), y + 0.05, z + 0.075], 0.012);
-      box(mats.chrome, [Math.min(sx * (xo + 0.066), sx * (xo + 0.124)), y - 0.042, z + 0.075], [Math.max(sx * (xo + 0.066), sx * (xo + 0.124)), y + 0.042, z + 0.08]);
+      const z = spec.sideGlass[0].z0 + 0.07, yB = beltY + 0.02, yH = beltY + 0.17;
+      const xb = flankX(yB, z);
+      rbox(mats.chrome, [Math.min(sx * xb, sx * (xb + 0.012)), yB - 0.03, z - 0.03], [Math.max(sx * xb, sx * (xb + 0.012)), yB + 0.03, z + 0.03], 0.004, 3); // base
+      const xh = xb + 0.075;
+      const stalk = new THREE.CylinderGeometry(0.005, 0.006, Math.hypot(xh - xb, yH - yB) + 0.01, 10);
+      stalk.rotateZ(sx > 0 ? -Math.atan2(xh - xb, yH - yB) : Math.atan2(xh - xb, yH - yB));
+      stalk.translate(sx * (xb + xh) / 2, (yB + yH) / 2, z);
+      place(stalk, mats.chrome);
+      rbox(spec.paint, [Math.min(sx * (xh - 0.02), sx * (xh + 0.025)), yH - 0.05, z - 0.075], [Math.max(sx * (xh - 0.02), sx * (xh + 0.025)), yH + 0.05, z + 0.075], 0.014, 3);
+      box(mats.chrome, [Math.min(sx * (xh - 0.014), sx * (xh + 0.019)), yH - 0.042, z + 0.075], [Math.max(sx * (xh - 0.014), sx * (xh + 0.019)), yH + 0.042, z + 0.079]);
     }
     // Rocker panel: dark strip along the sill (mud + shadow)
     {

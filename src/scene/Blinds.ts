@@ -208,9 +208,10 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
   const yStopFull = WINDOW.sill + fw + 0.03; // fully lowered: bottom rail clear of the sill frame
   const countFull = Math.floor((yFirst - yStopFull) / BLIND.pitch) + 1;
 
-  const rung = new THREE.CylinderGeometry(0.00035, 0.00035, BLIND.slatWidth - 0.002, 5);
+  // Rev 6: 0.5 mm rungs and 1.1 mm ladder cords (1.3 / 0.7 read as chunky "N" loops in blind-macro)
+  const rung = new THREE.CylinderGeometry(0.00025, 0.00025, BLIND.slatWidth - 0.002, 5);
   rung.rotateX(Math.PI / 2);
-  const cordR = 0.00065; // 1.3 mm braided ladder / lift cord
+  const cordR = 0.00055; // 1.1 mm braided ladder / lift cord
   const q = new THREE.Quaternion(), e = new THREE.Euler(), one = new THREE.Vector3(1, 1, 1);
   const meshes: THREE.Mesh[] = [];
 
