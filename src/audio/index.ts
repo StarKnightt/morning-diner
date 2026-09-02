@@ -11,16 +11,18 @@
  * to run an AudioContext otherwise) — the visual side calls it on pointer lock.
  */
 import { Quaternion, Vector3, type Camera } from "three";
-import { BACK_BAR, COUNTER, DOOR, FAN, REGISTER, ROOM, WINDOW } from "../scene/layout";
+import { BACK_BAR, COUNTER, DOOR, FAN, PASS_THROUGH, REGISTER, ROOM, WINDOW } from "../scene/layout";
 import { AudioEngine, type Vec3 } from "./AudioEngine";
 import { AirConditioner } from "./ambience/AirConditioner";
 import { CeilingFan } from "./ambience/CeilingFan";
 import { CoffeeWarmer } from "./ambience/CoffeeWarmer";
+import { Kitchen } from "./ambience/Kitchen";
 import { Radio } from "./ambience/Radio";
 import { RoomTone } from "./ambience/RoomTone";
 import type { AmbientLayer } from "./Layer";
 import { CoffeeSfx } from "./sfx/Coffee";
 import { DoorSfx } from "./sfx/Door";
+import { OpenablesSfx } from "./sfx/Openables";
 import { PlayerSfx } from "./sfx/Player";
 
 export type { Vec3 } from "./AudioEngine";
@@ -45,6 +47,9 @@ export interface DinerAudioPositions {
   openings?: Vec3[];
   /** Default mug position for pourCoffee / mugClink. */
   mug?: Vec3;
+  /** System 9: the kitchen behind the pass-through — sink (dishes, tap) and radio (murmur) emitters. */
+  kitchenSink?: Vec3;
+  kitchenRadio?: Vec3;
 }
 
 export interface DinerAudioOptions {
@@ -69,6 +74,15 @@ export interface DinerSfx {
   setOutside(amount: number, rampSeconds?: number): void;
   /** System 9: the player's landing after a hop; `strength` 0..1 from the impact speed. */
   footfall(strength?: number): void;
+  /** System 9: drinking from the mug (liquid draw + swallow, at the listener). */
+  sip(): void;
+  /** System 9 openables: cabinet magnetic catch (release / close) and its soft stop, at the door. */
+  cabinetCatch(at: Vec3, phase: "release" | "close"): void;
+  cabinetStop(at: Vec3): void;
+  /** System 9 kitchen swing door: palm push, each pass through the frame (`speed` 0..1), the settle. */
+  kitchenDoorPush(at: Vec3): void;
+  kitchenDoorPass(at: Vec3, speed?: number): void;
+  kitchenDoorSettle(at: Vec3): void;
 }
 
 export interface DinerAudio {
@@ -85,6 +99,7 @@ export interface DinerAudio {
   readonly door: DoorSfx | null;
   readonly coffee: CoffeeSfx | null;
   readonly playerSfx: PlayerSfx | null;
+  readonly openablesSfx: OpenablesSfx | null;
 }
 
 /** Emitter positions derived from the floor plan (metres). */
@@ -102,6 +117,9 @@ export function defaultPositions(): Required<DinerAudioPositions> {
     doorWidth: DOOR.width - 2 * DOOR.jamb,
     openings: [...WINDOW.centersX.map((x) => ({ x, y: windowY, z: ROOM.zFront })), door],
     mug: { x: 0.5, y: COUNTER.height + 0.05, z: COUNTER.topFrontZ - 0.2 },
+    // Just behind the pass-through opening (that is where the kitchen reaches the room).
+    kitchenSink: { x: PASS_THROUGH.centerX - 0.45, y: PASS_THROUGH.sill + 0.3, z: ROOM.zBack - 0.35 },
+    kitchenRadio: { x: PASS_THROUGH.centerX + 0.4, y: PASS_THROUGH.sill + 0.35, z: ROOM.zBack - 0.5 },
   };
 }
 
@@ -111,6 +129,7 @@ class DinerAudioImpl implements DinerAudio {
   door: DoorSfx | null = null;
   coffee: CoffeeSfx | null = null;
   playerSfx: PlayerSfx | null = null;
+  openablesSfx: OpenablesSfx | null = null;
   readonly sfx: DinerSfx;
   private readonly pos: Required<DinerAudioPositions>;
   private readonly opts: DinerAudioOptions;
@@ -134,6 +153,12 @@ class DinerAudioImpl implements DinerAudio {
         this.door?.setOutside(a, ramp);
       },
       footfall: (s) => this.playerSfx?.footfall(s),
+      sip: () => this.playerSfx?.sip(),
+      cabinetCatch: (at, phase) => this.openablesSfx?.cabinetCatch(at, phase),
+      cabinetStop: (at) => this.openablesSfx?.cabinetStop(at),
+      kitchenDoorPush: (at) => this.openablesSfx?.kitchenDoorPush(at),
+      kitchenDoorPass: (at, s) => this.openablesSfx?.kitchenDoorPass(at, s),
+      kitchenDoorSettle: (at) => this.openablesSfx?.kitchenDoorSettle(at),
     };
   }
 
@@ -164,11 +189,13 @@ class DinerAudioImpl implements DinerAudio {
         new Radio(engine, p.radio),
         new CoffeeWarmer(engine, p.coffeeWarmer),
         new RoomTone(engine, { openings: p.openings }),
+        new Kitchen(engine, p.kitchenSink, p.kitchenRadio),
       ];
       this.coffee = new CoffeeSfx(engine, p.mug);
       this.door = new DoorSfx(engine, p.door, p.doorWidth);
       this.door.setOutside(this.pendingOutside);
       this.playerSfx = new PlayerSfx(engine);
+      this.openablesSfx = new OpenablesSfx(engine);
       engine.setMasterVolume(this.volume);
       // Prime the schedulers so the first second isn't empty.
       engine.tick();

@@ -675,8 +675,8 @@ function makePoses(LAY) {
   };
 }
 
-const SOURCE_BUSES = ["ac", "fan", "radio", "coffee", "room"];
-const TAPS = ["sum", "interior", ...SOURCE_BUSES, "outside", "sfx-coffee", "sfx-door"];
+const SOURCE_BUSES = ["ac", "fan", "radio", "coffee", "room", "kitchen"];
+const TAPS = ["sum", "interior", ...SOURCE_BUSES, "outside", "sfx-coffee", "sfx-door", "sfx-player", "sfx-openables"];
 
 function decodeTap(b64) {
   const buf = Buffer.from(b64, "base64");
@@ -792,7 +792,7 @@ async function runPoses(page, LAY) {
   const names = POSES ?? Object.keys(poses);
   const report = {};
   const P = LAY.positions;
-  const srcPos = { ac: P.ac, fan: P.fan, radio: P.radio, coffee: P.coffeeWarmer };
+  const srcPos = { ac: P.ac, fan: P.fan, radio: P.radio, coffee: P.coffeeWarmer, kitchen: P.kitchenSink };
   console.log(`\nPOSES  (${POSE_SECONDS} s each, seed ${SEED}; LUFS = BS.1770-4 integrated; taps are post-panner pre-reverb)`);
   for (const name of names) {
     const pose = poses[name];
@@ -1020,8 +1020,29 @@ async function runScenario(page, LAY, which) {
     console.log(`  one-shots: open click peak ${fmt(openClick, 6)} dBFS (mix ${fmt(openMixPeak, 6)}); latch click peak ${fmt(latchClick, 6)} dBFS`);
     console.log(`  discontinuities: max step ${clicks.maxStep.toFixed(4)} FS @ ${clicks.maxStepAt.toFixed(3)} s; max step/localRMS ${clicks.maxRatio.toFixed(1)} @ ${clicks.maxRatioAt.toFixed(3)} s`);
     for (const c of clicksAround) console.log(`    ${c.name.padEnd(11)} @ ${c.t.toFixed(3)} s  step ${c.maxStep.toFixed(4)} FS  step/local ${c.maxRatio.toFixed(1)}`);
+  } else if (which === "sys9") {
+    // System 9 one-shots (footfall, sip, cabinet catch, kitchen door) heard from the counter
+    // pose, 1.2 m from the cabinet at (−2.6, −0.15) and 3.9 m from the kitchen door: per-event
+    // peak on its own tap and in the mix, plus a discontinuity scan round each.
+    const pose = { ...poses.counter, x: -2.0, z: -1.0, yawDeg: 160, label: "service aisle by the cabinet" };
+    const seconds = 10;
+    const r = await renderPose(page, pose, { scenario: "sys9", t0, seconds, tickHz: 50 });
+    const fs_ = r.sampleRate;
+    await writeWav(path.join(ROOT, OUTDIR, `${TAG}-sys9.wav`), r.mix, fs_);
+    const bedLufs = loudness(r.mix.L, r.mix.R, fs_, 0.2, t0 - 0.05).integrated;
+    const peakIn = (pair, a, b) => balanceCrest(pair.L, pair.R, Math.round(a * fs_), Math.round(b * fs_)).peakDb;
+    const rows = r.timeline.map((e) => {
+      const tap = e.name === "footfall" || e.name === "sip" ? r.taps["sfx-player"] : r.taps["sfx-openables"];
+      const win = e.name === "sip" ? 0.8 : 0.4;
+      const c = clickScan(r.mix.L, r.mix.R, fs_, Math.round((e.t - 0.02) * fs_), Math.round((e.t + win) * fs_));
+      return { name: e.name, t: e.t, tapPeak: peakIn(tap, e.t, e.t + win), mixPeak: peakIn(r.mix, e.t, e.t + win), step: c.maxStep, ratio: c.maxRatio };
+    });
+    Object.assign(report, { pose, bedLufs, rows });
+    console.log(`\nSYS9  listener in the service aisle (${pose.x.toFixed(2)}, ${pose.z.toFixed(2)}, yaw ${pose.yawDeg}°); bed before ${lu(bedLufs)} LUFS`);
+    console.log(`  ${"event".padEnd(12)} ${"t(s)".padStart(6)} ${"tap peak".padStart(9)} ${"mix peak".padStart(9)}   max step FS  step/local`);
+    for (const x of rows) console.log(`  ${x.name.padEnd(12)} ${fmt(x.t, 6, 2)} ${fmt(x.tapPeak, 9)} ${fmt(x.mixPeak, 9)}   ${x.step.toFixed(4)}      ${x.ratio.toFixed(1)}`);
   } else {
-    throw new Error(`unknown scenario ${which} (pour|door)`);
+    throw new Error(`unknown scenario ${which} (pour|door|sys9)`);
   }
   return report;
 }

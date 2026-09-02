@@ -85,4 +85,79 @@ export class PlayerSfx {
 
     scuff.addEventListener("ended", () => out.disconnect(), { once: true });
   }
+
+  /**
+   * Drinking from the mug (Drink.ts calls it as the rim meets the lips). A short liquid
+   * draw — 0.28 s of 400 Hz–2 kHz noise with a rising resonance (air pulled over the
+   * surface) and a faint 9 Hz burble — then, 0.25 s later, a swallow: a soft 170 → 85 Hz
+   * glide over 90 ms with a breath of noise, the throat's own thud. ≈ −32 dBFS peak: it
+   * is the player's own mouth, quiet and close, not a foley sip for a trailer.
+   */
+  sip(): void {
+    const engine = this.engine;
+    const ctx = engine.ctx;
+    const rng = engine.rng;
+    const t = engine.now + 0.005;
+    engine.logEvent("sfx.sip", t, 0.7);
+    const out = ctx.createGain();
+    out.gain.value = dbToGain(-20);
+    out.connect(this.bus);
+
+    // Draw: noise → sweeping band-pass (700 → 1400 Hz), 9 Hz burble AM.
+    const drawDur = rng.range(0.24, 0.32);
+    const draw = engine.noiseSource("pink", 1, t);
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.setValueAtTime(rng.range(600, 800), t);
+    bp.frequency.exponentialRampToValueAtTime(rng.range(1200, 1600), t + drawDur);
+    bp.Q.value = 2.2;
+    const am = ctx.createGain();
+    am.gain.value = 0.7;
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = rng.range(8, 11);
+    const depth = ctx.createGain();
+    depth.gain.value = 0.3;
+    lfo.connect(depth);
+    depth.connect(am.gain);
+    lfo.start(t);
+    lfo.stop(t + drawDur + 0.05);
+    const dg = ctx.createGain();
+    dg.gain.setValueAtTime(0, t);
+    dg.gain.linearRampToValueAtTime(0.9, t + 0.05);
+    dg.gain.setValueAtTime(0.9, t + drawDur - 0.06);
+    dg.gain.linearRampToValueAtTime(0, t + drawDur);
+    draw.connect(bp);
+    bp.connect(am);
+    am.connect(dg);
+    dg.connect(out);
+    draw.stop(t + drawDur + 0.05);
+
+    // Swallow: a low glide with a breath of noise.
+    const ts = t + drawDur + rng.range(0.2, 0.3);
+    const o = ctx.createOscillator();
+    o.type = "sine";
+    o.frequency.setValueAtTime(rng.range(160, 185), ts);
+    o.frequency.exponentialRampToValueAtTime(rng.range(80, 95), ts + 0.09);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(0, ts);
+    og.gain.linearRampToValueAtTime(0.35, ts + 0.015);
+    og.gain.setTargetAtTime(0, ts + 0.05, 0.03);
+    o.connect(og);
+    og.connect(out);
+    o.start(ts);
+    o.stop(ts + 0.3);
+    const breath = engine.noiseSource("brown", 1, ts);
+    const blp = ctx.createBiquadFilter();
+    blp.type = "lowpass";
+    blp.frequency.value = 500;
+    const bg = ctx.createGain();
+    bg.gain.setValueAtTime(0, ts);
+    bg.gain.linearRampToValueAtTime(0.5, ts + 0.02);
+    bg.gain.setTargetAtTime(0, ts + 0.04, 0.035);
+    breath.connect(blp);
+    blp.connect(bg);
+    bg.connect(out);
+    breath.stop(ts + 0.3);
+    o.addEventListener("ended", () => out.disconnect(), { once: true });
+  }
 }

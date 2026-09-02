@@ -34,7 +34,7 @@ export interface OfflineRequest {
    *   "door"  t0: doorOpen(); setOutside(deg/85) every `tickHz` frame along the 7.15 s swing/hold/close/latch
    * `t0` defaults to 1 s.
    */
-  scenario?: "pour" | "door";
+  scenario?: "pour" | "door" | "sys9";
   t0?: number;
   /** Scheduler / per-frame call rate for the scenario (default 50 Hz; the game runs 60–120). */
   tickHz?: number;
@@ -71,7 +71,7 @@ export interface OfflineResult {
   positions: Record<string, unknown>;
 }
 
-const BUS_ORDER = ["mix", "sum", "interior", "ac", "fan", "radio", "coffee", "room", "outside", "sfx-coffee", "sfx-door"];
+const BUS_ORDER = ["mix", "sum", "interior", "ac", "fan", "radio", "coffee", "room", "kitchen", "outside", "sfx-coffee", "sfx-door", "sfx-player", "sfx-openables"];
 
 /**
  * DoorSwing.ts's leaf angle for `t` seconds into the cycle (kept in step with `TL` /
@@ -125,6 +125,8 @@ async function renderOffline(req: OfflineRequest = {}): Promise<OfflineResult> {
   buses.set("outside", audio.door!.outsideBus);
   buses.set("sfx-coffee", audio.coffee!.bus);
   buses.set("sfx-door", audio.door!.bus);
+  if (audio.playerSfx) buses.set("sfx-player", audio.playerSfx.bus);
+  if (audio.openablesSfx) buses.set("sfx-openables", audio.openablesSfx.bus);
   if (req.solo?.length) {
     for (const [name, bus] of buses) {
       if (name !== "sum" && name !== "interior" && !req.solo.includes(name)) bus.gain.value = 0;
@@ -162,7 +164,7 @@ async function renderOffline(req: OfflineRequest = {}): Promise<OfflineResult> {
   let lastTick = 0;
   if (req.scenario) {
     const frame = 1 / (req.tickHz ?? 50);
-    const span = req.scenario === "door" ? DOOR_TL.end + 0.5 : POUR_TL.clinkB + 0.5;
+    const span = req.scenario === "door" ? DOOR_TL.end + 0.5 : req.scenario === "sys9" ? 8 : POUR_TL.clinkB + 0.5;
     for (let t = t0; t <= Math.min(seconds - frame, t0 + span); t += frame) times.add(Math.round(t * 1000) / 1000);
   }
   for (const t of [...times].sort((a, b) => a - b)) {
@@ -196,6 +198,20 @@ async function renderOffline(req: OfflineRequest = {}): Promise<OfflineResult> {
           audio.sfx.setOutside(p);
           if (u >= DOOR_TL.end) once("door-latched", () => audio.sfx.setOutside(0));
         }
+      } else if (req.scenario === "sys9") {
+        // System 9 one-shots in order: footfall, sip, cabinet release / stop / close, kitchen door.
+        const u = now - t0;
+        const cab = { x: -2.6, y: 0.5, z: -0.15 };
+        const kd = { x: -5.15, y: 1.1, z: -2.6 };
+        if (u >= 0) once("footfall", () => audio.sfx.footfall(1));
+        if (u >= 1) once("sip", () => audio.sfx.sip());
+        if (u >= 2.5) once("cab-release", () => audio.sfx.cabinetCatch(cab, "release"));
+        if (u >= 3.2) once("cab-stop", () => audio.sfx.cabinetStop(cab));
+        if (u >= 4.2) once("cab-close", () => audio.sfx.cabinetCatch(cab, "close"));
+        if (u >= 5.5) once("kd-push", () => audio.sfx.kitchenDoorPush(kd));
+        if (u >= 5.9) once("kd-pass", () => audio.sfx.kitchenDoorPass(kd, 1));
+        if (u >= 6.8) once("kd-pass2", () => audio.sfx.kitchenDoorPass(kd, 0.5));
+        if (u >= 7.6) once("kd-settle", () => audio.sfx.kitchenDoorSettle(kd));
       }
       void ctx.resume();
     });
