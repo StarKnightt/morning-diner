@@ -23,7 +23,10 @@ export interface Palette {
   formicaCounter: THREE.MeshPhysicalMaterial;
   formicaEdge: THREE.MeshStandardMaterial;
   chrome: THREE.MeshStandardMaterial;
+  chromeWorn: THREE.MeshStandardMaterial;
+  chromeWorn2: THREE.MeshStandardMaterial;
   chromeSoft: THREE.MeshStandardMaterial;
+  plinthLine: THREE.MeshStandardMaterial;
   alumGroove: THREE.MeshStandardMaterial;
   chromeBrushed: THREE.MeshPhysicalMaterial;
   ceramic: THREE.MeshPhysicalMaterial;
@@ -43,6 +46,7 @@ export interface Palette {
   napkin: THREE.MeshStandardMaterial;
   sugar: THREE.MeshStandardMaterial;
   salt: THREE.MeshStandardMaterial;
+  napkinFold: THREE.MeshStandardMaterial;
   darkSeal: THREE.MeshStandardMaterial;
   rockerLit: THREE.MeshStandardMaterial;
   pepper: THREE.MeshStandardMaterial;
@@ -118,13 +122,15 @@ export function createPalette(maxAnisotropy: number): Palette {
     return new THREE.MeshPhysicalMaterial({
       color: vinylColor,
       normalMap: t.normalMap,
-      normalScale: new THREE.Vector2(1.25, 1.25),
+      // 0.8 (was 1.25): at 1.25 the 0.1 mm/texel grain under a 0.3-rough clearcoat sparkled —
+      // pixel-scale highlights that changed with every camera step read as flicker (rev 7).
+      normalScale: new THREE.Vector2(0.8, 0.8),
       roughnessMap: t.roughnessMap,
       roughness: 0.9, // × map (0.35–0.55) → ≈ 0.32–0.5
       metalness: 0,
       specularIntensity: 0.4,
       clearcoat: 0.1,
-      clearcoatRoughness: 0.3,
+      clearcoatRoughness: 0.45,
       vertexColors: true,
     });
   };
@@ -178,8 +184,13 @@ export function createPalette(maxAnisotropy: number): Palette {
     map: cabTex.map, roughnessMap: cabTex.roughnessMap, normalMap: cabTex.normalMap, normalScale: new THREE.Vector2(0.25, 0.25),
     roughness: 1, metalness: 0,
   });
-  const laminateScuffed = new THREE.MeshStandardMaterial({ color: 0x6a4630, roughness: 0.75, metalness: 0 });
-  const edgeBand = new THREE.MeshStandardMaterial({ color: 0x94623f, roughness: 0.4, metalness: 0 });
+  // Overlay materials: these sit 0.2–1 mm proud of a parent face (scuff bands, plinth lines,
+  // door edge bands, T-mould grooves, sheet seams). polygonOffset pulls them a depth unit
+  // toward the camera so they cannot z-fight the face under them at grazing angles.
+  const overlay = { polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 };
+  const laminateScuffed = new THREE.MeshStandardMaterial({ color: 0x6a4630, roughness: 0.75, metalness: 0, ...overlay });
+  const edgeBand = new THREE.MeshStandardMaterial({ color: 0x94623f, roughness: 0.4, metalness: 0, ...overlay });
+  const plinthLine = new THREE.MeshStandardMaterial({ color: 0x1c1a18, roughness: 0.6, metalness: 0, ...overlay });
 
   // Metals: the environment is a PMREM of the real interior (Diner.ts); colours from §4.
   const chrome = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.62, 0.65, 0.68, THREE.LinearSRGBColorSpace), roughness: 0.07, metalness: 1 });
@@ -192,7 +203,10 @@ export function createPalette(maxAnisotropy: number): Palette {
     metalness: 1,
     anisotropy: 0.8,
   });
-  const alumGroove = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.22, 0.23, 0.24, THREE.LinearSRGBColorSpace), roughness: 0.5, metalness: 1 });
+  const alumGroove = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.22, 0.23, 0.24, THREE.LinearSRGBColorSpace), roughness: 0.5, metalness: 1, ...overlay });
+  // Stool chrome comes in three wear grades so no two neighbours mirror the room identically.
+  const chromeWorn = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.6, 0.63, 0.66, THREE.LinearSRGBColorSpace), roughness: 0.12, metalness: 1 });
+  const chromeWorn2 = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.58, 0.61, 0.64, THREE.LinearSRGBColorSpace), roughness: 0.17, metalness: 1 });
   const stainless = new THREE.MeshPhysicalMaterial({
     color: new THREE.Color().setRGB(0.5, 0.52, 0.53, THREE.LinearSRGBColorSpace),
     roughnessMap: tex.brushedRoughness(512, 0.34, 92),
@@ -224,25 +238,28 @@ export function createPalette(maxAnisotropy: number): Palette {
   const ceramic = new THREE.MeshPhysicalMaterial({ color: 0xf2eee6, roughness: 0.15, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.12 });
   // Unglazed foot ring: bare stoneware, noticeably darker than the glaze.
   const bisque = new THREE.MeshStandardMaterial({ color: 0x8e7e6e, roughness: 0.88, metalness: 0 });
+  // Clear glass: transmission 1 (at 0.95 the remaining 5 % was a diffuse white skin that
+  // read as a milky veil over the sugar in rev 6), roughness 0 so the transmission pass is
+  // not blurred, thin refraction thickness, no attenuation. Ribs are geometry, not maps.
   const glassClear = new THREE.MeshPhysicalMaterial({
-    color: 0xf6f8f7,
-    roughness: 0.03,
+    color: 0xffffff,
+    roughness: 0,
     metalness: 0,
-    transmission: 0.95,
+    transmission: 1,
     ior: 1.5,
-    thickness: 0.002,
+    thickness: 0.0015,
     specularIntensity: 1,
+    envMapIntensity: 0.7,
   });
-  // Fluted pressed glass (sugar pourer): same clear glass but with real 10 mm of
-  // refraction thickness so the ribs visibly bend the sugar column behind them.
   const glassFluted = new THREE.MeshPhysicalMaterial({
-    color: 0xf6f8f7,
-    roughness: 0.03,
+    color: 0xffffff,
+    roughness: 0,
     metalness: 0,
-    transmission: 0.95,
-    ior: 1.52,
-    thickness: 0.012,
+    transmission: 1,
+    ior: 1.5,
+    thickness: 0.004,
     specularIntensity: 1,
+    envMapIntensity: 0.7,
   });
   // Coffee is OPAQUE on purpose: three renders transmissive objects in their own
   // pass, so a transmissive liquid inside a transmissive decanter is invisible.
@@ -280,8 +297,11 @@ export function createPalette(maxAnisotropy: number): Palette {
     formicaEdge: new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.66, 0.68, 0.7, THREE.LinearSRGBColorSpace), roughness: 0.2, metalness: 1 }),
     alumGroove,
     chrome,
+    chromeWorn,
+    chromeWorn2,
     chromeSoft,
     chromeBrushed,
+    plinthLine,
     ceramic,
     bisque,
     coffeeStain,
@@ -293,7 +313,8 @@ export function createPalette(maxAnisotropy: number): Palette {
     pilotRed: new THREE.MeshStandardMaterial({ color: 0xff2a1a, roughness: 0.4, metalness: 0, emissive: 0xff2010, emissiveIntensity: 3 }),
     napkin: new THREE.MeshStandardMaterial({ color: 0xf4f2ec, roughness: 0.95, metalness: 0 }),
     sugar: new THREE.MeshStandardMaterial({ color: 0xfaf7f0, roughness: 0.95, metalness: 0 }),
-    salt: new THREE.MeshStandardMaterial({ color: 0xebe7df, roughness: 0.95, metalness: 0 }), // a shade under the glass so the column reads against a pale sill
+    salt: new THREE.MeshStandardMaterial({ color: 0xd2d7de, roughness: 1, metalness: 0 }), // faint grey-blue so it separates from the pale sill AND from the sugar
+    napkinFold: new THREE.MeshStandardMaterial({ color: 0xbdb8ae, roughness: 1, metalness: 0 }),
     darkSeal: new THREE.MeshStandardMaterial({ color: 0x2a221c, roughness: 0.7, metalness: 0 }),
     rockerLit: new THREE.MeshStandardMaterial({ color: 0xffb060, emissive: 0xff9a30, emissiveIntensity: 1.6, roughness: 0.4, metalness: 0 }),
     pepper: new THREE.MeshStandardMaterial({ color: 0x3a3430, roughness: 0.9, metalness: 0 }),

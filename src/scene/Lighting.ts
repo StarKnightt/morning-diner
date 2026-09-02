@@ -29,7 +29,7 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   cam.near = 10;
   cam.far = 55;
   sun.shadow.bias = -0.0002;
-  sun.shadow.normalBias = 0.015;
+  sun.shadow.normalBias = 0.02; // 4.4 mm texels over 18 m: 20 mm keeps sunlit planes acne-free
   sun.shadow.radius = 2;
   scene.add(sun, sun.target);
 

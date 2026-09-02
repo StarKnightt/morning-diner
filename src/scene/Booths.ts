@@ -63,25 +63,24 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       // chrome column, 360 mm spider plate under the top.
       const pz = (zT0 + zOuter) / 2;
       const { bellR, bellRim, bossR, bossH, columnR, spider } = BOOTH.pedestal;
+      // Domed cast profile: a 16 mm vertical rim, a fast shoulder, a long dome to a Ø 160
+      // neck, then an 18 mm collar ring the chrome column drops into (not a flat disc).
+      const V = (x: number, y: number) => new THREE.Vector2(x, y);
+      const collarTop = 0.16;
       const bell = new THREE.LatheGeometry(
         [
-          new THREE.Vector2(0, 0),
-          new THREE.Vector2(bellR, 0),
-          new THREE.Vector2(bellR, 0.012),
-          new THREE.Vector2(bellR - 0.006, bellRim),
-          new THREE.Vector2(bellR * 0.72, bellRim + 0.012),
-          new THREE.Vector2(bellR * 0.45, bellRim + 0.03),
-          new THREE.Vector2(bossR + 0.01, bossH - 0.012),
-          new THREE.Vector2(bossR, bossH),
-          new THREE.Vector2(0, bossH),
+          V(0, 0), V(bellR, 0), V(bellR, 0.016), V(bellR - 0.004, 0.03), V(bellR - 0.02, 0.045), V(bellR - 0.05, 0.062),
+          V(bellR - 0.09, 0.08), V(bellR - 0.13, 0.096), V(bossR + 0.02, 0.108), V(bossR + 0.006, 0.118), V(bossR, 0.126),
+          V(bossR + 0.004, 0.13), V(bossR + 0.004, 0.148), V(bossR - 0.004, 0.152), V(columnR + 0.006, 0.156), V(columnR, collarTop), V(0, collarTop),
         ],
-        48,
+        56,
       );
+      void bellRim; void bossH;
       bell.translate(cx, 0, pz);
       b.add(bell, pal.darkMetal);
-      const colH = table.top - table.thickness - 0.02 - bossH;
+      const colH = table.top - table.thickness - 0.02 - collarTop;
       const col = new THREE.CylinderGeometry(columnR, columnR, colH, 28);
-      col.translate(cx, bossH + colH / 2, pz);
+      col.translate(cx, collarTop + colH / 2, pz);
       b.add(col, pal.chrome);
       // Table underside: dark-sealed particleboard (never pale laminate) — a 1.5 mm skin
       // inside the T-mould, plus the 5 mm dark-steel spider plate screwed flush to it.

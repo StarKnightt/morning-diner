@@ -259,13 +259,18 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
   {
     const j = PASS_THROUGH.jamb;
     const z0 = zBack - T - 0.005, z1 = zBack + 0.005;
-    b.rbox(pal.stainless, [pass.a0 - j, pass.y0, z0], [pass.a0, pass.y1 + j, z1], 0.002);
-    b.rbox(pal.stainless, [pass.a1, pass.y0, z0], [pass.a1 + j, pass.y1 + j, z1], 0.002);
-    b.rbox(pal.stainless, [pass.a0, pass.y1, z0], [pass.a1, pass.y1 + j, z1], 0.002);
+    // Painted wood surround (matches the wall trim) that LINES the reveal: it reaches 3 mm
+    // into the opening so its faces sit in front of the wall's cut faces. Rev 6 put the
+    // jambs beside the opening with their inner face on the reveal plane — the two
+    // coplanar faces z-fought and read as speckled concrete (rev 7 flicker audit).
+    const lip = 0.003;
+    b.rbox(pal.trimPaint, [pass.a0 - j, pass.y0 - lip, z0], [pass.a0 + lip, pass.y1 + j, z1], 0.002);
+    b.rbox(pal.trimPaint, [pass.a1 - lip, pass.y0 - lip, z0], [pass.a1 + j, pass.y1 + j, z1], 0.002);
+    b.rbox(pal.trimPaint, [pass.a0 - j, pass.y1 - lip, z0], [pass.a1 + j, pass.y1 + j, z1], 0.002);
     // 350 mm stainless shelf through the opening at sill height (100 mm into the dining side)
     const sd = PASS_THROUGH.shelfDepth;
     const zs1 = zBack + 0.1, zs0 = zs1 - sd;
-    b.rbox(pal.stainless, [pass.a0 - j - 0.02, pass.y0 - 0.03, zs0], [pass.a1 + j + 0.02, pass.y0, zs1], 0.004, 3);
+    b.rbox(pal.stainless, [pass.a0 - j - 0.02, pass.y0 - 0.03, zs0], [pass.a1 + j + 0.02, pass.y0 + 0.002, zs1], 0.004, 3); // 2 mm above the sill cut so the two up-faces never tie
     // Heat-lamp bar 450 mm above the shelf, on the kitchen side of the opening
     const hy = pass.y0 + PASS_THROUGH.heatLampAbove;
     const hz = zBack - T - 0.12;
@@ -288,7 +293,7 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     b.box(dim, [x0 - 0.05, 0, zFar], [x0, H, zIn]); // side walls
     b.box(dim, [x1, 0, zFar], [x1 + 0.05, H, zIn]);
     b.box(dim, [x0, -0.05, zFar], [x1, 0, zIn]); // floor
-    b.box(dim, [x0, H, zFar], [x1, H + 0.05, zIn]); // ceiling
+    b.box(dim, [x0, H - 0.03, zFar], [x1, H, zIn]); // ceiling; its soffit sits 30 mm under the void box's top (was coplanar)
     // Dim silhouettes: a work table under the heat lamps, a range + hood on the back wall
     b.box(pal.kitchenDim, [cx - 0.9, 0.86, zIn - 0.75], [cx + 0.9, 0.9, zIn - 0.15]);
     for (const [lx, lz] of [[cx - 0.85, zIn - 0.7], [cx + 0.85, zIn - 0.7], [cx - 0.85, zIn - 0.2], [cx + 0.85, zIn - 0.2]]) {

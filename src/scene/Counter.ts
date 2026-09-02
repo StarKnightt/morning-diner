@@ -2,7 +2,7 @@
  * Counter run: L-shaped grey-speckle formica top (bullnose + chrome band) on a
  * 400 mm die with a 300 mm knee overhang, cove base and toe recess, 36 mm
  * chrome footrail on cast brackets, ten bolted chrome stools with domed red
- * vinyl cushions (InstancedMesh parts, each swivelled a little differently),
+ * vinyl cushions (built per stool into the merged buckets so every seat differs),
  * back bar with toe kick / backsplash / equipment fronts, and a continuous
  * upper-cabinet run under a bulkhead. The L-return top is left empty.
  */
@@ -48,7 +48,7 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     if (band) b.add(band, pal.formicaEdge);
     if (grooves) b.add(grooves, pal.alumGroove);
     // Laminate sheet seams every 3.6 m across the top
-    for (let sx = xMin + 3.6; sx < xMax; sx += 3.6) b.box(pal.alumGroove, [sx - 0.0005, height - 0.0002, dieBack + 0.02], [sx + 0.0005, height + 0.0002, topFrontZ - 0.03]);
+    for (let sx = xMin + 3.6; sx < xMax; sx += 3.6) b.box(pal.alumGroove, [sx - 0.0006, height - 0.002, dieBack + 0.02], [sx + 0.0006, height + 0.0008, topFrontZ - 0.03]);
     // 100 mm stainless backsplash lip along the service edge of the top
     b.rbox(pal.stainless, [xMin, height - 0.004, dieBack - 0.006], [xMax + 0.006, height + 0.1, dieBack + 0.014], 0.003);
 
@@ -61,10 +61,13 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     // 130 mm scuff band and a plinth line at the base of the die faces
     b.box(pal.laminateScuffed, [xMin + 0.002, kickH + 0.002, dieFront], [xMax, kickH + 0.132, dieFront + 0.0006]);
     b.box(pal.laminateScuffed, [lDieX1, kickH + 0.002, lReturnZEnd + 0.002], [lDieX1 + 0.0006, kickH + 0.132, dieBack]);
-    b.box(pal.baseboard, [xMin + 0.002, kickH + 0.132, dieFront], [xMax, kickH + 0.138, dieFront + 0.0008]);
-    b.box(pal.baseboard, [lDieX1, kickH + 0.132, lReturnZEnd + 0.002], [lDieX1 + 0.0008, kickH + 0.138, dieBack]);
-    // Work-side shelf under the main counter (open, laminate)
-    b.box(pal.laminateCabinet, [xMin, 0.5, dieBack - 0.01], [xMax, 0.52, dieBack + 0.3], { metric: true });
+    b.box(pal.plinthLine, [xMin + 0.002, kickH + 0.132, dieFront], [xMax, kickH + 0.138, dieFront + 0.0015]);
+    b.box(pal.plinthLine, [lDieX1, kickH + 0.132, lReturnZEnd + 0.002], [lDieX1 + 0.0015, kickH + 0.138, dieBack]);
+    // Work-side shelf under the main counter (open, laminate), on the SERVICE side of the die,
+    // let 10 mm into it, and 20 mm short of both die ends. Rev 6 had it buried inside the die
+    // with its end faces exactly coplanar with the die's end faces — the maple sawtoothed
+    // through the walnut at the L-return corner (rev 7 flicker audit).
+    b.box(pal.laminateCabinet, [xMin + 0.02, 0.5, dieBack - 0.3], [xMax - 0.02, 0.52, dieBack + 0.01], { metric: true });
 
     // Footrail: 36 mm chrome tube 130 mm off the die face at 230 mm AFF, brackets every 1.2 m.
     const tubeZ = dieFront + footrest.gap + footrest.tubeR;
@@ -113,7 +116,6 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
 
   /* ---------------- stools (instanced parts) ---------------- */
   {
-    const n = STOOL.centersX.length;
     const r = STOOL.seatDiameter / 2;
     const { seatHeight, seatThickness: st, columnR, baseR, footringY, footringR } = STOOL;
 
@@ -134,8 +136,6 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       new THREE.Vector2(0, 0.11),
     ];
     const base = new THREE.LatheGeometry(baseProfile, 56);
-    const column = new THREE.CylinderGeometry(columnR, columnR, seatHeight - st - 0.11 - 0.02, 28);
-    column.translate(0, 0.11 + (seatHeight - st - 0.11 - 0.02) / 2, 0);
     // Footring: torus Ø 0.42 at 290 mm AFF, 20 mm tube, fixed to a collar by four spokes.
     const footring = new THREE.TorusGeometry(footringR, STOOL.footringTube, 14, 56);
     footring.rotateX(Math.PI / 2);
@@ -187,56 +187,85 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     const rimSeam = plainColor(new THREE.CylinderGeometry(0.0018, 0.0018, bandY0 - 0.008, 8), 1.1);
     rimSeam.translate(r - 0.0005, seatHeight - st + 0.004 + (bandY0 - 0.008) / 2, 0);
 
-    const parts: Array<[THREE.BufferGeometry, THREE.Material]> = [
-      [base, pal.chrome],
-      [column, pal.chrome],
-      [footring, pal.chrome],
-      [collar, pal.chrome],
-      [spokes[0], pal.chrome],
-      [spokes[1], pal.chrome],
-      [spokes[2], pal.chrome],
-      [spokes[3], pal.chrome],
-      [swivel, pal.darkMetal],
-      [cushion, pal.vinylRed],
-      [rimSeam, pal.vinylRed],
-      [seatWelt, pal.vinylRed],
-      [seatBand, pal.chrome],
+    // Bolt caps: four chrome acorn caps on the base shoulder (the floor bolts).
+    const boltCap = new THREE.SphereGeometry(0.0065, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    boltCap.scale(1, 0.75, 1);
+    // Welt junction: where the cord's two ends overlap, a 22 mm doubled-up bump.
+    const junction = plainColor(new THREE.TorusGeometry(r - 0.0015, 0.0042, 10, 12, 0.11), 1.06);
+    junction.rotateX(Math.PI / 2);
+    junction.rotateY(-0.02);
+    junction.translate(0, seatHeight - st + bandY1 + 0.0065, 0);
+
+    const chromes = [pal.chrome, pal.chromeWorn, pal.chromeWorn2];
+    const baseParts: Array<[THREE.BufferGeometry, THREE.Material | null]> = [
+      [base, null], [footring, null], [collar, null], [spokes[0], null], [spokes[1], null], [spokes[2], null], [spokes[3], null],
     ];
-    const seatParts = new Set<THREE.BufferGeometry>([cushion, rimSeam, seatWelt, seatBand, swivel]);
-    // Per-stool: any swivel angle, ±10 mm height, ±25 mm off the line, ±10 mm along it with two
-    // nudged 20–30 mm; the seat additionally tilts up to ±1.2° and its cushion is squashed a
-    // little differently on every stool (±5 % crown) so no two read as clones.
+    const seatParts: Array<[THREE.BufferGeometry, THREE.Material | null]> = [
+      [swivel, pal.darkMetal], [cushion, pal.vinylRed], [rimSeam, pal.vinylRed], [seatWelt, pal.vinylRed], [junction, pal.vinylRed], [seatBand, null],
+    ];
+    // Every stool is built as its own geometry (merged into the room buckets — cheaper than
+    // 13 instanced draws) so each one can differ visibly: seat height ±6 mm via the column,
+    // any swivel yaw (the welt junction + boxing seam travel with it), ±5 % cushion squash,
+    // a 250 × 200 mm sit-dent 6–9 mm deep offset toward the seam, one seat tilted 2.5° on a worn
+    // swivel and the rest ±0.8°, three chrome wear grades, and two stools nudged off pitch.
     const rng = makeRng(808);
     const nudge = new Map<number, number>([[2, 0.03], [6, -0.022]]);
-    const bases: THREE.Matrix4[] = [], seats: THREE.Matrix4[] = [];
+    const worn = 3;
     STOOL.centersX.forEach((x, i) => {
       const yaw = rng() * Math.PI * 2;
       const dx = (rng() - 0.5) * 0.02 + (nudge.get(i) ?? 0);
-      const dy = (rng() - 0.5) * 0.02, dz = (rng() - 0.5) * 0.05;
-      const base = new THREE.Matrix4().makeRotationY(yaw);
-      base.setPosition(x + dx, dy, STOOL.z + dz);
-      bases.push(base);
-      const tilt = THREE.MathUtils.degToRad(2.4 * (rng() - 0.5)), tiltZ = THREE.MathUtils.degToRad(2.4 * (rng() - 0.5));
-      // Tilt/squash pivot on the column top so the swivel plate always stays seated on it.
-      const yb = seatHeight - st - 0.02;
-      const seat = new THREE.Matrix4()
+      const dz = (rng() - 0.5) * 0.05;
+      const dh = (rng() - 0.5) * 0.012; // seat height ±6 mm
+      const chrome = chromes[(i * 2 + Math.floor(rng() * 3)) % 3];
+      const baseM = new THREE.Matrix4().makeRotationY(yaw);
+      baseM.setPosition(x + dx, 0, STOOL.z + dz);
+      for (const [g, mat] of baseParts) b.add(g.clone(), mat ?? chrome, baseM);
+      for (let k = 0; k < 4; k++) {
+        const cap = boltCap.clone();
+        cap.translate(baseR - 0.03, 0.057, 0);
+        cap.rotateY((k / 4) * Math.PI * 2 + 0.4);
+        b.add(cap, chrome, baseM);
+      }
+      const colLen = seatHeight - st - 0.11 - 0.02 + dh;
+      const col = new THREE.CylinderGeometry(columnR, columnR, colLen, 28);
+      col.translate(0, 0.11 + colLen / 2, 0);
+      b.add(col, chrome, baseM);
+
+      const tiltMag = i === worn ? 2.5 : 1.6 * (rng() - 0.5);
+      const tilt = THREE.MathUtils.degToRad(tiltMag), tiltZ = THREE.MathUtils.degToRad(i === worn ? 0.6 : 1.6 * (rng() - 0.5));
+      const squash = 1 + (rng() - 0.5) * 0.1;
+      const yb = seatHeight - st - 0.02; // pivot on the column top
+      const seatM = new THREE.Matrix4()
         .compose(
-          new THREE.Vector3(x + dx, dy + yb, STOOL.z + dz),
-          new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt, yaw + (rng() - 0.5) * 0.4, tiltZ)),
-          new THREE.Vector3(1 + (rng() - 0.5) * 0.03, 1 + (rng() - 0.5) * 0.06, 1 + (rng() - 0.5) * 0.03),
+          new THREE.Vector3(x + dx, yb + dh, STOOL.z + dz),
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt, yaw + (rng() - 0.5) * 0.9, tiltZ)),
+          new THREE.Vector3(1 + (rng() - 0.5) * 0.03, squash, 1 + (rng() - 0.5) * 0.03),
         )
         .multiply(new THREE.Matrix4().makeTranslation(0, -yb, 0));
-      seats.push(seat);
+      for (const [g, mat] of seatParts) {
+        const geo = g.clone();
+        if (g === cushion) {
+          // Sit-dent: an elliptical hollow 4 mm deep, centred 20 mm toward the seam (+x local).
+          const pos = geo.attributes.position as THREE.BufferAttribute;
+          const col = geo.attributes.color as THREE.BufferAttribute;
+          const cy = seatHeight - st, dentDepth = 0.006 + rng() * 0.003, ox = 0.025 + rng() * 0.015;
+          for (let v = 0; v < pos.count; v++) {
+            const py = pos.getY(v) - cy;
+            if (py < st - crown - 0.002) continue; // only the upholstered top
+            const ex = (pos.getX(v) - ox) / 0.125, ez = pos.getZ(v) / 0.1;
+            const d2 = ex * ex + ez * ez;
+            if (d2 < 1) {
+              const k = (1 - d2) ** 2;
+              pos.setY(v, pos.getY(v) - dentDepth * k);
+              // The hollow sits in its own soft shade (worn, compressed vinyl reads darker).
+              col.setXYZ(v, col.getX(v) * (1 - 0.24 * k), col.getY(v) * (1 - 0.24 * k), col.getZ(v) * (1 - 0.24 * k));
+            }
+          }
+          geo.computeVertexNormals();
+        }
+        b.add(geo, mat ?? chrome, seatM);
+      }
     });
-    for (const [geo, mat] of parts) {
-      const im = new THREE.InstancedMesh(geo, mat, n);
-      im.castShadow = true;
-      im.receiveShadow = true;
-      (seatParts.has(geo) ? seats : bases).forEach((m, i) => im.setMatrixAt(i, m));
-      im.instanceMatrix.needsUpdate = true;
-      im.name = "stools";
-      parent.add(im);
-    }
     for (const x of STOOL.centersX) {
       b.collider([x - r, 0, STOOL.z - r], [x + r, seatHeight, STOOL.z + r]);
     }

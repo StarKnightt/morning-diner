@@ -119,12 +119,14 @@ export function slabGeometry(pts: XZ[], o: SlabOptions): [THREE.BufferGeometry, 
     lipOuter.holes.push(roundedPath(new THREE.Path(), offsetPolygon(pts, -0.008), o.radius));
     const lip = new THREE.ExtrudeGeometry(lipOuter, { depth: 0.0015, bevelEnabled: false, curveSegments: o.curveSegments ?? 6 });
     lip.rotateX(-Math.PI / 2);
-    lip.translate(0, o.y0 - 0.0015 + 0.0015, 0);
+    lip.translate(0, o.y0 - 0.0015, 0); // hangs 1.5 mm under the slab, never coplanar with its underside
     band = mergeGeometries([band, lip].map((g) => (g.index ? g.toNonIndexed() : g)), false)!;
     if (o.grooves && o.grooves > 0) {
-      // Grooves: 2 mm dark recessed lines on the band face at 6 mm pitch (a separate, darker material).
+      // Grooves: 2 mm dark lines on the band face at 6 mm pitch (a separate, darker material).
+      // 1 mm proud of the band (was 0.3 mm, which z-fought along the counter edge at grazing
+      // angles — rev 7 flicker audit); alumGroove also carries a polygonOffset.
       const rings: THREE.BufferGeometry[] = [];
-      const gOuter = roundedPath(new THREE.Shape(), offsetPolygon(pts, proud + 0.0003), o.radius);
+      const gOuter = roundedPath(new THREE.Shape(), offsetPolygon(pts, proud + 0.001), o.radius);
       gOuter.holes.push(roundedPath(new THREE.Path(), offsetPolygon(pts, proud - 0.0015), o.radius));
       const pitch = 0.006, gH = 0.002;
       const y0 = o.y0 + o.thickness / 2 - ((o.grooves - 1) * pitch) / 2;
