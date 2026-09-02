@@ -390,12 +390,17 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     kickPanel: new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.6, metalness: 0.3 }),
     tileBacking: new THREE.MeshStandardMaterial({ color: 0x5a5650, roughness: 1, metalness: 0 }),
     fixtureWhite: new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.4, metalness: 0.1 }),
+    // Prismatic lens of a lit 2×4 troffer: 4,000 nits at nadir (REFERENCE §2, Metalux 2GC
+    // photometry scaled to four aged lamps) = 0.4 scene units at K = 1e-4, in the same
+    // 4100 K + green-bias tint as the RectAreaLight under it (Lighting.ts). The lens
+    // luminance (0.83 for this colour) × 0.48 ≈ 0.4. Roughly two stops under a sunlit
+    // white surface — the fixture is on and visibly losing to the window light.
     fixtureLens: new THREE.MeshStandardMaterial({
-      color: 0xffffff,
+      color: 0xf4f2ee,
       roughness: 0.35,
       metalness: 0,
-      emissive: 0xfff3dc,
-      emissiveIntensity: 1.4, // low enough that the prism cells survive tone mapping
+      emissive: new THREE.Color().setRGB(255 / 255, (224 / 255) * 1.04, 190 / 255, THREE.SRGBColorSpace),
+      emissiveIntensity: 0.48,
       map: lens.map,
       emissiveMap: lens.map,
       normalMap: lens.normalMap,
@@ -414,31 +419,20 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     blackPowder,
   };
 
-  // The procedural environment is bright enough for metals to read as metal.
-  // Dielectrics only take a whisper of it so the sun/fill balance from System 1
-  // stays intact (System 4 owns the real light rig).
+  // System 4: the environment maps are CubeCamera probes of the physically lit scene
+  // (Diner.ts), so they ARE the indirect light — diffuse bounce and specular reflection
+  // alike — and every material samples them at full strength. The System 1–3 per-class
+  // attenuation (0.1 for dielectrics, 0.3–0.7 for gloss) existed to hold the balance
+  // against an over-bright synthetic room map; under a probe in nits it would just
+  // remove the bounce light from the room.
   for (const m of Object.values(palette)) {
-    if (m instanceof THREE.MeshStandardMaterial) m.envMapIntensity = m.metalness >= 0.5 ? 1 : 0.1;
+    if (m instanceof THREE.MeshStandardMaterial) m.envMapIntensity = 1;
   }
-  // Glossy dielectrics still want visible reflections in their specular lobe.
-  // Glassware: reflections kept modest so the contents read; the coffee body is
-  // near-black and would otherwise turn the glass into a mirror of the probe.
-  palette.glassClear.envMapIntensity = 0.45;
-  palette.glassFluted.envMapIntensity = 0.55;
-  palette.coffee.envMapIntensity = 0.25;
-  palette.glass.envMapIntensity = 0.5;
-  palette.alum.envMapIntensity = 0.3;
-  palette.ceramic.envMapIntensity = 0.35;
-  palette.formica.envMapIntensity = 0.3;
-  palette.formicaCounter.envMapIntensity = 0.3;
-  palette.vinylRed.envMapIntensity = 0.35;
-  palette.vinylRedCrazed.envMapIntensity = 0.35;
-  palette.capWood.envMapIntensity = 0.3;
-  // Laminates are semi-matt: cut the room reflection so grazing views don't turn the die into a mirror.
-  palette.laminatePanel.envMapIntensity = 0.3;
-  palette.laminateCabinet.envMapIntensity = 0.3;
-  palette.ceramic.envMapIntensity = 0.45; // ivory china: the room's darks/lights shape the glossy body
-  palette.stainlessBrushed.envMapIntensity = 0.55;
-  palette.stainlessCool.envMapIntensity = 0.6;
+  // Emissives in nits × K (Lighting.ts: 1 unit = 10,000 nits). Lit rocker switch ≈ 1,500 nits,
+  // red pilot LED ≈ 3,000 nits, the unlit kitchen box ≈ 30 nits (grey paint under a 300-lux
+  // kitchen fluorescent: 0.3 × 300 / π). The troffer lens is set at its construction above.
+  palette.rockerLit.emissiveIntensity = 0.15;
+  palette.pilotRed.emissiveIntensity = 0.3;
+  palette.kitchenDim.emissiveIntensity = 0.07;
   return palette;
 }

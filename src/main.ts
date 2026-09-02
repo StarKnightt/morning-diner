@@ -20,6 +20,7 @@ import { BootTimeline, Progress, yieldToPaint } from "./core/scheduler";
 import { TextureBank } from "./core/textureBank";
 import { FirstPerson } from "./player/FirstPerson";
 import { Diner } from "./scene/Diner";
+import { configureRenderer } from "./scene/Lighting";
 import { Loader } from "./ui/Loader";
 
 const params = new URLSearchParams(location.search);
@@ -40,13 +41,18 @@ progress.stage("Opening up…");
 const renderer = new THREE.WebGLRenderer({ powerPreference: "high-performance", antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
-// r185 deprecated PCFSoftShadowMap (it silently maps to PCF anyway); PCF with
-// shadow.radius gives the same soft edge without the console warning.
-renderer.shadowMap.type = THREE.PCFShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
+// Tone mapping, exposure (a camera setting: ISO 100 · f/5.6 · 1/80 s) and the shadow
+// filter live with the light rig (System 4, scene/Lighting.ts): AgX, exposure = 1 / L_sat,
+// BasicShadowMap depth textures filtered by the PCSS chunk. `?tm=aces|agx|neutral` and
+// `?ev=±n` override them for side-by-side captures.
+configureRenderer(renderer);
+{
+  const tm = params.get("tm");
+  if (tm === "aces") renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  else if (tm === "agx") renderer.toneMapping = THREE.AgXToneMapping;
+  else if (tm === "neutral") renderer.toneMapping = THREE.NeutralToneMapping;
+  if (params.has("ev")) renderer.toneMappingExposure *= Math.pow(2, Number(params.get("ev")));
+}
 document.body.appendChild(renderer.domElement);
 
 if (DEBUG) console.log(`[gpu] ${gpuRendererString(renderer)}  parallel-compile=${hasParallelCompile(renderer)}`);
