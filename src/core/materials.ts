@@ -399,10 +399,10 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     cord: new THREE.MeshStandardMaterial({ color: 0xd9d2c0, roughness: 0.95, metalness: 0 }),
     // Tilt wand: opaque almond acrylic (rev 2 — a clear rod disappeared against the slats)
     wand: new THREE.MeshStandardMaterial({ color: 0xc4b08a, roughness: 0.18, metalness: 0 }),
-    // Moulded plastic tassel on the pull cords, in the slat colour like the real hardware
-    // (rev 2 used a turned-wood acorn for contrast; the critics read it as a curtain tassel).
-    // Glossier than the caps so it still separates from the matte wall behind it.
-    tassel: new THREE.MeshStandardMaterial({ color: 0xd2c7ab, roughness: 0.3, metalness: 0 }),
+    // Acorn tassel on the pull cords: cream plastic, a shade lighter than the slats so it
+    // separates from them (rev 3's almond tassel vanished into the slat stack; rev 2's
+    // turned-wood one read as a curtain tassel). Glossier than the caps.
+    tassel: new THREE.MeshStandardMaterial({ color: 0xece4cf, roughness: 0.3, metalness: 0 }),
     laminateWood: new THREE.MeshStandardMaterial({ color: 0x6b4a2e, roughness: 0.5, metalness: 0 }),
     kickPanel: new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.6, metalness: 0.3 }),
     tileBacking: new THREE.MeshStandardMaterial({ color: 0x5a5650, roughness: 1, metalness: 0 }),
