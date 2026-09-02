@@ -230,9 +230,10 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
           r = 0.9 + dust * 0.08;
         } else {
           // Traffic: the glaze dulls (roughness up), whites grey off by a clear step (rev 2:
-          // 0.1 → 0.24 — rev 1's 4 % was lost under tone mapping), blacks scuff to a grey haze.
+          // 0.1 → 0.5 — rev 1's 4 % was lost under tone mapping, and 0.32 still measured only
+          // a 5 % step in the frame against 10 % in the map), blacks scuff to a grey haze.
           r += lane * 0.3 - shelter * 0.12;
-          greyMix = lane * (black ? 0.24 : 0.32);
+          greyMix = lane * (black ? 0.34 : 0.5);
           k *= 1 + dust * 0.03 * (black ? 2 : 1); // a dust film reads lighter on the blacks
         }
       }
@@ -1426,7 +1427,7 @@ function strokeField(f: Float32Array, size: number, pts: Array<[number, number]>
  * shows no repeat; the counter (7.8 m) repeats every canvas, which only
  * matters for the rings and is why they are faint.
  */
-export function laminateWear(size: number, metres: number, base: number, seed: number, rings: number): THREE.Texture {
+export function laminateWear(size: number, metres: number, base: number, seed: number, rings: number): { map: THREE.Texture; roughnessMap: THREE.Texture } {
   const rng = makeRng(seed);
   const pxPerM = size / metres;
   const wipe = makeFbm(seed + 5, 6, 3);
@@ -1465,7 +1466,19 @@ export function laminateWear(size: number, metres: number, base: number, seed: n
     }
     strokeField(f, size, pts, 0.1 + rng() * 0.05, 0.0025 * pxPerM);
   }
-  return greyFromField(f, size, size, 8);
+  // Rev 2: the same wear in albedo. Roughness alone was invisible under a flat env (see the
+  // System 5 rev 2 root cause); the deposits of a cup ring and the grime in a scratch are also
+  // darker than the sheet, the wipe haze a shade lighter. Multiplies the material colour.
+  const { c, ctx } = canvas(size, size);
+  const img = ctx.createImageData(size, size);
+  for (let i = 0; i < size * size; i++) {
+    const d = f[i] - base; // wipe haze ±0.04, scratches +0.18..0.32, rings +0.1..0.15
+    const v = Math.round(255 * clamp01(1 - Math.max(0, d) * 0.9 + Math.max(0, -d) * 0.6));
+    const o = i * 4;
+    img.data[o] = v; img.data[o + 1] = v; img.data[o + 2] = v; img.data[o + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return { map: finish(c, true, 8), roughnessMap: greyFromField(f, size, size, 8) };
 }
 
 /**

@@ -54,8 +54,9 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
     // Satin stainless, not mirror chrome: a mirror this close to the dark-bronze stile
     // reflects nothing but bronze and reads as copper (System 3 rev 1 critic).
     // Rev 2 (System 5 critic): the posts and saddles are chrome like the bar; only the rose
-    // against the bronze stile stays satin.
-    b.rbox(pal.stainlessCool, [x - 0.0225, barY - 0.03, z0 - 0.01], [x + 0.0225, barY + 0.03, z0], 0.004);
+    // against the bronze stile stays satin — the same brushed stainless as the kick plate, so
+    // the door has one satin-steel bucket instead of two.
+    b.rbox(pal.kickPlate, [x - 0.0225, barY - 0.03, z0 - 0.01], [x + 0.0225, barY + 0.03, z0], 0.004);
     const post = new THREE.CylinderGeometry(0.012, 0.016, 0.052, 20);
     post.rotateX(Math.PI / 2);
     post.translate(x, barY, z0 - 0.036);

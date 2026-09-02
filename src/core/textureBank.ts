@@ -46,7 +46,7 @@ const SHAPES: Record<string, Record<string, Shape>> = {
     floorGrout: "direct",
     wallStipple: ["normalMap", "aoMap"],
     teePaint: ["map", "roughnessMap"],
-    laminateWear: "direct",
+    laminateWear: ["map", "roughnessMap"],
     scuffRoughness: "direct",
     handWear: "direct",
     fingerprints: "direct",

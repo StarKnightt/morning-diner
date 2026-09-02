@@ -101,16 +101,23 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       // inside the T-mould, plus the 5 mm dark-steel spider plate screwed flush to it.
       const yU = table.top - table.thickness;
       b.rbox(pal.darkSeal, [cx - table.width / 2 + 0.012, yU - 0.0015, zT0 + 0.012], [cx + table.width / 2 - 0.012, yU + 0.0005, zOuter - 0.012], 0.001);
+      // Spider plate, arms and hub share the bells' castBaseDusty bucket (v pinned to the clean
+      // part of its map) so the tables add no darkMetal bucket — +0 draw calls for the dust.
+      const clean = (g: THREE.BufferGeometry): THREE.BufferGeometry => {
+        const uv = g.attributes.uv as THREE.BufferAttribute;
+        for (let i = 0; i < uv.count; i++) uv.setY(i, 0.9);
+        return g;
+      };
       const plate = new THREE.CylinderGeometry(0.15, 0.15, 0.005, 40);
       plate.translate(cx, yU - 0.004, pz);
-      b.add(plate, pal.darkMetal);
+      b.add(clean(plate), pal.castBaseDusty);
       for (let k = 0; k < 4; k++) {
         const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
         const arm = new THREE.BoxGeometry(spider / 2 - columnR, 0.024, 0.04);
         arm.translate((spider / 2 + columnR) / 2, 0, 0);
         arm.rotateY(a);
         arm.translate(cx, yU - 0.0185, pz);
-        b.add(arm, pal.darkMetal);
+        b.add(clean(arm), pal.castBaseDusty);
         // Pan-head screw through the plate at each arm
         const screw = new THREE.CylinderGeometry(0.006, 0.0065, 0.003, 12);
         screw.translate(cx + Math.cos(a) * 0.125, yU - 0.008, pz - Math.sin(a) * 0.125);
@@ -118,7 +125,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       }
       const hub = new THREE.CylinderGeometry(columnR + 0.012, columnR + 0.012, 0.03, 28);
       hub.translate(cx, yU - 0.0215, pz);
-      b.add(hub, pal.darkMetal);
+      b.add(clean(hub), pal.castBaseDusty);
       b.collider([cx - table.width / 2, 0, zT0], [cx + table.width / 2, table.top, zOuter]);
     }
 

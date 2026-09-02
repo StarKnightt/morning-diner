@@ -636,8 +636,14 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   const glassCarafe = withRough(palette.glassClear.clone(), tex.carafeScratches(512, palette.glassClear.roughness, 64));
   // Counter top: wipe arcs, long scratches, cup rings; 2.05 m period along the 7.8 m top.
   const counterWear = tex.laminateWear(2048, 2.05, palette.formicaCounter.roughness, 33, 6);
-  counterWear.repeat.set(1 / 2.05, 1 / 2.05);
-  const formicaCounterWorn = withRough(palette.formicaCounter.clone(), counterWear);
+  counterWear.roughnessMap.repeat.set(1 / 2.05, 1 / 2.05);
+  counterWear.map.repeat.set(1 / 2.05, 1 / 2.05);
+  const formicaCounterWorn = withRough(palette.formicaCounter.clone(), counterWear.roughnessMap);
+  // Rev 2: the rings, haze and scratches also darken the sheet. formicaCounter keeps its
+  // speckle map (a different repeat), so the wear rides in aoMap (same UV channel), which
+  // scales the indirect light the counter mostly lives in.
+  formicaCounterWorn.aoMap = counterWear.map;
+  formicaCounterWorn.aoMapIntensity = 1;
   // Grid tees: chips and yellowing over the same enamel (uvScale 1 on the tee boxes).
   const tee = tex.teePaint(2048, 21); // rev 2: 2 px/mm so a 3 mm chip is a shape, not a texel
   const tbarPainted = palette.tbar.clone();
