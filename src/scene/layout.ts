@@ -50,7 +50,8 @@ export const BOOTH = {
   zInner: 2.0,
   zOuter: 3.21,
   /** Table is inset 120 mm from the end panels; 50 mm corner radii. */
-  table: { width: 0.7, inset: 0.12, top: 0.75, thickness: 0.038, cornerR: 0.05, band: 0.032 },
+  /** `length` is the x-extent alias the audio harness plan view (src/audio) reads; keep it equal to `width`. */
+  table: { width: 0.7, length: 0.7, inset: 0.12, top: 0.75, thickness: 0.038, cornerR: 0.05, band: 0.032 },
   pedestal: { bellR: 0.235, bellRim: 0.04, bossR: 0.075, bossH: 0.09, columnR: 0.045, spider: 0.36 },
   seat: { front: 0.36, depth: 0.45, thickness: 0.14, top: 0.45, edgeR: 0.04 },
   /** Wedge back: front face reclined, rear face vertical against the divider, tapering to the roll. */

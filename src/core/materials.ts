@@ -47,6 +47,7 @@ export interface Palette {
   rubberMat: THREE.MeshStandardMaterial;
   darkMetal: THREE.MeshStandardMaterial;
   alum: THREE.MeshStandardMaterial;
+  alumBright: THREE.MeshStandardMaterial;
   glass: THREE.MeshPhysicalMaterial;
   laminateWood: THREE.MeshStandardMaterial;
   kickPanel: THREE.MeshStandardMaterial;
@@ -143,9 +144,12 @@ export function createPalette(maxAnisotropy: number): Palette {
   });
 
   // Woods: solid cap (varnished, fine pores, grain along u) vs printed laminates.
-  const capTex = tex.woodGrain(1024, 0.5, "#6E4A2E", 0.6, 0.25, 501, 0.2, false);
-  const panelTex = tex.woodGrain(1024, 0.5, "#8A5A3A", 1.6, 0.55, 502, 0.1, true);
-  const cabTex = tex.woodGrain(1024, 0.5, "#7A4E30", 1.6, 0.55, 503, 0.1, true);
+  // Three different grain sources (domain-warped noise, nothing periodic):
+  // quarter-sawn oak caps (fine, straight), walnut-look laminate on panels and the
+  // counter die (broad, low contrast, vertical), flat-cut maple laminate on cabinets.
+  const capTex = tex.woodVeneer(1024, 0.5, { hex: "#6E4A2E", seed: 501, contrast: 0.2, rough: 0.25, pore: 0.6, vertical: false, along: 3, across: 72, warp: 0.25, figure: 0.1 });
+  const panelTex = tex.woodVeneer(1024, 0.5, { hex: "#7A5236", seed: 502, contrast: 0.11, rough: 0.55, pore: 0, vertical: true, along: 2, across: 14, warp: 0.8, figure: 0.6 });
+  const cabTex = tex.woodVeneer(1024, 0.5, { hex: "#B98E5E", seed: 503, contrast: 0.07, rough: 0.5, pore: 0, vertical: true, along: 2, across: 20, warp: 0.6, figure: 0.3 });
   for (const t of [capTex, panelTex, cabTex]) for (const m of [t.map, t.roughnessMap, t.normalMap]) m.repeat.set(2, 2);
   const capWood = new THREE.MeshPhysicalMaterial({
     map: capTex.map, roughnessMap: capTex.roughnessMap, normalMap: capTex.normalMap, normalScale: new THREE.Vector2(0.4, 0.4),
@@ -182,11 +186,11 @@ export function createPalette(maxAnisotropy: number): Palette {
     anisotropy: 0.6,
   });
 
-  const ceramic = new THREE.MeshStandardMaterial({ color: 0xf2eee6, roughness: 0.1, metalness: 0 });
+  const ceramic = new THREE.MeshStandardMaterial({ color: 0xf2eee6, roughness: 0.14, metalness: 0 });
   const bisque = new THREE.MeshStandardMaterial({ color: 0xe1d7c8, roughness: 0.75, metalness: 0 });
   const glassClear = new THREE.MeshPhysicalMaterial({
     color: 0xf6f8f7,
-    roughness: 0.03,
+    roughness: 0.05,
     metalness: 0,
     transmission: 0.95,
     ior: 1.5,
@@ -196,11 +200,11 @@ export function createPalette(maxAnisotropy: number): Palette {
   // Coffee is OPAQUE on purpose: three renders transmissive objects in their own
   // pass, so a transmissive liquid inside a transmissive decanter is invisible.
   const coffee = new THREE.MeshPhysicalMaterial({
-    color: 0x2e1609,
-    roughness: 0.05,
+    color: 0x2a1408,
+    roughness: 0.08,
     metalness: 0,
-    clearcoat: 1,
-    clearcoatRoughness: 0.03,
+    clearcoat: 0.6,
+    clearcoatRoughness: 0.06,
   });
   const coffeeStain = new THREE.MeshStandardMaterial({ color: 0x4a2a12, roughness: 0.6, metalness: 0, transparent: true, opacity: 0.55 });
   const lens = tex.prismLens(256, 8);
@@ -247,6 +251,7 @@ export function createPalette(maxAnisotropy: number): Palette {
     rubberMat: new THREE.MeshStandardMaterial({ color: 0x1e1e1e, roughness: 0.9, metalness: 0 }),
     darkMetal: new THREE.MeshStandardMaterial({ color: 0x3a3836, roughness: 0.5, metalness: 0.6 }),
     alum: new THREE.MeshStandardMaterial({ color: 0x4f4841, roughness: 0.45, metalness: 0.55 }),
+    alumBright: new THREE.MeshStandardMaterial({ color: 0xb4b8bc, roughness: 0.38, metalness: 0.7 }),
     glass: new THREE.MeshPhysicalMaterial({
       color: 0xdfe8ea,
       roughness: 0.02,
@@ -274,7 +279,8 @@ export function createPalette(maxAnisotropy: number): Palette {
     }),
     fanBlade: new THREE.MeshStandardMaterial({ map: capTex.map, roughnessMap: capTex.roughnessMap, normalMap: capTex.normalMap, color: 0x8a7060, roughness: 1, metalness: 0 }),
     voidBlack: new THREE.MeshBasicMaterial({ color: 0x040404 }),
-    kitchenDim: new THREE.MeshStandardMaterial({ color: 0x4a4744, roughness: 0.95, metalness: 0 }),
+    // Nothing lights the kitchen box, so a little emissive stands in for its own ambient: dark, not black.
+    kitchenDim: new THREE.MeshStandardMaterial({ color: 0x4a4744, roughness: 0.95, metalness: 0, emissive: 0x3a3632, emissiveIntensity: 0.55 }),
     darkGlass: new THREE.MeshStandardMaterial({ color: 0x1c1b1a, roughness: 0.15, metalness: 0.4 }),
     asphalt,
     concrete,
@@ -289,8 +295,10 @@ export function createPalette(maxAnisotropy: number): Palette {
     if (m instanceof THREE.MeshStandardMaterial) m.envMapIntensity = m.metalness >= 0.5 ? 1 : 0.1;
   }
   // Glossy dielectrics still want visible reflections in their specular lobe.
-  palette.glassClear.envMapIntensity = 0.7;
-  palette.coffee.envMapIntensity = 0.7;
+  // Glassware: reflections kept modest so the contents read; the coffee body is
+  // near-black and would otherwise turn the glass into a mirror of the probe.
+  palette.glassClear.envMapIntensity = 0.45;
+  palette.coffee.envMapIntensity = 0.25;
   palette.glass.envMapIntensity = 0.5;
   palette.alum.envMapIntensity = 0.3;
   palette.ceramic.envMapIntensity = 0.35;
@@ -302,6 +310,6 @@ export function createPalette(maxAnisotropy: number): Palette {
   // Laminates are semi-matt: cut the room reflection so grazing views don't turn the die into a mirror.
   palette.laminatePanel.envMapIntensity = 0.3;
   palette.laminateCabinet.envMapIntensity = 0.3;
-  palette.ceramic.envMapIntensity = 0.5;
+  palette.ceramic.envMapIntensity = 0.2; // ivory china: gloss from the lights, only a hint of room reflection
   return palette;
 }

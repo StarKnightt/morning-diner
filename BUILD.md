@@ -123,9 +123,11 @@ node tools/shoot.mjs --tag=sys2    # → shots/sys2-{door,length,aisle,counter,b
 node tools/crop.mjs shots/sys2-booth.png 750,470 shots/crops/valley.png   # 400 px crop (×2) centred on x,y for close inspection
 ```
 
-`shots/crops/` is scratch (git-ignored) — always look at the crops before
-reporting a feature as done: a 4 mm welt cord or a 2 mm groove is 2–3 px at
-1080p and only reads in a crop.
+`shots/crops/crop-<feature>.png` are the proof crops for the current system,
+cut from the committed frames and committed alongside them (from rev 4 on).
+Always look at the crops before reporting a feature as done: a 4 mm welt cord
+or a 2 mm groove is 2–3 px at 1080p and only reads in a crop — and then ask
+whether the crop *reads* as the thing, not just whether the mesh is present.
 
 Options: `--no-build` (reuse `dist/`), `--poses=door,aisle`, `--query=nofill`.
 The harness serves `dist/` on `127.0.0.1:5210`, launches full Chromium
@@ -192,13 +194,36 @@ booth's caddy set; `macro-warmer` is 0.7 m from the decanter and pour mug.
 - Small chrome parts near red vinyl read as copper because they mirror the red
   band. The probe capture mutes the vinyl to #6a1c20 and small fittings use a
   cool-tinted `chromeSoft`/`chromeBrushed`.
+- **Rev 3 "coffee is water / mug is frosted glass" root cause (checked first, per
+  the coordinator).** Not a capture mismatch: `shoot.mjs` runs `vite build()`
+  every time (the ~190 ms figure is real — rolldown), the committed bundle
+  contained the rev 3 source strings, the coffee mesh was present with
+  `transmission 0`, and painting it orange in the built page proved it renders
+  where it should. The failure was a *read* failure: the coffee is near-black,
+  so what you see in the lower half of the decanter is the glass surface's
+  specular reflection of the environment — and the room probe was taken at
+  0.8 m in the aisle, so its whole lower hemisphere is checker floor. Glass
+  (`envMapIntensity 0.7`, roughness 0.03) and the clearcoated coffee both
+  mirrored it → sharp checkerboard "inside" a clear liquid. The mug was opaque
+  ivory, but at `envMapIntensity 0.5` it mirrored the window mullions as
+  vertical streaks → "frosted fluted glass". My crops confirmed geometry, not
+  the read. Fix: a second probe for props (0.4 m in front of the brewer at
+  1.15 m, with the checker swapped for a plain grey floor during that capture)
+  is assigned as `envMap` to glass, coffee, ceramic, bisque, chromeSoft and
+  sugar; glass 0.45 / coffee 0.25 / ceramic 0.2 intensity; glass roughness 0.05.
+- A `Shape` hole that crosses the outer contour breaks earcut and the hole
+  silently fills (the dispenser arch). Cut such openings as a notch in the
+  outline instead.
+- Anisotropic noise: `makeValueNoise2(seed, px, py)` / `makeFbm2` give
+  tileable stretched lattices; `woodVeneer` uses them with a low-frequency
+  domain warp so the band pitch drifts across a panel — no periodic function.
 
 ## System status
 
 | # | System | Status |
 |---|---|---|
 | 1 | Interior geometry and floor plan | **done** (rev 4 close-out: empty L-return, footrail at 200 mm on cast brackets, bell pedestals, head bulkhead + 25 mm wall angle, 60 × 40 caps, 100 mm saddle + stepped exterior slab) |
-| 2 | Booth and counter detail | **built, rev 3 (verified at crop level)** — 5 mm welt cords proud in every channel valley + 7 mm roll-seam and boxing-seam welts, puckers at both tucks, broad sheen (roughness map 0.35–0.55, clearcoat 0.25); 512 px interior-capture PMREM; irregular vertical veneer grain on end panels/counter die/cabinets (contrast 0.10), horizontal cap grain; T-mould with 3 real 2 mm grooves + returned lip, 38 mm tops with sparse two-tone boomerang; counter sheet seams every 3.6 m; steep-rimmed bell stool bases that mirror the floor, per-stool rim seam, ±12 mm height/±25 mm offset; footrail elbow + return flange; 300 mm brushed spider plate; BUNN VPR brewer with one lower + one upper warmer, deep SplashGard funnel, brushed body; 173 × 178 decanter with opaque 55 % coffee, fill line, tide line, black collar/handle, stainless base ring; closed 98 × 117 × 184 dispenser with recessed faceplates and one napkin tip; 12-flute sugar pourer at 65 %; glass shakers with visible fill; glossy waisted mugs (roughness 0.1); 6 mm prism troffer lens; 14 mm fan blades; alu threshold plate |
+| 2 | Booth and counter detail | **built, rev 4 (proof crops committed in `shots/crops/`)** — prop-side reflection probe (no checker in glassware), opaque #2A1408 coffee at 55 % with fill line/meniscus/tide line, 12 mm D-handle facing the aisle, 100 mm-deep funnel; opaque ivory mugs (roughness 0.14, env 0.2) inverted on 140 mm saucers on the drip tray + 3 loose uprights + `pourMug`; Skylark boomerangs as bent chevrons (62/72 mm, 12–15 mm, tan/grey-blue/white, ~40 %); three grain sources via `woodVeneer` (oak caps, walnut panels/die, maple cabinets); seat boxing seam 25 mm below the crown, brighter valley cords, ±3–4 mm puckers; stools ±8 mm height/±10 mm pitch/±25 mm off-line, concave rim band mirrors the checker; Tablecraft-221 dispenser with 52 × 42 arch, napkin tip, lid seam; bright 4" saddle; kitchen box with its own emissive ambient. Rev 3 was: — 5 mm welt cords proud in every channel valley + 7 mm roll-seam and boxing-seam welts, puckers at both tucks, broad sheen (roughness map 0.35–0.55, clearcoat 0.25); 512 px interior-capture PMREM; irregular vertical veneer grain on end panels/counter die/cabinets (contrast 0.10), horizontal cap grain; T-mould with 3 real 2 mm grooves + returned lip, 38 mm tops with sparse two-tone boomerang; counter sheet seams every 3.6 m; steep-rimmed bell stool bases that mirror the floor, per-stool rim seam, ±12 mm height/±25 mm offset; footrail elbow + return flange; 300 mm brushed spider plate; BUNN VPR brewer with one lower + one upper warmer, deep SplashGard funnel, brushed body; 173 × 178 decanter with opaque 55 % coffee, fill line, tide line, black collar/handle, stainless base ring; closed 98 × 117 × 184 dispenser with recessed faceplates and one napkin tip; 12-flute sugar pourer at 65 %; glass shakers with visible fill; glossy waisted mugs (roughness 0.1); 6 mm prism troffer lens; 14 mm fan blades; alu threshold plate |
 | 3 | Windows, blinds, exterior view | pending |
 | 4 | Lighting | pending (placeholder sun/hemi/troffers in `Lighting.ts`) |
 | 5 | Materials and textures | pending (placeholder palette in `materials.ts`) |

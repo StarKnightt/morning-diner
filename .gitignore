@@ -2,6 +2,9 @@ node_modules/
 dist/
 tmp/
 .shot-build/
-# Only the final per-system frames are committed (shots/sysN-*.png).
+# Only the final per-system frames and their proof crops are committed.
 shots/*
 !shots/sys*-*.png
+!shots/crops/
+shots/crops/*
+!shots/crops/crop-*.png

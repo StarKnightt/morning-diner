@@ -122,11 +122,12 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     const baseProfile = [
       new THREE.Vector2(0, 0),
       new THREE.Vector2(baseR, 0),
-      new THREE.Vector2(baseR, 0.024), // vertical rim band: mirrors the floor around the stool
-      new THREE.Vector2(baseR - 0.003, 0.036),
-      new THREE.Vector2(baseR - 0.018, 0.052),
-      new THREE.Vector2(baseR - 0.045, 0.068),
-      new THREE.Vector2(baseR - 0.085, 0.083),
+      new THREE.Vector2(baseR + 0.002, 0.018), // vertical/slightly concave rim band: mirrors the floor around the stool
+      new THREE.Vector2(baseR + 0.001, 0.034),
+      new THREE.Vector2(baseR - 0.006, 0.046),
+      new THREE.Vector2(baseR - 0.024, 0.058),
+      new THREE.Vector2(baseR - 0.05, 0.07),
+      new THREE.Vector2(baseR - 0.088, 0.084),
       new THREE.Vector2(columnR + 0.025, 0.096),
       new THREE.Vector2(columnR + 0.008, 0.106),
       new THREE.Vector2(columnR, 0.11),
@@ -203,8 +204,9 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       const yaw = rng() * Math.PI * 2;
       const tilt = THREE.MathUtils.degToRad(0.6 * (rng() - 0.5)), tiltZ = THREE.MathUtils.degToRad(0.6 * (rng() - 0.5));
       const m = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(tilt, yaw, tiltZ));
-      const dx = (rng() - 0.5) * 0.03 + (nudged.has(i) ? (rng() < 0.5 ? -0.05 : 0.05) : 0);
-      m.setPosition(x + dx, (rng() - 0.5) * 0.012, STOOL.z + (rng() - 0.5) * 0.05);
+      // ±10 mm off pitch (one or two nudged 50 mm), ±8 mm seat height, ±25 mm off the line
+      const dx = (rng() - 0.5) * 0.02 + (nudged.has(i) ? (rng() < 0.5 ? -0.05 : 0.05) : 0);
+      m.setPosition(x + dx, (rng() - 0.5) * 0.016, STOOL.z + (rng() - 0.5) * 0.05);
       return m;
     });
     for (const [geo, mat] of parts) {

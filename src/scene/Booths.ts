@@ -118,12 +118,19 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
         });
         cush.translate((lo(seat.front, seatBack) + hi(seat.front, seatBack)) / 2, seat.top - seat.thickness / 2, zMid);
         b.add(cush, pal.vinylRed);
+        // 5 mm welt around the top edge (seat-front roll) and a boxing seam 25 mm below the crown
         const welt = piping(
           roundedRectPoints(lo(seat.front, seatBack) + 0.01, zInner + 0.01, hi(seat.front, seatBack) - 0.01, zOuter - 0.01, seat.top - 0.014, seat.edgeR),
-          0.003,
+          0.0025,
           true,
         );
-        b.add(welt, pal.vinylRed);
+        b.add(plainColor(welt, 1.2), pal.vinylRed);
+        const boxing = piping(
+          roundedRectPoints(lo(seat.front, seatBack) + 0.0015, zInner + 0.0015, hi(seat.front, seatBack) - 0.0015, zOuter - 0.0015, seat.top - 0.026, seat.edgeR - 0.008),
+          0.002,
+          true,
+        );
+        b.add(plainColor(boxing, 1.2), pal.vinylRed);
       }
       // Plinth (laminate) and kick (rubber, recessed 30 mm)
       b.rbox(pal.laminatePanel, [lo(seat.front + 0.01, divider.x0), kick, zInner], [hi(seat.front + 0.01, divider.x0), seat.top - seat.thickness, zOuter], 0.003, 2, { metric: true });
@@ -160,7 +167,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
         for (const vx of valleys) {
           const cord = new THREE.CylinderGeometry(0.0025, 0.0025, panelH - 0.006, 10);
           cord.translate(vx, 0, 0.0085);
-          b.add(plainColor(cord, 1.22), pal.vinylRed, m);
+          b.add(plainColor(cord, 1.3), pal.vinylRed, m);
         }
       }
       // Rolled top cushion (90 mm Ø), tucked against the divider, with a welt where it meets the face.

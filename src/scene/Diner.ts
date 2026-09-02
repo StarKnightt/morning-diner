@@ -55,23 +55,47 @@ export class Diner {
     scene.environment = buildEnvironment(renderer);
     scene.environmentIntensity = 1;
     {
-      const cubeRT = new THREE.WebGLCubeRenderTarget(512, { type: THREE.HalfFloatType, generateMipmaps: false });
-      const cubeCam = new THREE.CubeCamera(0.05, 80, cubeRT);
-      cubeCam.position.set(-2.3, 0.8, 0.95);
-      scene.add(cubeCam);
-      // The red band is muted for the probe only: small chrome fittings otherwise read as copper.
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      // The red band is muted for the probes only: small chrome fittings otherwise read as copper.
       const vinyls = [this.palette.vinylRed, this.palette.vinylRedCrazed];
       const saved = vinyls.map((v) => v.color.clone());
       for (const v of vinyls) v.color.set("#6a1c20");
-      cubeCam.update(renderer, scene);
+      const probe = (x: number, y: number, z: number) => {
+        const cubeRT = new THREE.WebGLCubeRenderTarget(512, { type: THREE.HalfFloatType, generateMipmaps: false });
+        const cubeCam = new THREE.CubeCamera(0.05, 80, cubeRT);
+        cubeCam.position.set(x, y, z);
+        scene.add(cubeCam);
+        cubeCam.update(renderer, scene);
+        scene.remove(cubeCam);
+        const env = pmrem.fromCubemap(cubeRT.texture).texture;
+        cubeRT.dispose();
+        return env;
+      };
+      // Room probe (aisle, counter height): chrome, stools, footrail, T-mould.
+      const roomEnv = probe(-2.3, 0.8, 0.95);
+      // Prop probe: taken 0.5 m in front of the brewer at 1.1 m, so the back-counter
+      // props (decanter glass, coffee, mugs) reflect cabinets, wall and counter top —
+      // NOT the checker floor, which from there is hidden behind the counter. The
+      // room probe's lower hemisphere is half checkerboard and it printed straight
+      // through the glassware in rev 3.
+      // For this probe the checker is swapped for a plain grey floor: the pattern is
+      // physically visible from there, but on a Ø 170 glass it prints as a sharp
+      // checkerboard inside the decanter and reads as a CG artefact.
+      const floorMesh = scene.getObjectByName("floor") as THREE.Mesh | undefined;
+      const plainFloor = new THREE.MeshStandardMaterial({ color: 0x8c8780, roughness: 0.6 });
+      const floorMat = floorMesh?.material;
+      if (floorMesh) floorMesh.material = plainFloor;
+      const propEnv = probe(-1.7, 1.15, -1.9);
+      if (floorMesh && floorMat) floorMesh.material = floorMat;
+      plainFloor.dispose();
       vinyls.forEach((v, i) => v.color.copy(saved[i]));
-      scene.remove(cubeCam);
-      const pmrem = new THREE.PMREMGenerator(renderer);
-      const env = pmrem.fromCubemap(cubeRT.texture).texture;
       scene.environment.dispose();
-      scene.environment = env;
+      scene.environment = roomEnv;
+      for (const m of [this.palette.glassClear, this.palette.coffee, this.palette.coffeeStain, this.palette.ceramic, this.palette.bisque, this.palette.chromeSoft, this.palette.sugar]) {
+        m.envMap = propEnv;
+        m.needsUpdate = true;
+      }
       pmrem.dispose();
-      cubeRT.dispose();
     }
   }
 

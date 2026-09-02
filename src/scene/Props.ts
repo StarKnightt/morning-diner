@@ -61,9 +61,9 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
   const rng = makeRng(4321);
 
   /* ---------------- napkin dispenser + condiments ---------------- */
-  // Dispenser: closed 117 W × 98 D × 184 H brushed-stainless box. Full-height spring
-  // faceplates on both long faces (±z) recessed 2 mm inside the end panels and cap; a
-  // 40 × 12 mm slot at the bottom of each plate with one napkin tip out ~8 mm.
+  // Dispenser (Tablecraft 221 pattern): 117 W × 98 D × 184 H brushed-stainless body, lid
+  // seam 12 mm below the top, and on both long faces a spring faceplate with an arched
+  // cut-out at the bottom through which the white napkin stack shows; one tip out 9 mm.
   const dispenser = (x: number, z: number, yTop: number, yaw: number) => {
     const m = new THREE.Matrix4().makeRotationY(yaw);
     m.setPosition(x, yTop, z);
@@ -74,28 +74,44 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
       g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
       add(g, mat);
     };
-    // End panels, bottom, lipped cap (2 mm proud all round, 8 mm skirt)
-    box(pal.chromeBrushed, -W / 2, 0.002, -D / 2, -W / 2 + t, H - 0.008, D / 2);
-    box(pal.chromeBrushed, W / 2 - t, 0.002, -D / 2, W / 2, H - 0.008, D / 2);
+    // End panels, bottom, lipped cap; dark seam line where the lid meets the body
+    box(pal.chromeBrushed, -W / 2, 0.002, -D / 2, -W / 2 + t, H - 0.012, D / 2);
+    box(pal.chromeBrushed, W / 2 - t, 0.002, -D / 2, W / 2, H - 0.012, D / 2);
     box(pal.chromeBrushed, -W / 2, 0.002, -D / 2, W / 2, 0.002 + t, D / 2);
-    const cap = new RoundedBoxGeometry(W + 0.004, 0.01, D + 0.004, 2, 0.0015);
-    cap.translate(0, H - 0.005, 0);
+    const cap = new RoundedBoxGeometry(W + 0.003, 0.012, D + 0.003, 2, 0.002);
+    cap.translate(0, H - 0.006, 0);
     add(cap, pal.chromeBrushed);
-    // Dark interior behind the recess so the plate edges read
-    box(pal.blackPlastic, -W / 2 + t, 0.006, -D / 2 + 0.006, W / 2 - t, H - 0.01, D / 2 - 0.006);
+    box(pal.blackPlastic, -W / 2 - 0.0005, H - 0.0135, -D / 2 - 0.0005, W / 2 + 0.0005, H - 0.012, D / 2 + 0.0005);
+    // Napkin stack: white block filling the body (its face shows through the arch)
+    box(pal.napkin, -W / 2 + t + 0.002, 0.008, -D / 2 + 0.007, W / 2 - t - 0.002, H - 0.02, D / 2 - 0.007);
     for (const s of [-1, 1]) {
       const zf = s * (D / 2 - 0.002); // plate face, recessed 2 mm
-      const [za, zb] = s > 0 ? [zf - 0.003, zf] : [zf, zf + 0.003];
-      box(pal.chromeBrushed, -W / 2 + t, 0.006, za, W / 2 - t, H - 0.01, zb);
-      // Slot 40 × 12 at the plate bottom, one napkin tip hanging out
-      box(pal.blackPlastic, -0.02, 0.014, s > 0 ? zf : zf - 0.0005, 0.02, 0.026, s > 0 ? zf + 0.0005 : zf);
-      const tip = new THREE.BoxGeometry(0.034, 0.012, 0.0012);
-      tip.translate(0, -0.006, 0);
+      // Faceplate with an arched cut-out: 44 mm wide, 30 mm tall, rounded top
+      // The arch is a notch in the plate's outline (a hole crossing the outer edge would
+      // break the triangulation): 52 mm wide, 42 mm tall, round-topped.
+      const plate = new THREE.Shape();
+      const hw = W / 2 - t, y0 = 0.006, y1 = H - 0.014;
+      const aw = 0.026, ah = 0.042;
+      plate.moveTo(-hw, y0);
+      plate.lineTo(-aw, y0);
+      plate.lineTo(-aw, y0 + ah - aw);
+      plate.absarc(0, y0 + ah - aw, aw, Math.PI, 0, true);
+      plate.lineTo(aw, y0);
+      plate.lineTo(hw, y0);
+      plate.lineTo(hw, y1);
+      plate.lineTo(-hw, y1);
+      plate.closePath();
+      const pg = new THREE.ExtrudeGeometry(plate, { depth: 0.0025, bevelEnabled: false, curveSegments: 10 });
+      if (s < 0) pg.rotateY(Math.PI);
+      pg.translate(0, 0, s > 0 ? zf - 0.0025 : zf + 0.0025);
+      add(pg, pal.chromeBrushed);
+      // One napkin tip out through the arch, curling down
+      const tip = new THREE.BoxGeometry(0.03, 0.011, 0.0012);
+      tip.translate(0, -0.0055, 0);
       tip.rotateX(-s * THREE.MathUtils.degToRad(35));
-      tip.translate(0.002 * s, 0.024, s * (D / 2 + 0.003));
+      tip.translate(0.002 * s, y0 + 0.011, s * (D / 2 + 0.003));
       add(tip, pal.napkin);
     }
-    // Rubber feet line
     add(new THREE.BoxGeometry(W - 0.01, 0.002, D - 0.01).translate(0, 0.001, 0), pal.blackPlastic);
   };
   // Sugar pourer: fluted clear glass Ø 78 × 105 (12 flutes), sugar to 65 % as an inner
@@ -186,12 +202,23 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     else m.setPosition(x, y, z);
     mugPoses.push(m);
   };
-  for (let i = 0; i < 6; i++) {
-    const col = i % 3, row = Math.floor(i / 3);
-    mugAt(ledge.x0 + 0.1 + col * 0.11 + (rng() - 0.5) * 0.01, yBar + 0.014, ledge.z0 + 0.07 + row * 0.13 + (rng() - 0.5) * 0.01, rng() * Math.PI * 2, true);
+  // Drip tray: four 140 mm saucers with inverted mugs (random handle angle, ±6 mm scatter)
+  const saucerGeo = saucerGeometry();
+  const trayCols = 2, trayRows = 2;
+  for (let i = 0; i < trayCols * trayRows; i++) {
+    const col = i % trayCols, row = Math.floor(i / trayCols);
+    const sx = ledge.x0 + 0.1 + col * 0.16 + (rng() - 0.5) * 0.012;
+    const sz = ledge.z0 + 0.075 + row * 0.15 + (rng() - 0.5) * 0.012;
+    const sc = saucerGeo.clone();
+    sc.translate(sx, yBar + 0.014, sz);
+    b.add(sc, pal.ceramic);
+    mugAt(sx + (rng() - 0.5) * 0.006, yBar + 0.014 + 0.009, sz + (rng() - 0.5) * 0.006, rng() * Math.PI * 2, true);
+  }
+  // Three loose mugs standing upright beside the tray, jittered
+  for (let i = 0; i < 3; i++) {
+    mugAt(ledge.x1 + 0.07 + i * 0.1 + (rng() - 0.5) * 0.03, yBar, ledge.z0 + 0.09 + (rng() - 0.5) * 0.08, rng() * Math.PI * 2, false);
   }
   // Inverted mugs on saucers at two stools
-  const saucerGeo = saucerGeometry();
   for (const x of PROPS.saucerStoolX) {
     const s = saucerGeo.clone();
     s.translate(x, COUNTER.height, PROPS.saucerZ);
@@ -259,8 +286,9 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
       b.box(pal.stainless, [x + s * 0.108 - 0.004, yHead - 0.03, zBack + 0.06], [x + s * 0.108 + 0.004, yHead, zBack + 0.29]);
       b.box(pal.stainless, [x + s * 0.108 - 0.014, yHead - 0.03, zBack + 0.06], [x + s * 0.108 + 0.014, yHead - 0.026, zBack + 0.29]);
     }
+    // Funnel bowl: 4" (100 mm) deep, Ø 200 rim flange tapering to a Ø 70 spout boss
     const funnel = new THREE.LatheGeometry(
-      [V2(0, -0.062), V2(0.03, -0.062), V2(0.05, -0.058), V2(0.085, -0.04), V2(0.098, -0.012), V2(0.1, -0.002), V2(0.106, -0.002), V2(0.106, 0.004), V2(0.095, 0.004), V2(0.094, -0.008), V2(0.082, -0.036), V2(0.048, -0.054), V2(0.03, -0.057), V2(0, -0.057)],
+      [V2(0, -0.104), V2(0.03, -0.104), V2(0.036, -0.1), V2(0.055, -0.088), V2(0.082, -0.05), V2(0.096, -0.014), V2(0.1, -0.002), V2(0.106, -0.002), V2(0.106, 0.004), V2(0.095, 0.004), V2(0.094, -0.008), V2(0.08, -0.046), V2(0.052, -0.083), V2(0.034, -0.095), V2(0, -0.097)],
       48,
     );
     funnel.translate(x, yHead - 0.008, zW);
@@ -296,10 +324,20 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     const collarRing = new THREE.TorusGeometry(0.0645, 0.0045, 10, 48);
     collarRing.rotateX(Math.PI / 2);
     collarRing.translate(0, 0.142, 0);
-    const handle = new THREE.TorusGeometry(0.05, 0.0125, 12, 32, 1.05 * Math.PI);
-    handle.rotateZ(-0.6 * Math.PI);
-    handle.scale(1, 1.3, 1);
-    handle.translate(0.104, 0.098, 0);
+    // D-handle: 12 mm black bar 40 mm off the glass, from the collar down to mid-body, with two arms bonded to the body.
+    const handleBar = new THREE.CylinderGeometry(0.0125, 0.0125, 0.105, 16);
+    handleBar.translate(R + 0.028, 0.105, 0);
+    const armTop = new THREE.CylinderGeometry(0.011, 0.011, 0.05, 12);
+    armTop.rotateZ(Math.PI / 2);
+    armTop.translate(R + 0.004, 0.155, 0);
+    const armBot = new THREE.CylinderGeometry(0.011, 0.011, 0.045, 12);
+    armBot.rotateZ(Math.PI / 2);
+    armBot.translate(R - 0.006, 0.058, 0);
+    const knuckleT = new THREE.SphereGeometry(0.0125, 14, 10);
+    knuckleT.translate(R + 0.028, 0.155, 0);
+    const knuckleB = new THREE.SphereGeometry(0.0125, 14, 10);
+    knuckleB.translate(R + 0.028, 0.056, 0);
+    const handle = mergeGeometries([handleBar.toNonIndexed(), armTop.toNonIndexed(), armBot.toNonIndexed(), knuckleT.toNonIndexed(), knuckleB.toNonIndexed()], false)!;
     const bond = new THREE.BoxGeometry(0.02, 0.05, 0.03);
     bond.translate(0.078, 0.145, 0);
     const handleMesh = new THREE.Mesh(mergeGeometries([collar.toNonIndexed(), collarRing.toNonIndexed(), handle.toNonIndexed(), bond.toNonIndexed()], false)!, pal.blackPlastic);
@@ -311,7 +349,7 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     coffeePot.add(glassMesh, coffeeMesh, stainMesh, handleMesh, baseMesh);
     coffeePot.name = "coffeePot";
     coffeePot.position.set(px, py, pz);
-    coffeePot.rotation.y = 0.35; // handle toward the service aisle
+    coffeePot.rotation.y = -0.4; // handle to the right, quartered toward the service aisle; spout to the wall
     coffeePot.traverse((o) => {
       if (o instanceof THREE.Mesh) o.castShadow = o.receiveShadow = true;
     });

@@ -43,3 +43,36 @@ export function makeFbm(seed: number, basePeriod: number, octaves: number) {
     return s / total;
   };
 }
+
+/** Anisotropic tileable value noise: `px` lattice cells along u, `py` along v (both positive integers). */
+export function makeValueNoise2(seed: number, px: number, py: number) {
+  if (!Number.isInteger(px) || !Number.isInteger(py) || px < 1 || py < 1) throw new Error(`makeValueNoise2: periods must be positive integers (got ${px}, ${py})`);
+  const rng = makeRng(seed);
+  const lattice = new Float32Array(px * py);
+  for (let i = 0; i < lattice.length; i++) lattice[i] = rng();
+  const at = (ix: number, iy: number) => lattice[((iy % py + py) % py) * px + ((ix % px + px) % px)];
+  const fade = (t: number) => t * t * (3 - 2 * t);
+  return (u: number, v: number) => {
+    const x = u * px, y = v * py;
+    const x0 = Math.floor(x), y0 = Math.floor(y);
+    const fx = fade(x - x0), fy = fade(y - y0);
+    const a = at(x0, y0), b = at(x0 + 1, y0), c = at(x0, y0 + 1), d = at(x0 + 1, y0 + 1);
+    return (a + (b - a) * fx) * (1 - fy) + (c + (d - c) * fx) * fy;
+  };
+}
+
+/** Anisotropic fbm over unit UV space; `px`/`py` are the base lattice periods along u/v. */
+export function makeFbm2(seed: number, px: number, py: number, octaves: number) {
+  const layers: Array<{ n: (u: number, v: number) => number; amp: number }> = [];
+  let amp = 1, total = 0;
+  for (let o = 0; o < octaves; o++) {
+    layers.push({ n: makeValueNoise2(seed + o * 101, px << o, py << o), amp });
+    total += amp;
+    amp *= 0.5;
+  }
+  return (u: number, v: number) => {
+    let s = 0;
+    for (const l of layers) s += l.n(u, v) * l.amp;
+    return s / total;
+  };
+}
