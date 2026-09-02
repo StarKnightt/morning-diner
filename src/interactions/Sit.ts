@@ -1,26 +1,43 @@
 /**
  * Sitting in a window booth. Every bench (5 booths × 2) is an interactable;
- * pressing E in front of one glides the camera in 0.9 s (cubic ease, then a
- * 1 cm head settle) to the seated eye: 1.15 m high, centred on the bench,
- * turned 35° toward the window so the glass fills the frame and the slat
- * stripes on the table sit at the bottom edge. Movement is locked while
- * seated; mouse look is clamped to ±70° yaw / ±40° pitch about that view.
- * E again stands back up to where the player was.
+ * pressing E in front of one plays a 1.8 s sit-down (stand-to-sit in the
+ * biomechanics literature runs 1.2–1.8 s: trunk flexes forward, hips drop,
+ * head settles). Phases, seconds from the E press:
+ *
+ *   0    → 0.15  anticipation: nothing moves but a 4 mm weight shift; the hint fades out (0.18 s)
+ *   0.15 → 0.75  step & turn: to the cushion's front edge, most of the yaw toward the seated
+ *                heading, eyes drop to the seat (pitch −25° → −32°), only 7 cm of height lost
+ *   0.75 → 1.45  lower & slide: hips drop 1.55 → 1.15 m (ease in-out), the body slides into the
+ *                booth, the head leans 8 cm toward the table and comes back as the hips land,
+ *                the remaining yaw completes and the eyes lift toward the window
+ *   1.45 → 1.80  settle: the cushion takes the weight — a 14 mm dip, a 4 mm rebound, rest
+ *
+ * Seated eye: 1.15 m, centred on the bench, turned 35° toward the window so the glass fills
+ * the frame and the slat stripes on the table sit at the bottom edge. Movement is locked
+ * while seated; mouse look is clamped to ±70° yaw / ±40° pitch about that view. E again
+ * stands back up (1.0 s: lean, rise, slide out) to where the player was.
  */
 import * as THREE from "three";
 import type { FirstPerson } from "../player/FirstPerson";
 import { BOOTH, PLAYER, WINDOW } from "../scene/layout";
 import { easeInOut, lerp, phase, yawToward, type Interactable } from "./util";
 
-const SIT_DURATION = 0.9;
-const SETTLE_DURATION = 0.25;
-const SETTLE_DIP = 0.012;
+const TL = { antic: [0, 0.15], step: [0.15, 0.75], lower: [0.75, 1.45], settle: [1.45, 1.8], end: 1.8 } as const;
+export const SIT_END = TL.end;
+const STAND_DURATION = 1.0;
+/** Height at the end of the step phase (the body has only bent a little). */
+const EYE_STEP = 1.55;
 const EYE_SEATED = 1.15;
 /** Eye sits 0.6 m from the booth centre — 0.16 m in front of the wedge back. */
 const EYE_FROM_CENTRE = 0.6;
 /** Turn toward the window from straight-ahead (+z), degrees. */
 const WINDOW_TURN_DEG = 35;
 const SEATED_PITCH_DEG = -9;
+/** Looking down at the seat while stepping in. */
+const STEP_PITCH_DEG = -32;
+const LEAN = 0.08;
+const SETTLE_DIP = 0.014;
+const SETTLE_REBOUND = 0.004;
 const YAW_LIMIT = THREE.MathUtils.degToRad(70);
 const PITCH_LIMIT = THREE.MathUtils.degToRad(40);
 
@@ -151,9 +168,8 @@ export class SitInteraction {
         return;
       case "sitting-down": {
         this.t += dt;
-        const total = SIT_DURATION + SETTLE_DURATION;
         this.apply(this.t);
-        if (this.t >= total) {
+        if (this.t >= TL.end) {
           this.state = "seated";
           p.yaw = this.to.yaw;
           p.pitch = this.to.pitch;
@@ -170,10 +186,15 @@ export class SitInteraction {
       }
       case "standing-up": {
         this.t += dt;
-        const u = easeInOut(this.t / SIT_DURATION);
+        const u = this.t / STAND_DURATION;
         const f = this.from, to = this.to;
-        this.setCamera(lerp(f.x, to.x, u), lerp(f.y, to.y, u), lerp(f.z, to.z, u), p.yaw, p.pitch);
-        if (this.t >= SIT_DURATION) {
+        // Trunk leans toward the table first, then the hips rise and the body slides out to the aisle.
+        const lean = LEAN * 0.7 * Math.sin(Math.PI * Math.min(1, u / 0.7));
+        const uy = easeInOut(phase(u, 0.05, 0.85));
+        const uxz = easeInOut(phase(u, 0.2, 1));
+        const lx = this.bench ? -this.bench.side * lean : 0;
+        this.setCamera(lerp(f.x, to.x, uxz) + lx * (1 - uxz), lerp(f.y, to.y, uy), lerp(f.z, to.z, uxz), p.yaw, p.pitch);
+        if (this.t >= STAND_DURATION) {
           p.position.set(to.x, to.y, to.z);
           p.enabled = true;
           this.state = "standing";
@@ -187,13 +208,50 @@ export class SitInteraction {
 
   /** Camera along the sit-down path at time `t` (seconds). */
   private apply(t: number): void {
-    const u = easeInOut(t / SIT_DURATION);
     const f = this.from, to = this.to;
-    let y = lerp(f.y, to.y, u);
-    // Head settle: a 12 mm dip that recovers, once the glide has landed.
-    const v = phase(t, SIT_DURATION, SIT_DURATION + SETTLE_DURATION);
-    y -= SETTLE_DIP * Math.sin(Math.PI * v);
-    this.setCamera(lerp(f.x, to.x, u), y, lerp(f.z, to.z, u), lerp(f.yaw, to.yaw, u), lerp(f.pitch, to.pitch, u));
+    const bench = this.bench;
+    // Cushion front edge, where the body turns and starts to lower.
+    const zEdge = BOOTH.zInner + 0.25;
+    // "Forward" for the lean: toward the table (−side·x), the way the trunk faces while lowering.
+    const leanX = bench ? -bench.side : 0;
+    const stepPitch = THREE.MathUtils.degToRad(STEP_PITCH_DEG);
+
+    let x: number, y: number, z: number, yaw: number, pitch: number;
+    if (t < TL.step[0]) {
+      // Anticipation: weight shift, nothing else.
+      const v = phase(t, TL.antic[0], TL.antic[1]);
+      x = f.x;
+      y = f.y + 0.004 * Math.sin(Math.PI * v);
+      z = f.z;
+      yaw = f.yaw;
+      pitch = f.pitch;
+    } else if (t < TL.step[1]) {
+      const u = easeInOut(phase(t, TL.step[0], TL.step[1]));
+      x = lerp(f.x, to.x, u);
+      y = lerp(f.y, EYE_STEP, u);
+      z = lerp(f.z, zEdge, u);
+      yaw = lerp(f.yaw, to.yaw, 0.7 * u);
+      pitch = lerp(f.pitch, stepPitch, u);
+    } else if (t < TL.lower[1]) {
+      const v = phase(t, TL.lower[0], TL.lower[1]);
+      const u = easeInOut(v);
+      x = to.x + leanX * LEAN * Math.sin(Math.PI * v);
+      y = lerp(EYE_STEP, to.y, u);
+      z = lerp(zEdge, to.z, u);
+      yaw = lerp(f.yaw, to.yaw, 0.7 + 0.3 * u);
+      // Eyes stay on the seat through the first half of the drop, then lift toward the window.
+      pitch = lerp(stepPitch, to.pitch, easeInOut(phase(v, 0.45, 1)));
+    } else {
+      const v = phase(t, TL.settle[0], TL.settle[1]);
+      x = to.x;
+      z = to.z;
+      yaw = to.yaw;
+      pitch = to.pitch;
+      // Cushion takes the weight: a dip, then a smaller rebound.
+      const dip = v < 0.6 ? -SETTLE_DIP * Math.sin(Math.PI * (v / 0.6)) : SETTLE_REBOUND * Math.sin(Math.PI * ((v - 0.6) / 0.4));
+      y = to.y + dip;
+    }
+    this.setCamera(x, y, z, yaw, pitch);
   }
 
   private setCamera(x: number, y: number, z: number, yaw: number, pitch: number): void {

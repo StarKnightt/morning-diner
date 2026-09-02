@@ -33,7 +33,8 @@ export class CeilingFan extends AmbientLayer {
     const bladePass = (rpm / 60) * blades;
 
     const out = ctx.createGain();
-    out.gain.value = dbToGain((opts.levelDb ?? -34.5) + CAL_DB);
+    // Rev 3 live-mix calibration: −41 dBFS ⇒ ≈ −39 LUFS under the hub. Was −34.5.
+    out.gain.value = dbToGain((opts.levelDb ?? -41) + CAL_DB);
 
     // ---- whoosh -----------------------------------------------------------
     const noise = engine.noiseSource("pink", 0.93, t0);

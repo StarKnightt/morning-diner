@@ -58,6 +58,10 @@ export function initInteractions(ctx: InteractionContext): Interactions {
     clink: (at) => audio.sfx.mugClink(toVec(at)),
     pour: (seconds, at) => audio.sfx.pourCoffee(seconds, toVec(at)),
   });
+  // Latch: System 6 rev 3's `DoorSfx.setOutside(0)` plays the strike/tongue/thud itself
+  // (`doorClose()`, calibrated at −23 dBFS @ 0.85 m in the live mix) on the same frame the leaf
+  // seats, so `outside(0)` IS the latch cue. `wiring.doorLatch()` (rev 2's own voice) is kept for
+  // scripted use but not wired here — both together read as a doubled click.
   const door = new DoorInteraction(diner.door, diner.colliders, player, {
     open: () => audio.sfx.doorOpen(),
     outside: (amount) => audio.sfx.setOutside(amount),

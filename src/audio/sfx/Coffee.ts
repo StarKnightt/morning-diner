@@ -15,6 +15,11 @@
  * Near one-shots use equal-power panning (not HRTF): at arm's length the HRTF's
  * interaural delay decorrelates L/R and reads as phasey. Every call builds a
  * handful of nodes that stop and are garbage collected.
+ *
+ * Rev 3 (tools/audio-harness.mjs --scenario=pour, listener at the counter):
+ * the splash starts `LANDING_S` after the call, when the stream reaches the
+ * mug (it used to start 150 ms before the coffee landed); pour ≈ −30 LUFS,
+ * clink peaks ≈ −12 dBFS.
  */
 import { AudioEngine, type SpatialHandle, type Vec3 } from "../AudioEngine";
 import { dbToGain } from "../dsp";
@@ -35,7 +40,8 @@ export class CoffeeSfx {
     this.engine = engine;
     this.position = { ...position };
     // Splash bed after HP/LP is ≈ -20 dBFS; this trim lands it at levelDb.
-    this.level = dbToGain((opts.levelDb ?? -39) + 20);
+    // Rev 3 live-mix calibration: −36 ⇒ ≈ −30 LUFS at the counter (was −39 ⇒ −33).
+    this.level = dbToGain((opts.levelDb ?? -36) + 20);
     this.bus = engine.createBus("sfx-coffee", opts.reverbDb ?? -14);
   }
 
@@ -44,11 +50,19 @@ export class CoffeeSfx {
     this.position = { ...p };
   }
 
+  /**
+   * Seconds between pourCoffee() and the first splash. System 7 calls
+   * pourCoffee() when the stream leaves the spout (Pour.ts `stream[0]`); the
+   * coffee falls 60 mm to the rim and 76 mm to the mug floor — 167 ms at 1 g —
+   * and Pour.ts starts its ripples at +170 ms. Sound follows the liquid.
+   */
+  static readonly LANDING_S = 0.17;
+
   pourCoffee(durationSeconds = 3.0, at: Vec3 = this.position): void {
     const engine = this.engine;
     const ctx = engine.ctx;
     const rng = engine.rng;
-    const t = engine.now + 0.02;
+    const t = engine.now + CoffeeSfx.LANDING_S;
     const dur = Math.max(0.8, durationSeconds);
     const end = t + dur;
     engine.logEvent("sfx.pour", t, dur + 0.3);
@@ -173,8 +187,11 @@ export class CoffeeSfx {
     const t = engine.now + 0.01;
     engine.logEvent("sfx.clink", t, 0.12);
     const out = ctx.createGain();
-    // Ring ≈ -36 dBFS peak, thock ≈ -43, contact tick ≈ -33: the clink lands ≈ -32 dBFS.
-    out.gain.value = dbToGain(-20);
+    // Ring ≈ -36 dBFS peak, thock ≈ -43, contact tick ≈ -33 at −20 dB of trim (the clink landed
+    // ≈ −32 dBFS). Rev 3: 0 dB, so the peak reads ≈ −12 dBFS at the counter (pot rest 1.2 m
+    // away, after the −4 dB master) — a real ceramic contact 26 dB over a −38 dBFS bed, not a
+    // suggestion of one under the bed's own peaks.
+    out.gain.value = dbToGain(0);
     const spatial = engine.attach(out, at, this.bus, { model: "equalpower" });
 
     // Ceramic: a few inharmonic partials, the higher ones dying first.

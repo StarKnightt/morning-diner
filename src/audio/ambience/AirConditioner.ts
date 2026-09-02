@@ -30,7 +30,8 @@ export class AirConditioner extends AmbientLayer {
     const ctx = engine.ctx;
     const t0 = engine.now;
     const out = ctx.createGain();
-    out.gain.value = dbToGain((opts.levelDb ?? -27) + CAL_DB);
+    // Rev 3 live-mix calibration: −36 dBFS ⇒ ≈ −35 LUFS at 1 m, −41 at the aisle (5.7 m). Was −27.
+    out.gain.value = dbToGain((opts.levelDb ?? -36) + CAL_DB);
 
     // ---- drone ----------------------------------------------------------
     const hum = ctx.createOscillator();
