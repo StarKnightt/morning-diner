@@ -371,22 +371,156 @@ export function glassDust(size: number, seed: number, door: boolean): THREE.Text
  * same layout drives the roughness map (glassDust) and the haze decal (handprintAlpha).
  */
 function drawPrints(ctx: CanvasRenderingContext2D, size: number, rng: () => number, tone: (a: number) => string, base: number, spread: number): void {
-  const print = (u: number, v: number, s: number, rot: number, a: number) => {
-    const px = u * size, py = (1 - v) * size;
+  // rev 3: the rev 2 layout (four upright palm prints in a row) read as four evenly spaced
+  // ghost bars. Real door glass at push-bar height carries a smeared *arc* — the heel of a
+  // palm dragged as the door swings — plus scattered fingertip dabs of unequal pressure and
+  // a few short drag streaks. Nothing periodic, nothing upright.
+  const P = (u: number, v: number) => [u * size, (1 - v) * size] as const;
+  const dab = (u: number, v: number, rx: number, ry: number, rot: number, a: number) => {
+    const [px, py] = P(u, v);
     ctx.save(); ctx.translate(px, py); ctx.rotate(rot);
     ctx.fillStyle = tone(a);
-    ctx.beginPath(); ctx.ellipse(0, 0, 0.045 * s, 0.055 * s, 0, 0, Math.PI * 2); ctx.fill();
-    for (let f = 0; f < 4; f++) {
-      const fx = (-0.03 + f * 0.02) * s, fy = -0.06 * s, len = (0.035 + (f === 1 || f === 2 ? 0.012 : 0)) * s;
-      ctx.beginPath(); ctx.ellipse(fx, fy - len / 2, 0.008 * s, len / 2, 0, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.beginPath(); ctx.ellipse(0.055 * s, -0.01 * s, 0.009 * s, 0.028 * s, -0.6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, 0, rx * size, ry * size, 0, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
   };
-  ctx.filter = "blur(3.5px)";
-  for (let k = 0; k < 4; k++) print(0.62 + rng() * 0.22, 0.4 + rng() * 0.12, size * (0.9 + rng() * 0.3), (rng() - 0.5) * 0.8, base + rng() * spread);
-  print(0.3 + rng() * 0.1, 0.46, size * 0.95, 0.3, base * 0.9);
+  // 1) Palm-heel smear arc on the pull side: centre off to the right, radius ~16 % of the
+  //    pane, sweeping ~70°, drawn as many faint jittered arc strokes so the edge is ragged
+  //    and the density varies along the sweep (hardest where the hand first landed).
+  ctx.filter = "blur(2.5px)";
+  ctx.lineCap = "round";
+  const cu = 0.66 + rng() * 0.08, cv = 0.36 + rng() * 0.04, R = 0.14 + rng() * 0.04;
+  const a0 = -2.4 + rng() * 0.3, a1 = a0 + 1.1 + rng() * 0.3;
+  for (let s = 0; s < 22; s++) {
+    const t = s / 21;
+    const jit = (rng() - 0.5) * 0.02;
+    const [cx, cy] = P(cu + jit, cv + (rng() - 0.5) * 0.015);
+    ctx.strokeStyle = tone(base * (0.35 + 0.65 * (1 - t) ** 1.5) + rng() * spread * 0.4);
+    ctx.lineWidth = size * (0.006 + rng() * 0.012);
+    ctx.beginPath();
+    ctx.arc(cx, cy, (R + t * 0.035 + (rng() - 0.5) * 0.01) * size, a0 + t * 0.15, a1 - t * 0.2);
+    ctx.stroke();
+  }
+  // 2) Fingertip dabs: 9–13 of them, clustered where fingers land above the bar, random
+  //    pressure (alpha), random slight rotation, two or three smeared into short tails.
+  const n = 9 + Math.floor(rng() * 5);
+  for (let k = 0; k < n; k++) {
+    const u = 0.5 + rng() * 0.38, v = 0.4 + rng() * 0.16;
+    const a = base * (0.3 + rng() * 1.1);
+    dab(u, v, 0.008 + rng() * 0.006, 0.012 + rng() * 0.008, (rng() - 0.5) * 1.2, a);
+    if (rng() < 0.3) {
+      ctx.strokeStyle = tone(a * 0.5); ctx.lineWidth = size * 0.012;
+      const [x0, y0] = P(u, v), dx = (rng() - 0.5) * 0.08 * size, dy = (rng() * 0.05 + 0.01) * size;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + dx, y0 + dy); ctx.stroke();
+    }
+  }
+  // 3) One flat palm dab near the bar (the hand that pushes), lower pressure.
+  dab(0.32 + rng() * 0.08, 0.43 + rng() * 0.03, 0.045, 0.036, (rng() - 0.5) * 0.6, base * 0.55);
+  // 4) Three long faint drag streaks (a sleeve or a rag) — diagonal, not vertical.
+  ctx.filter = "blur(4px)";
+  for (let k = 0; k < 3; k++) {
+    const [x0, y0] = P(0.25 + rng() * 0.5, 0.3 + rng() * 0.3);
+    ctx.strokeStyle = tone(base * 0.25); ctx.lineWidth = size * (0.02 + rng() * 0.02);
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + (0.1 + rng() * 0.15) * size, y0 + (rng() - 0.3) * 0.12 * size); ctx.stroke();
+  }
   ctx.filter = "none";
+}
+
+/**
+ * Egg-crate grille for the vehicles (rev 3): a dark recessed field behind a fine bright
+ * lattice, `cols × rows` cells. `chrome` picks a bright-metal lattice (sedan) or a
+ * painted argent one (pickup). Returned as an sRGB colour map; the geometry is a flat quad.
+ */
+export function grilleTexture(size: number, cols: number, rows: number, chrome: boolean, seed: number): { map: THREE.Texture; roughnessMap: THREE.Texture } {
+  const w = size, h = Math.round((size * rows) / cols);
+  const { c, ctx } = canvas(w, h);
+  const { c: rc, ctx: rctx } = canvas(w, h);
+  const rng = makeRng(seed);
+  ctx.fillStyle = "#0a0b0c"; ctx.fillRect(0, 0, w, h); // the shadowed radiator behind
+  rctx.fillStyle = "#909090"; rctx.fillRect(0, 0, w, h);
+  const cw = w / cols, ch = h / rows, bar = Math.max(2, cw * 0.18);
+  const lat = chrome ? "#c9ccd0" : "#8d9096", shade = chrome ? "#6d7278" : "#4e5257";
+  for (let r = 0; r <= rows; r++) {
+    const y = r * ch;
+    ctx.fillStyle = shade; ctx.fillRect(0, y - bar / 2, w, bar);
+    ctx.fillStyle = lat; ctx.fillRect(0, y - bar / 2, w, bar * 0.45); // top face catches sky
+  }
+  for (let cI = 0; cI <= cols; cI++) {
+    const x = cI * cw;
+    ctx.fillStyle = shade; ctx.fillRect(x - bar / 2, 0, bar, h);
+    ctx.fillStyle = lat; ctx.fillRect(x - bar / 2, 0, bar * 0.4, h);
+  }
+  // Dust in the recesses: a few cells caked paler
+  for (let k = 0; k < cols * rows * 0.15; k++) {
+    const cx = Math.floor(rng() * cols) * cw, cy = Math.floor(rng() * rows) * ch;
+    ctx.fillStyle = `rgba(120,108,90,${(0.15 + rng() * 0.2).toFixed(2)})`;
+    ctx.fillRect(cx + bar / 2, cy + bar / 2, cw - bar, ch - bar);
+  }
+  rctx.fillStyle = chrome ? "#303030" : "#707070";
+  for (let r = 0; r <= rows; r++) rctx.fillRect(0, r * ch - bar / 2, w, bar);
+  for (let cI = 0; cI <= cols; cI++) rctx.fillRect(cI * cw - bar / 2, 0, bar, h);
+  return { map: finish(c, true, 8, false), roughnessMap: finish(rc, false, 8, false) };
+}
+
+/**
+ * Licence plate (rev 3): a 12 × 6" plate, pale field with a faint sun-faded gradient, dark
+ * embossed serial (drawn twice with a 1 px offset to fake the emboss shadow), a small state
+ * legend on top and a registration sticker. Any legible text is generic — no real state.
+ */
+export function plateTexture(size: number, serial: string, dark: boolean, seed: number): THREE.Texture {
+  const w = size, h = size / 2;
+  const { c, ctx } = canvas(w, h);
+  const rng = makeRng(seed);
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, dark ? "#1d2a52" : "#ece6d3");
+  g.addColorStop(1, dark ? "#26356a" : "#d9d0b6");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = dark ? "#0e1530" : "#b6ab8f"; ctx.lineWidth = w * 0.012;
+  ctx.strokeRect(w * 0.015, h * 0.03, w * 0.97, h * 0.94);
+  const ink = dark ? "#e8e4d8" : "#233a7a";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.font = `bold ${Math.round(h * 0.46)}px sans-serif`;
+  ctx.fillStyle = dark ? "#0b1128" : "#7d8aa6"; ctx.fillText(serial, w * 0.5 + w * 0.006, h * 0.56 + h * 0.012);
+  ctx.fillStyle = ink; ctx.fillText(serial, w * 0.5, h * 0.56);
+  ctx.font = `${Math.round(h * 0.13)}px sans-serif`;
+  ctx.fillStyle = dark ? "#f0d9a8" : "#8a2a2a"; ctx.fillText("HIGH DESERT", w * 0.5, h * 0.15);
+  ctx.fillStyle = dark ? "#7fb2e0" : "#d9a13a"; ctx.fillRect(w * 0.86, h * 0.78, w * 0.08, h * 0.14); // sticker
+  // dust film heavier at the bottom edge and a couple of dings
+  const dg = ctx.createLinearGradient(0, h * 0.5, 0, h);
+  dg.addColorStop(0, "rgba(150,130,100,0)"); dg.addColorStop(1, "rgba(150,130,100,0.35)");
+  ctx.fillStyle = dg; ctx.fillRect(0, 0, w, h);
+  for (let k = 0; k < 3; k++) { ctx.fillStyle = "rgba(60,55,50,0.25)"; ctx.beginPath(); ctx.arc(rng() * w, rng() * h, w * 0.01, 0, Math.PI * 2); ctx.fill(); }
+  return finish(c, true, 8, false);
+}
+
+/**
+ * Car-paint roughness + dust film (rev 3). The lofted body is UV-mapped u = along the car,
+ * v = around the section from the sill (0) over the roof (0.5) back to the other sill (1).
+ * Dust cakes on the lower body (both sills) and settles on the roof/hood (v ≈ 0.5);
+ * the doors' upper flanks stay cleanest, keeping the clearcoat sky reflection there.
+ */
+export function carDust(size: number, seed: number): { roughnessMap: THREE.Texture; map: THREE.Texture } {
+  const w = size, h = size / 2;
+  const { c, ctx } = canvas(w, h);
+  const { c: rc, ctx: rctx } = canvas(w, h);
+  const fbm = makeFbm(seed, 6, 3);
+  const grit = makeFbm(seed + 3, 90, 2);
+  const img = ctx.createImageData(w, h), rimg = rctx.createImageData(w, h);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const u = x / w, v = y / h;
+      const sill = Math.exp(-((Math.min(v, 1 - v) / 0.09) ** 2));
+      const top = Math.exp(-(((v - 0.5) / 0.08) ** 2)) * 0.5;
+      const n = fbm(u, v);
+      const dust = clamp(sill * (0.45 + n * 0.5) + top * (0.3 + n * 0.5) + (grit(u, v) - 0.6) * 0.5, 0, 1);
+      const o = (y * w + x) * 4;
+      const r = clamp(0.32 + dust * 0.55, 0, 1) * 255;
+      rimg.data[o] = r; rimg.data[o + 1] = r; rimg.data[o + 2] = r; rimg.data[o + 3] = 255;
+      // colour: white = base tint (multiplied against the paint colour), dust pulls it toward tan
+      const k = 1 - dust * 0.28;
+      img.data[o] = 255 * (k + dust * 0.22); img.data[o + 1] = 255 * (k + dust * 0.17); img.data[o + 2] = 255 * (k + dust * 0.09); img.data[o + 3] = 255;
+    }
+  ctx.putImageData(img, 0, 0); rctx.putImageData(rimg, 0, 0);
+  return { map: finish(c, true, 8, false), roughnessMap: finish(rc, false, 8, false) };
 }
 
 /** Alpha for the greasy-haze decal on the door pane: the same prints as glassDust(door), white on black. */
