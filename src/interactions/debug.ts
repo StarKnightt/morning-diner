@@ -19,9 +19,9 @@
  */
 import type { Interactions } from "./index";
 import type { FirstPerson } from "../player/FirstPerson";
-import { POUR_STREAM_START } from "./Pour";
+import { EMPTY_FILL, POUR_STREAM_START } from "./Pour";
 
-export type InteractPoseName = "sit-seated" | "pour-mid" | "pour-full" | "door-open";
+export type InteractPoseName = "sit-seated" | "pour-mid" | "pour-full" | "door-open" | "drink-sip";
 
 interface SitOpts {
   booth?: number;
@@ -49,11 +49,14 @@ const POUR_CAMERA = { x: -0.55, y: 1.42, z: -2.15, yaw: 83, pitch: -28 };
  * with the lot behind it; from the hinge side it hides edge-on behind the jamb.
  */
 const DOOR_CAMERA = { x: 5.5, y: 1.62, z: 1.7, yaw: 156, pitch: -12 };
+/** System 9: standing in the service aisle at the mug, looking down at it — the drink is first person. */
+export const DRINK_CAMERA = { x: -1.25, y: 1.62, z: -1.5, yaw: 8, pitch: -28 };
 export const INTERACT_POSES: Record<InteractPoseName, { camera?: typeof POUR_CAMERA; note: string }> = {
   "sit-seated": { note: "booth 2, +x bench, seated eye 1.15 m turned 35° to the window" },
   "pour-mid": { camera: POUR_CAMERA, note: "1.2 s into the stream (t ≈ 3.0): mug half full, stream + building steam" },
   "pour-full": { camera: POUR_CAMERA, note: "6 s: decanter back on the warmer 9 mm lower, mug full, steam" },
   "door-open": { camera: DOOR_CAMERA, note: "2 s: leaf held at 85° (hold phase 1.45–2.85 s)" },
+  "drink-sip": { camera: DRINK_CAMERA, note: "0.95 s into the drink from a full mug: rim at the lips, head tilted back, level falling" },
 };
 
 export function installInteractionDebugApi(
@@ -61,7 +64,7 @@ export function installInteractionDebugApi(
   player: FirstPerson,
   clock: { freeze(f: boolean): void; isFrozen(): boolean },
 ): void {
-  const { sit, pour, door } = api;
+  const { sit, pour, door, drink } = api;
 
   const nearestBench = () => {
     const p = player.position;
@@ -93,6 +96,16 @@ export function installInteractionDebugApi(
           clock.freeze(true);
         }
         break;
+      case "drink":
+        // A seek from an empty mug first fills it (pour seeked past its end: full, steaming).
+        if (t === undefined) drink.start();
+        else {
+          drink.reset();
+          if (pour.fill < EMPTY_FILL) pour.seek(6.0);
+          drink.seek(t);
+          clock.freeze(true);
+        }
+        break;
       case "sit": {
         const bench =
           opts.booth !== undefined ? sit.benches.find((b) => b.booth === opts.booth && b.side === (opts.side ?? 1)) ?? nearestBench() : nearestBench();
@@ -113,6 +126,7 @@ export function installInteractionDebugApi(
         break;
       case "reset":
         sit.reset();
+        drink.reset();
         pour.reset();
         door.reset();
         clock.freeze(false);
@@ -138,6 +152,9 @@ export function installInteractionDebugApi(
         break;
       case "door-open":
         interact("door", 2.0);
+        break;
+      case "drink-sip":
+        interact("drink", 0.95);
         break;
     }
     // Run one zero-dt tick so the prompt and camera reflect the new state before the next render.

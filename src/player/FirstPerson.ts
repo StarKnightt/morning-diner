@@ -61,6 +61,8 @@ export class FirstPerson {
    * (a sprint already running blends out). Interactions set it (index.ts).
    */
   blocked: () => boolean = () => false;
+  /** Feet planted (System 9 Drink.ts): the keys are ignored — the body decelerates — but the look stays live. */
+  movementLocked = false;
   /** Extra camera rotation, radians — the sip's head-tilt (Drink.ts). Zero at rest. */
   readonly lean = { pitch: 0, roll: 0 };
   /** Landing footfall: `strength` 0..1 from the impact speed (0.32 m hop ≈ 1). */
@@ -161,12 +163,14 @@ export class FirstPerson {
       this.sprint = 0;
       return;
     }
-    const blocked = this.blocked();
+    const blocked = this.blocked() || this.movementLocked;
     let fwd = 0, side = 0;
-    if (this.keys.has("KeyW") || this.keys.has("ArrowUp")) fwd += 1;
-    if (this.keys.has("KeyS") || this.keys.has("ArrowDown")) fwd -= 1;
-    if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) side += 1;
-    if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) side -= 1;
+    if (!this.movementLocked) {
+      if (this.keys.has("KeyW") || this.keys.has("ArrowUp")) fwd += 1;
+      if (this.keys.has("KeyS") || this.keys.has("ArrowDown")) fwd -= 1;
+      if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) side += 1;
+      if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) side -= 1;
+    }
     // Sprint blend: Shift held (and allowed) → 1 over 0.2 s; released / refused → 0 over 0.2 s.
     const wantSprint = !blocked && (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"));
     this.sprint = THREE.MathUtils.clamp(this.sprint + (wantSprint ? dt : -dt) / SPRINT_BLEND, 0, 1);

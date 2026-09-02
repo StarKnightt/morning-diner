@@ -18,6 +18,7 @@ import type { FirstPerson } from "../player/FirstPerson";
 import type { Diner } from "../scene/Diner";
 import { installInteractionDebugApi } from "./debug";
 import { DoorInteraction } from "./DoorSwing";
+import { DrinkInteraction } from "./Drink";
 import { PourInteraction } from "./Pour";
 import { Prompt } from "./Prompt";
 import { SitInteraction } from "./Sit";
@@ -39,6 +40,8 @@ export interface Interactions {
   readonly sit: SitInteraction;
   readonly pour: PourInteraction;
   readonly door: DoorInteraction;
+  /** System 9. */
+  readonly drink: DrinkInteraction;
   /** Bind sun / exposure to the door: fn(progress 0..1). Returns an unsubscribe. */
   onDoorOpen(fn: (progress: number) => void): () => void;
   /** Currently highlighted target, or null. */
@@ -70,8 +73,14 @@ export function initInteractions(ctx: InteractionContext): Interactions {
     outside: (amount) => audio.sfx.setOutside(amount),
   }, scene);
 
+  // System 9: drink from the pour mug (offered once it holds more than EMPTY_FILL; "Pour" below).
+  const drink = new DrinkInteraction(pour, diner.pourMug, player, {
+    sip: () => audio.sfx.sip(),
+    clink: (at) => audio.sfx.mugClink(toVec(at)),
+  });
+
   const prompt = new Prompt("E", new URLSearchParams(location.search).has("shoot"));
-  const items: Interactable[] = [...sit.interactables, pour.interactable, door.interactable];
+  const items: Interactable[] = [...sit.interactables, pour.interactable, drink.interactable, door.interactable];
 
   const camPos = new THREE.Vector3();
   const camFwd = new THREE.Vector3();
@@ -119,7 +128,7 @@ export function initInteractions(ctx: InteractionContext): Interactions {
 
   // Sprint / jump gate (FirstPerson reads it every frame). Sit transitions disable the
   // controller outright; this covers the pour and standing in the door's swing.
-  player.blocked = () => pour.state === "pouring" || door.inSwing;
+  player.blocked = () => pour.state === "pouring" || drink.state === "drinking" || door.inSwing;
   player.onLand = (strength) => audio.sfx.footfall(strength);
   const onMouse = (e: MouseEvent): void => {
     if (e.button !== 0 || document.pointerLockElement !== renderer.domElement) return;
@@ -133,10 +142,11 @@ export function initInteractions(ctx: InteractionContext): Interactions {
       const step = frozen ? 0 : dt;
       sit.update(step);
       pour.update(step);
+      drink.update(step);
       door.update(step);
       // Shadow-once (Diner.ts): both sun shadow maps are rendered once at boot, so anything
       // sunlit that moved this frame (door leaf, decanter, mug, stream) re-renders them.
-      if (door.consumeMoved() || pour.consumeMoved()) diner.invalidateShadows();
+      if (door.consumeMoved() || pour.consumeMoved() || drink.consumeMoved()) diner.invalidateShadows();
       target = pickTarget();
       prompt.set(target ? target.label() : null);
       audio.update(camera);
@@ -146,6 +156,7 @@ export function initInteractions(ctx: InteractionContext): Interactions {
     sit,
     pour,
     door,
+    drink,
     onDoorOpen: (fn) => door.onDoorOpen(fn),
     get target() {
       return target;

@@ -55,6 +55,8 @@ const POUR_CAMERA = { x: -0.55, y: 1.42, z: -2.15, yaw: 83, pitch: -28 };
 const DOOR_CAMERA = { x: 5.5, y: 1.62, z: 1.7, yaw: 156, pitch: -12 };
 // Outside on the sidewalk, 3/4 view back at the door: the leaf swings toward the camera so its angle reads.
 const DOOR_EXT_CAMERA = { x: 6.3, y: 1.62, z: 4.7, yaw: 46, pitch: -8 };
+// System 9 (DRINK_CAMERA in debug.ts): first person in the service aisle at the mug.
+const DRINK_CAMERA = { x: -1.25, y: 1.62, z: -1.5, yaw: 8, pitch: -28 };
 
 /**
  * name → { interact, opts, camera, t0, t1, step, keys, cols, title }
@@ -103,6 +105,16 @@ const SEQUENCES = {
     keys: [],
     cols: 6,
     title: "DOOR  exterior 3/4 camera  0-7.25 s @ 0.25 s",
+  },
+  drink: {
+    interact: "drink",
+    camera: DRINK_CAMERA,
+    t0: 0,
+    t1: 1.6,
+    step: 0.1,
+    keys: [0, 0.5, 0.8, 1.0, 1.2, 1.6],
+    cols: 6,
+    title: "DRINK  first person at the mug (full)  0-1.6 s @ 0.1 s",
   },
 };
 const NAMES = ONLY.length ? Object.keys(SEQUENCES).filter((s) => ONLY.includes(s)) : Object.keys(SEQUENCES);
@@ -368,6 +380,7 @@ async function main() {
           if (s.interact === "door") return `${(ix.door.angleDeg ?? ix.door.progress * 85).toFixed(1)}DEG`;
           if (s.interact === "pour") return ix.pour.state.toUpperCase().slice(0, 7);
           if (s.interact === "sit") return ix.sit.state.toUpperCase().replace("-", " ").slice(0, 12);
+          if (s.interact === "drink") return `FILL ${(ix.drink.fill * 100).toFixed(0)}%`;
           return "";
         },
         { s: seq, t, cam: seq.camera },
