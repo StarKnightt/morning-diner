@@ -703,7 +703,7 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
   place(lining, mats.cabin);
   place(loft.grooves, mats.gap);
   sink2(sink.panes, loft.glass);
-  // Longitudinal cut lines (hood ↔ fender, deck ↔ quarter): 6 mm dark strips 2.5 mm over the top skin
+  // Longitudinal cut lines (hood ↔ fender, deck ↔ quarter): 9 mm dark strips 2.5 mm over the top skin
   for (const ln of spec.topLines)
     for (const sx of [-1, 1]) {
       const pos: number[] = [], nor: number[] = [], uvs: number[] = [], idx: number[] = [];
@@ -711,7 +711,7 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
       for (let i = 0; i <= n; i++) {
         const z = ln.z0 + ((ln.z1 - ln.z0) * i) / n;
         const y = topAt(z)[0] + 0.0025;
-        pos.push(sx * ln.x - 0.003, y, z, sx * ln.x + 0.003, y, z); // 6 mm: ≥ 2 px at 5 m, no 1-px dotting
+        pos.push(sx * ln.x - 0.0045, y, z, sx * ln.x + 0.0045, y, z); // 9 mm: ≥ 2 px at 4–5 m (6 mm AA'd to a grey 1-px line, step 28)
         nor.push(0, 1, 0, 0, 1, 0);
         uvs.push(0, i / n, 1, i / n);
         if (i < n) { const p = i * 2; idx.push(p, p + 2, p + 1, p + 2, p + 3, p + 1); }
@@ -878,10 +878,16 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
         ring.rotateY(Math.PI / 2);
         ring.translate(xc + sx * 0.052, R, wz);
         place(ring, spec.wheelFace);
-        const medallion = new THREE.CylinderGeometry(0.03, 0.03, 0.004, 20);
-        medallion.rotateZ(Math.PI / 2);
-        medallion.translate(xc + sx * 0.056, R, wz);
-        place(medallion, mats.dark);
+        // Centre cap: a domed chrome medallion with a small dark emblem disc (rev 4's flat dark
+        // 60 mm disc read as a hole through the cover)
+        const medallion = new THREE.LatheGeometry([[0.032, 0.052], [0.032, 0.058], [0.028, 0.064], [0.018, 0.069], [0.009, 0.071], [0, 0.0715]].map(([r, h]) => new THREE.Vector2(r, h)), 24);
+        medallion.rotateZ(sx > 0 ? -Math.PI / 2 : Math.PI / 2);
+        medallion.translate(xc, R, wz);
+        place(medallion, mats.chrome);
+        const emblem = new THREE.CylinderGeometry(0.009, 0.009, 0.002, 12);
+        emblem.rotateZ(Math.PI / 2);
+        emblem.translate(xc + sx * 0.0715, R, wz);
+        place(emblem, mats.dark);
       }
       // Brake drum / dark well behind the wheel face
       const drum = new THREE.CylinderGeometry(0.17, 0.17, 0.12, 16);
@@ -1354,7 +1360,9 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
     top: [
       [0.0, 0.90, 0.85, 0.02], [0.12, 0.94, 0.86, 0.02], [1.26, 0.995, 0.88, 0.02, true], [1.265, 0.95, 0.88, 0.008, true], [1.32, 0.955, 0.88, 0.008],
       [1.36, 1.02, 0.86, 0.02, true], [1.70, 1.74, 0.79, 0.04, true], [1.80, 1.79, 0.78, 0.03], [2.80, 1.79, 0.78, 0.03],
-      [2.86, 1.74, 0.78, 0.03, true], [2.90, 1.14, 0.88, 0.02, true], [2.92, 1.10, 0.888, 0.012], [4.98, 1.10, 0.888, 0.012], [5.0, 1.09, 0.885, 0.01],
+      // Cab back drops straight to the bed-rail height (rev 4's 1.14 → 1.10 step over 2 cm was a
+      // lit facet showing through the cab-to-bed gap from the side).
+      [2.86, 1.74, 0.78, 0.03, true], [2.90, 1.10, 0.888, 0.012, true], [2.92, 1.10, 0.888, 0.012], [4.98, 1.10, 0.888, 0.012], [5.0, 1.09, 0.885, 0.01],
     ],
     tailgate: { xIn: 0.815, y0: 0.68, y1: 1.085 }, tailTaper: 0.006,
     sideGlass: [{ z0: 1.52, z1: 2.8, z0Top: 1.86 }],

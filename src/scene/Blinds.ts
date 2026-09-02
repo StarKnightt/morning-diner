@@ -239,11 +239,14 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
     const bandK = () => Math.min(hanging - 4, Math.max(2, hanging - 4 - Math.floor(rng() * 16)));
     const kinkK = bandK();
     {
-      // Crease 12–20 cm from one end: the part past it twists 12–20° and its tip BENDS UP
-      // 12–18 mm (the outer ladder rung holds the slat from below, so a bent end rises off it
+      // Crease 11–19 cm from one end: the part past it twists 22–34° and its tip BENDS UP
+      // 20–28 mm (the outer ladder rung holds the slat from below, so a bent end rises off it
       // toward the slat above — the way abused mini-blinds actually look).
-      const side = rng() < 0.5 ? -1 : 1;
-      kinks.set(kinkK, { x: side * (0.43 + rng() * 0.08), dTilt: THREE.MathUtils.degToRad((rng() < 0.5 ? -1 : 1) * (12 + rng() * 8)), drop: -(0.012 + rng() * 0.006) });
+      // Always the −x end: the `window` pose (yaw 180, camera 0.1 m off the window's −x side)
+      // clips the +x end at the frame edge, so a crease there is never in frame (rev 4/5 WIP).
+      rng(); // keep the per-blind sequence (sag slat, tones) stable
+      const side = -1;
+      kinks.set(kinkK, { x: side * (0.43 + rng() * 0.08), dTilt: THREE.MathUtils.degToRad((rng() < 0.5 ? -1 : 1) * (22 + rng() * 12)), drop: -(0.02 + rng() * 0.008) });
     }
     let sagK = bandK();
     if (Math.abs(sagK - kinkK) < 3) sagK = kinkK + 4 < hanging - 1 ? kinkK + 4 : Math.max(2, kinkK - 4);
