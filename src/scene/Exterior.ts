@@ -204,6 +204,8 @@ interface Station {
   rTop: number;
   /** Hard shading break at this station (hood → windshield, roof → backlight …). */
   crease?: boolean;
+  /** Inset faces at this station are painted body (open bed) rather than dark shut-line walls. */
+  insetPaint?: boolean;
   /** Shut line / gap / bed: moves ring point j (given its outward 2D normal) or leaves it (null). */
   inset?: (j: number, p: [number, number], n: [number, number]) => [number, number] | null;
 }
@@ -230,7 +232,8 @@ interface CarSpec {
   /** Body top line as (z, yTop, hwTop, rTop, crease?) — the loft resamples between them. */
   top: Array<[number, number, number, number, boolean?]>;
   /** Side glass panes along the flank. */
-  sideGlass: Array<{ z0: number; z1: number }>;
+  /** Side panes: belt-line z extent, with optional raked pillar edges at the roof (A-pillar z0Top, C-pillar z1Top). */
+  sideGlass: Array<{ z0: number; z1: number; z0Top?: number; z1Top?: number }>;
   /** Door shut lines (z). The handle of each door sits ahead of its REAR cut. */
   doors: number[];
   grooves: Groove[];
@@ -248,7 +251,6 @@ interface CarSpec {
     wheel: { x: number; y: number; z: number; r: number };
     seats: Array<{ z: number; x0: number; x1: number; y0: number; y1: number; headrest?: boolean }>;
     shelf?: { z0: number; z1: number; y: number; hw: number };
-    pillars: number[];
   };
   paint: THREE.Material;
   grilleMat: THREE.Material;
@@ -311,13 +313,22 @@ function stationRing(s: Station): Array<[number, number]> {
  * Quads that touch an inset (moved) ring point are the groove walls / floors and go to the
  * second geometry (dark material) so a 3 mm shut line reads without shadow-map resolution.
  */
-function loftBody(stations: Station[], L: number): { body: THREE.BufferGeometry; grooves: THREE.BufferGeometry } {
+/**
+ * Glass classification of loft quad (station i → i+1, ring segment j): `full` — the whole quad
+ * is a pane (side glass on the tumblehome segment); `[wA, wB]` — the top-centre quad is split
+ * at |x| = w (glass inboard, A-pillar/header paint outboard), w interpolated per station.
+ */
+type GlassSplit = { tA: number; tB: number; low: boolean };
+type GlassOf = (i: number, j: number) => "full" | GlassSplit | null;
+
+function loftBody(stations: Station[], L: number, glassOf: GlassOf = () => null): { body: THREE.BufferGeometry; grooves: THREE.BufferGeometry; glass: THREE.BufferGeometry } {
   const rings = stations.map(stationRing);
   const plain = stations.map((s) => stationRing({ ...s, inset: undefined }));
   const moved = rings.map((r, i) => r.map((p, j) => Math.abs(p[0] - plain[i][j][0]) + Math.abs(p[1] - plain[i][j][1]) > 1e-9));
   const N = rings[0].length;
   const P = (i: number, j: number) => new THREE.Vector3(rings[i][(j + N) % N][0], rings[i][(j + N) % N][1], stations[i].z);
-  const out = { body: { pos: [] as number[], nor: [] as number[], uv: [] as number[] }, grooves: { pos: [] as number[], nor: [] as number[], uv: [] as number[] } };
+  type Sink = { pos: number[]; nor: number[]; uv: number[] };
+  const out: { body: Sink; grooves: Sink; glass: Sink } = { body: { pos: [], nor: [], uv: [] }, grooves: { pos: [], nor: [], uv: [] }, glass: { pos: [], nor: [], uv: [] } };
   const normalAt = (i: number, j: number, dir: -1 | 0 | 1) => {
     const around = P(i, j + 1).sub(P(i, j - 1));
     const back = dir <= 0 && i > 0 ? P(i - 1, j) : P(i, j);
@@ -355,7 +366,24 @@ function loftBody(stations: Station[], L: number): { body: THREE.BufferGeometry;
       const a = P(i, j), b = P(i, j1), c = P(i + 1, j1), d = P(i + 1, j);
       const va = j / N, vb = (j + 1) / N;
       const groove = moved[i][j] || moved[i][j1] || moved[i + 1][j] || moved[i + 1][j1];
-      const dst = groove ? out.grooves : out.body;
+      const glass = groove ? null : glassOf(i, j);
+      const dst = groove ? (stations[i].insetPaint || stations[i + 1].insetPaint ? out.body : out.grooves) : glass === "full" ? out.glass : out.body;
+      if (glass && glass !== "full") {
+        // Split the quad by the line joining parameter tA on edge a→b (station i) to tB on edge
+        // d→c (station i+1); the t-low side is glass when `low`, else the t-high side.
+        const cut = (p: THREE.Vector3, q: THREE.Vector3, np: THREE.Vector3, nq: THREE.Vector3, t: number) => ({
+          p: p.clone().lerp(q, t), n: np.clone().lerp(nq, t).normalize(), t,
+        });
+        const sA = cut(a, b, nA[j], nA[j1], THREE.MathUtils.clamp(glass.tA, 0, 1)), sB = cut(d, c, nB[j], nB[j1], THREE.MathUtils.clamp(glass.tB, 0, 1));
+        const vA = va + (vb - va) * sA.t, vB = va + (vb - va) * sB.t;
+        const lowDst = glass.low ? out.glass : out.body, highDst = glass.low ? out.body : out.glass;
+        // low quad: a, sA, sB, d ; high quad: sA, b, c, sB
+        tri(lowDst, a, sA.p, sB.p, nA[j], sA.n, sB.n, [uA, va], [uA, vA], [uB, vB]);
+        tri(lowDst, a, sB.p, d, nA[j], sB.n, nB[j], [uA, va], [uB, vB], [uB, va]);
+        tri(highDst, sA.p, b, c, sA.n, nA[j1], nB[j1], [uA, vA], [uA, vb], [uB, vb]);
+        tri(highDst, sA.p, c, sB.p, sA.n, nB[j1], sB.n, [uA, vA], [uB, vb], [uB, vB]);
+        continue;
+      }
       tri(dst, a, b, c, nA[j], nA[j1], nB[j1], [uA, va], [uA, vb], [uB, vb]);
       tri(dst, a, c, d, nA[j], nB[j1], nB[j], [uA, va], [uB, vb], [uB, va]);
     }
@@ -376,7 +404,7 @@ function loftBody(stations: Station[], L: number): { body: THREE.BufferGeometry;
     g.setAttribute("uv", new THREE.Float32BufferAttribute(o.uv, 2));
     return g;
   };
-  return { body: make(out.body), grooves: make(out.grooves) };
+  return { body: make(out.body), grooves: make(out.grooves), glass: make(out.glass) };
 }
 
 /** Rounded box (all edges radius r) via ExtrudeGeometry of a rounded rectangle. */
@@ -504,9 +532,18 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
     if (z < 0.35) y = Math.max(y, 0.36); // valance under the bumper
     return y;
   };
+  // Screens lie on the body's top line between two crease stations: derive their z extent from
+  // the requested y extent so the glass edge sits exactly on a loft station.
+  const screens = spec.screens.map((sc0) => {
+    const yA = topAt(sc0.zb)[0], yB = topAt(sc0.zt)[0];
+    const zAt = (y: number) => sc0.zb + ((sc0.zt - sc0.zb) * (y - yA)) / (yB - yA);
+    return { ...sc0, zb: zAt(sc0.yb), zt: zAt(sc0.yt) };
+  });
   const inGroove = (z: number) => spec.grooves.some((g) => z > g.z0 - 1e-9 && z < g.z1 + 1e-9);
   const zs = new Set<number>();
   for (const [z] of spec.top) zs.add(z);
+  for (const gl of spec.sideGlass) { zs.add(gl.z0); zs.add(gl.z1); if (gl.z0Top) zs.add(gl.z0Top); if (gl.z1Top) zs.add(gl.z1Top); }
+  for (const sc of screens) { zs.add(sc.zb); zs.add(sc.zt); }
   for (const wz of spec.wheelZ) for (let k = -10; k <= 10; k++) zs.add(THREE.MathUtils.clamp(wz + (k / 10) * arch.w, 0, L));
   for (let z = 0; z <= L; z += 0.25) zs.add(Math.min(L, z));
   zs.add(0); zs.add(L);
@@ -532,80 +569,93 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
     const hwB = hw - 0.04 * (1 - taper);
     const yLo = lowAt(z);
     const st: Station = { z, yLo, yBelt: Math.max(beltY, yLo + 0.05), yTop, hwSill: hwB - 0.035, hwBelt: hwB, hwTop: Math.min(hwTop, hwB - 0.012), rTop, crease: creaseZ.has(z) || e.k !== 1 || !!e.groove };
-    if (e.groove) st.inset = insetFor(e.groove, st);
+    if (e.groove) { st.inset = insetFor(e.groove, st); st.insetPaint = e.groove.span === "bed"; }
     return st;
   });
-  const loft = loftBody(stations, L);
+  // Glass IS the loft skin (not a proud pane over paint): the tumblehome segment over a side
+  // pane's z span, and the top-centre quads inboard of the A-pillars over a screen's span.
+  const eps = 1e-6;
+  const glassOf: GlassOf = (i, j) => {
+    const zA = stations[i].z, zB = stations[i + 1].z;
+    if (zB - zA < eps) return null;
+    if (j === 6 || j === 17) {
+      // Side pane: full between the raked pillar edges; split diagonally along the A-pillar
+      // (z0 at the belt → z0Top at the roof) and C-pillar (z1 → z1Top) rakes. Ring segment 6
+      // runs belt → roof (t up); 17 runs roof → belt, so mirror the parameter.
+      for (const g of spec.sideGlass) {
+        const zf = g.z0Top ?? g.z0, zr = g.z1Top ?? g.z1;
+        const lo = Math.min(g.z0, zf), hi = Math.max(g.z1, zr);
+        if (zA < lo - eps || zB > hi + eps) continue;
+        let s: GlassSplit | "full" = "full";
+        if (zB <= Math.max(g.z0, zf) + eps && zf !== g.z0) {
+          const tOf = (z: number) => (z - g.z0) / (zf - g.z0); // glass for t < tOf (z ahead of the edge line)
+          s = { tA: tOf(zA), tB: tOf(zB), low: true };
+        } else if (zA >= Math.min(g.z1, zr) - eps && zr !== g.z1) {
+          const tOf = (z: number) => (z - g.z1) / (zr - g.z1);
+          s = { tA: tOf(zA), tB: tOf(zB), low: true };
+        }
+        if (s !== "full" && j === 17) s = { tA: 1 - s.tA, tB: 1 - s.tB, low: false };
+        return s;
+      }
+      return null;
+    }
+    if (j !== 11 && j !== 12) return null;
+    for (const sc of screens) {
+      const lo = Math.min(sc.zb, sc.zt), hi = Math.max(sc.zb, sc.zt);
+      if (zA < lo - eps || zB > hi + eps) continue;
+      // Split at |x| = w(z): segment 11 runs from x = +flat (t 0) to 0 (t 1) — glass is t high;
+      // segment 12 runs 0 → −flat — glass is t low.
+      const tAt = (k: number) => {
+        const st = stations[k];
+        const f = hi > lo ? (st.z - sc.zb) / (sc.zt - sc.zb) : 0; // 0 at the base, 1 at the roof
+        const wBase = st.hwBelt - 0.07, wRoof = st.hwTop - 0.06; // pillar widths at each end
+        const flat = st.hwTop - Math.max(0.004, Math.min(st.rTop, (st.yTop - st.yBelt) * 0.9, st.hwTop * 0.5)); // ±x of ring point 11
+        const w = Math.min(wBase + (wRoof - wBase) * f, flat - 0.004);
+        const tIn = (flat - w) / flat; // parameter from the outboard end
+        return j === 11 ? tIn : 1 - tIn;
+      };
+      return { tA: tAt(i), tB: tAt(i + 1), low: j === 12 };
+    }
+    return null;
+  };
+  const loft = loftBody(stations, L, glassOf);
+  // Cabin lining: the same shell inside out in dark matte, so the eye never passes through the
+  // culled back of the paint skin to the sky/asphalt; the glass cut-outs are its only openings.
+  // (Clone BEFORE place(): MergedBuilder.add transforms the geometry it is given in place.)
+  const lining = flipFaces(loft.body.clone());
   place(loft.body, spec.paint);
+  place(lining, mats.cabin);
   place(loft.grooves, mats.dark);
+  sink2(sink.panes, loft.glass);
   // Longitudinal cut lines (hood ↔ fender, deck ↔ quarter): 3 mm dark strips 0.8 mm over the top skin
   for (const ln of spec.topLines)
     for (const sx of [-1, 1]) {
-      const pos: number[] = [], nor: number[] = [], idx: number[] = [];
+      const pos: number[] = [], nor: number[] = [], uvs: number[] = [], idx: number[] = [];
       const n = Math.max(2, Math.round((ln.z1 - ln.z0) / 0.08));
       for (let i = 0; i <= n; i++) {
         const z = ln.z0 + ((ln.z1 - ln.z0) * i) / n;
-        const y = topAt(z)[0] + 0.0008;
+        const y = topAt(z)[0] + 0.0025;
         pos.push(sx * ln.x - 0.0015, y, z, sx * ln.x + 0.0015, y, z);
         nor.push(0, 1, 0, 0, 1, 0);
+        uvs.push(0, i / n, 1, i / n);
         if (i < n) { const p = i * 2; idx.push(p, p + 2, p + 1, p + 2, p + 3, p + 1); }
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+      g.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
       g.setIndex(idx);
       place(g, mats.dark);
     }
 
-  /* ---- glass ---- */
-  // Side glass: a quad on the tumblehome plane (belt → roof edge), 6 mm proud of the body
-  const sideQuad = (sx: number, z0: number, z1: number, inset: number) => {
-    const st = stations.find((s) => s.z >= (z0 + z1) / 2) ?? stations[0];
-    const rT = Math.min(st.rTop, (st.yTop - st.yBelt) * 0.9);
-    const a = new THREE.Vector2(st.hwBelt, st.yBelt + 0.02), c = new THREE.Vector2(st.hwTop, st.yTop - rT - 0.01);
-    const n = new THREE.Vector2(c.y - a.y, -(c.x - a.x)).normalize(); // outward in (x, y)
-    const g = new THREE.BufferGeometry();
-    const p = [
-      a.x + n.x * inset, a.y + n.y * inset, z0, c.x + n.x * inset, c.y + n.y * inset, z0,
-      c.x + n.x * inset, c.y + n.y * inset, z1, a.x + n.x * inset, a.y + n.y * inset, z1,
-    ];
-    for (let i = 0; i < p.length; i += 3) p[i] *= sx;
-    g.setAttribute("position", new THREE.Float32BufferAttribute(p, 3));
-    g.setIndex(sx > 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2]);
-    g.computeVertexNormals();
-    g.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 1, 1, 0], 2));
-    sink2(sink.panes, g);
-  };
-  for (const sx of [-1, 1]) for (const gl of spec.sideGlass) sideQuad(sx, gl.z0, gl.z1, 0.006);
-  // Windshield / backlight: a trapezoid following the roof-to-cowl taper, 6 mm proud
-  for (const sc0 of spec.screens) {
-    // The glass lies on the body's top line between the two crease stations: derive its z
-    // extent from the requested y extent so it neither sinks into nor floats off the loft.
-    const yA = topAt(sc0.zb)[0], yB = topAt(sc0.zt)[0];
-    const zAt = (y: number) => sc0.zb + ((sc0.zt - sc0.zb) * (y - yA)) / (yB - yA);
-    const sc = { ...sc0, zb: zAt(sc0.yb), zt: zAt(sc0.yt) };
-    const baseSt = stations.find((s) => s.z >= sc.zb) ?? stations[stations.length - 1];
-    const roofSt = stations.find((s) => s.z >= sc.zt) ?? stations[stations.length - 1];
+  /* ---- wipers ---- */
+  for (const sc of screens) {
     const dz = sc.zt - sc.zb, dy = sc.yt - sc.yb, l = Math.hypot(dz, dy);
-    const wt = roofSt.hwTop - 0.06;
-    const wb = dz > 0 ? baseSt.hwBelt - 0.07 : Math.min(baseSt.hwTop, roofSt.hwTop + 0.08) - 0.05;
-    const ny = Math.abs(dz) / l, nz = dz > 0 ? -dy / l : dy / l;
-    const off = 0.006;
-    const p = [
-      -wb, sc.yb + ny * off, sc.zb + nz * off, wb, sc.yb + ny * off, sc.zb + nz * off,
-      wt, sc.yt + ny * off, sc.zt + nz * off, -wt, sc.yt + ny * off, sc.zt + nz * off,
-    ];
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(p, 3));
-    g.setIndex(dz > 0 ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3]);
-    g.computeVertexNormals();
-    g.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
-    sink2(sink.panes, g);
-    // Wipers (front screen only): arm + blade assemblies parked along the cowl, pivots in the
-    // cowl channel behind the hood's trailing edge, 12° rake, blades pointing to the passenger side.
+    // Front screen only: arm + blade assemblies parked along the cowl, pivots in the cowl
+    // channel behind the hood's trailing edge, 12° rake, blades pointing to the passenger side.
     if (dz > 0) {
       const up = new THREE.Vector3(0, dy / l, dz / l); // up the glass
-      const nrm = new THREE.Vector3(0, ny, nz); // glass normal (outward)
+      const nrm = new THREE.Vector3(0, dz / l, -dy / l); // glass normal (outward)
       const basis = new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), nrm, up);
       const rake = THREE.MathUtils.degToRad(12);
       for (const [xp, len] of [[0.34, 0.44], [-0.24, 0.42]] as Array<[number, number]>) {
@@ -645,11 +695,8 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
   /* ---- cabin interior (behind the panes) ---- */
   {
     const I = spec.interior;
-    // Dark cabin volume: an inside-out box (headliner, door panels, floor) so the eye never
-    // passes through the culled back faces of the body loft to the asphalt.
-    const cab = new THREE.BoxGeometry(I.cabin.hw * 2, I.cabin.y1 - I.cabin.y0, I.cabin.z1 - I.cabin.z0);
-    cab.translate(0, (I.cabin.y0 + I.cabin.y1) / 2, (I.cabin.z0 + I.cabin.z1) / 2);
-    place(cab, mats.cabin);
+    // Floor: a slab at the cabin's floor height so the footwells read as carpet, not the sill loft
+    box(mats.cabin, [-I.cabin.hw, I.cabin.y0 - 0.02, I.cabin.z0], [I.cabin.hw, I.cabin.y0, I.cabin.z1]);
     // Dash: a padded top under the windshield with a lip, instrument binnacle on the driver's side
     rbox(mats.trim, [-I.dash.hw, I.dash.y - 0.1, I.dash.z0], [I.dash.hw, I.dash.y, I.dash.z1], 0.012);
     rbox(mats.trim, [I.wheel.x - 0.2, I.dash.y, I.dash.z1 - 0.2], [I.wheel.x + 0.2, I.dash.y + 0.07, I.dash.z1 - 0.02], 0.01);
@@ -688,11 +735,6 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
       }
     }
     if (I.shelf) rbox(mats.trim, [-I.shelf.hw, I.shelf.y - 0.02, I.shelf.z0], [I.shelf.hw, I.shelf.y, I.shelf.z1], 0.008);
-    // Inner pillars between the side panes (B-pillar trim)
-    for (const pz of I.pillars) {
-      const st = stations.find((s) => s.z >= pz) ?? stations[0];
-      for (const sx of [-1, 1]) box(mats.trim, [Math.min(sx * (st.hwBelt - 0.06), sx * (st.hwBelt - 0.015)), st.yBelt, pz - 0.035], [Math.max(sx * (st.hwBelt - 0.06), sx * (st.hwBelt - 0.015)), st.yTop - 0.02, pz + 0.035]);
-    }
   }
 
   /* ---- wheels ---- */
@@ -862,8 +904,8 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
         }
       }
     }
-    // Amber turn signal under the lamp bay, above the bumper
-    rbox(mats.amber, [xc - 0.11, yc - bayH - 0.06, -0.03], [xc + 0.11, yc - bayH - 0.012, -0.01], 0.008);
+    // Amber turn signal under the lamp bay, above the bumper (the sedan's sit in the bumper: skipped)
+    if (spec.lamps === "round2") rbox(mats.amber, [xc - 0.11, yc - bayH - 0.06, -0.03], [xc + 0.11, yc - bayH - 0.012, -0.01], 0.008);
   }
 
   /* ---- flank hardware ---- */
@@ -1103,7 +1145,7 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
   // rev 2 used metalness 0.55 with a near-black colour, which *tints the reflection black*;
   // rev 3 was opaque navy; rev 4 blends (see makePaneGlass) so the interior shows through.
   const carMats: CarMats = {
-    glass: makePaneGlass(0.3, 1.5),
+    glass: makePaneGlass(0.38, 1.1),
     lensGlass: makePaneGlass(0.1, 1.2),
     chrome: new THREE.MeshStandardMaterial({ color: 0xc4c7cb, roughness: 0.22, metalness: 1 }),
     tyre: new THREE.MeshStandardMaterial({ color: 0x222221, roughness: 0.82, metalness: 0, vertexColors: true }), // sidewall/tread tones in the vertex colour
@@ -1112,10 +1154,10 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
     tail: new THREE.MeshPhysicalMaterial({ color: 0x8a1212, roughness: 0.15, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 1 }),
     rubber: new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.8, metalness: 0 }),
     shadow: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, alphaMap: ext.contactShadowAlpha(128), depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }),
-    // Cabin: inside-out headliner/door-panel box, cloth seats, dark padded trim
-    cabin: new THREE.MeshStandardMaterial({ color: 0x2a211e, roughness: 0.95, metalness: 0, side: THREE.BackSide }),
-    seat: new THREE.MeshStandardMaterial({ color: 0x4a2f2a, roughness: 0.92, metalness: 0 }),
-    trim: new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.88, metalness: 0 }),
+    // Cabin: the body shell inside out (headliner, door panels), cloth seats, dark padded trim
+    cabin: new THREE.MeshStandardMaterial({ color: 0x17120f, roughness: 0.95, metalness: 0 }),
+    seat: new THREE.MeshStandardMaterial({ color: 0x33201c, roughness: 0.92, metalness: 0 }),
+    trim: new THREE.MeshStandardMaterial({ color: 0x100e0d, roughness: 0.88, metalness: 0 }),
   };
   carMats.glass.name = "car-glass"; carMats.lensGlass.name = "lamp-glass";
   // Trim sits inside the body's silhouette (lamps in the nose, chrome on the flanks, liners
@@ -1146,10 +1188,10 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
       [1.36, 1.02, 0.86, 0.02, true], [1.70, 1.74, 0.79, 0.07, true], [1.80, 1.79, 0.78, 0.08], [2.80, 1.79, 0.78, 0.08],
       [2.86, 1.74, 0.78, 0.06, true], [2.90, 1.14, 0.88, 0.02, true], [2.92, 1.10, 0.888, 0.012], [4.94, 1.10, 0.888, 0.012], [5.0, 1.02, 0.86, 0.02],
     ],
-    sideGlass: [{ z0: 1.8, z1: 2.8 }],
-    doors: [1.54, 2.84],
+    sideGlass: [{ z0: 1.52, z1: 2.8, z0Top: 1.86 }],
+    doors: [1.42, 2.84],
     grooves: [
-      { z0: 1.538, z1: 1.542, depth: 0.004, span: "side" }, { z0: 2.838, z1: 2.842, depth: 0.004, span: "side" },
+      { z0: 1.417, z1: 1.423, depth: 0.008, span: "side" }, { z0: 2.837, z1: 2.843, depth: 0.008, span: "side" },
       { z0: 2.92, z1: 2.98, depth: 0.15, span: "all" }, // cab-to-bed gap
       { z0: 3.04, z1: 4.9, depth: 0.42, span: "bed" }, // open bed between the rails
     ],
@@ -1161,7 +1203,6 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
       dash: { z0: 1.36, z1: 1.82, y: 0.98, hw: 0.82 },
       wheel: { x: 0.4, y: 1.1, z: 2.08, r: 0.2 },
       seats: [{ z: 2.6, x0: -0.78, x1: 0.78, y0: 0.66, y1: 1.28 }],
-      pillars: [],
     },
     paint: whitePaint, grilleMat: grillePickup, plateMat: platePickup, wheelFace: steelWheelWhite, wheelStyle: "steel",
   };
@@ -1175,11 +1216,11 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
       [1.9, 0.90, 0.86, 0.02, true], [2.44, 1.38, 0.72, 0.08, true], [2.52, 1.42, 0.71, 0.09], [3.5, 1.42, 0.71, 0.09],
       [3.58, 1.38, 0.72, 0.08, true], [4.12, 1.02, 0.86, 0.03, true], [4.2, 1.0, 0.888, 0.015], [4.88, 0.98, 0.888, 0.015], [4.95, 0.9, 0.86, 0.02],
     ],
-    sideGlass: [{ z0: 2.0, z1: 2.9 }, { z0: 2.98, z1: 3.62 }],
+    sideGlass: [{ z0: 2.0, z1: 2.9, z0Top: 2.32 }, { z0: 2.98, z1: 3.62, z1Top: 3.5 }],
     doors: [1.96, 2.94, 3.72],
     grooves: [
-      { z0: 1.958, z1: 1.962, depth: 0.004, span: "side" }, { z0: 2.938, z1: 2.942, depth: 0.004, span: "side" }, { z0: 3.718, z1: 3.722, depth: 0.004, span: "side" },
-      { z0: 4.238, z1: 4.242, depth: 0.004, span: "top" }, // trunk lid leading edge
+      { z0: 1.957, z1: 1.963, depth: 0.008, span: "side" }, { z0: 2.937, z1: 2.943, depth: 0.008, span: "side" }, { z0: 3.717, z1: 3.723, depth: 0.008, span: "side" },
+      { z0: 4.237, z1: 4.243, depth: 0.008, span: "top" }, // trunk lid leading edge
     ],
     topLines: [{ x: 0.8, z0: 0.15, z1: 1.79 }, { x: 0.79, z0: 4.24, z1: 4.9 }],
     screens: [{ zb: 1.9, zt: 2.44, yb: 0.9, yt: 1.34 }, { zb: 4.12, zt: 3.58, yb: 1.04, yt: 1.34 }],
@@ -1194,7 +1235,6 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
         { z: 3.86, x0: -0.76, x1: 0.76, y0: 0.55, y1: 1.0 },
       ],
       shelf: { z0: 3.95, z1: 4.13, y: 1.02, hw: 0.8 },
-      pillars: [2.94],
     },
     paint: maroonPaint, grilleMat: grilleSedan, plateMat: plateSedan, wheelFace: wheelCover, wheelStyle: "cover",
   };
