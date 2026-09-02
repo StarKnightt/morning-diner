@@ -13,7 +13,7 @@
 import * as THREE from "three";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
-import { makeRng, makeFbm } from "../core/rng";
+import { makeRng, makeFbm, makeValueNoise } from "../core/rng";
 import type { TextureBank } from "../core/textureBank";
 import * as extModule from "../procedural/exterior";
 import { ROOM } from "./layout";
@@ -32,6 +32,8 @@ export const LOT = {
   stallDepth: 5.5,
   stallPitch: 2.7,
   wallZ: ROOM.zFront + T + 1.8 + 14,
+  /** Wheel stop centre line, from the kerb face (rev 4: 72" precast bars, see buildExterior). */
+  stopZ: 0.75,
 } as const;
 /** Frontage road behind the CMU wall (rev 3): visible over the wall from a standing eye. */
 const ROAD = { z: LOT.wallZ + 16, halfW: 3.6 } as const;
@@ -105,24 +107,26 @@ function buildSky(sunDir: THREE.Vector3): THREE.Mesh {
 }
 
 /**
- * Far terrain: two rings. Near ring (135 m) — low rises, one mesa, a serrated ridge;
- * far ring (175 m) — a taller, smoother range behind it. Both fade toward the sky
- * in their vertex colours and the scene fog (40 → 200 m) does the rest, so the
- * far range is a ghost and the near ridge's foot melts into the haze band.
+ * Far terrain (rev 4): three range layers at 118 / 150 / 188 m with a clear tonal step
+ * between them — near broken hills in a dark warm grey, a taller mid range, a ghost far
+ * range — each a ridged-noise profile (1 − |2n − 1| octaves give sharp peaks and saddles,
+ * not the low-frequency humps of rev 3 that read as a cloud bank) sampled every 0.25°
+ * so the crest is jagged at pixel scale. Vertex colours fade toward the haze with height
+ * and distance; scene fog (45 → 260 m) dissolves the far layer further.
  */
 function buildHorizon(parent: THREE.Group): void {
   const haze = new THREE.Color(0.86, 0.87, 0.89);
-  const ring = (R: number, segs: number, seed: number, rock: THREE.Color, baseFade: number, name: string, profile: (a: number, noise: (u: number, v: number) => number) => number) => {
-    const noise = makeFbm(seed, 24, 3);
+  const ring = (R: number, segs: number, rock: THREE.Color, baseFade: number, hMax: number, name: string, profile: (a: number, u: number) => number) => {
     const pos: number[] = [], col: number[] = [], idx: number[] = [];
     const tmp = new THREE.Color();
     for (let i = 0; i <= segs; i++) {
       const a = (i / segs) * Math.PI * 2 - Math.PI;
+      const u = i / segs;
       const x = Math.sin(a) * R, z = Math.cos(a) * R;
-      const h = profile(a, noise);
-      const fade = baseFade + 0.15 * (1 - Math.min(1, h / 16));
+      const h = Math.max(0.3, profile(a, u));
+      const fade = baseFade + 0.12 * (1 - Math.min(1, h / hMax));
       pos.push(x, -0.35, z, x, h - 0.35, z);
-      tmp.copy(rock).lerp(haze, Math.min(1, fade + 0.1)); // foot is hazier than the top
+      tmp.copy(rock).lerp(haze, Math.min(1, fade + 0.12)); // foot is hazier than the top
       col.push(tmp.r, tmp.g, tmp.b);
       tmp.copy(rock).lerp(haze, fade);
       col.push(tmp.r, tmp.g, tmp.b);
@@ -140,30 +144,46 @@ function buildHorizon(parent: THREE.Group): void {
     m.frustumCulled = false;
     parent.add(m);
   };
-  ring(135, 360, 7101, new THREE.Color(0.36, 0.3, 0.28), 0.3, "horizon", (a, noise) => {
-    // a in radians, 0 = +z (straight out the windows). Mesa 24°–62° left of centre, ridge elsewhere.
+  // Ridged multi-octave noise: sharp crests where the value noise crosses ½.
+  const ridged = (seed: number, cells: number, octaves: number) => {
+    const layers: { n: (x: number, y: number) => number; c: number; a: number }[] = [];
+    for (let o = 0, c = cells; o < octaves; o++, c *= 2) layers.push({ n: makeValueNoise(seed + o * 131, c), c, a: 1 / (o + 1) });
+    return (u: number, v: number) => {
+      let s = 0, t = 0;
+      for (const l of layers) { s += l.a * (1 - Math.abs(2 * l.n(u * l.c, v * 7) - 1)); t += l.a; }
+      return s / t;
+    };
+  };
+  // Near: 2–8 m broken hills + the mesa left of centre (a in radians, 0 = +z, straight out the windows).
+  const nearBase = makeFbm(7101, 24, 2), nearRidge = ridged(7111, 90, 3);
+  ring(118, 1440, new THREE.Color(0.33, 0.29, 0.27), 0.22, 9, "horizon", (a, u) => {
     const deg = THREE.MathUtils.radToDeg(a);
     const mesaL = deg > -62 && deg < -24 ? 1 : 0;
     const mesaEdge = mesaL ? Math.min(1, Math.min(deg + 62, -24 - deg) / 6) : 0;
-    const mesa = 16 * Math.pow(mesaEdge, 0.6);
-    const ridge = 3.5 + 5 * noise(a / (Math.PI * 2), 0.3) + 2.5 * Math.abs(Math.sin(deg * 0.35)) * noise(a / (Math.PI * 2) + 0.5, 0.7);
-    return Math.max(mesa, ridge);
+    const mesa = 15 * Math.pow(mesaEdge, 0.6) + (mesaL ? 0.6 * nearRidge(u, 0.5) : 0);
+    const hills = 1.5 + 4.5 * nearBase(u, 0.3) + 3.0 * Math.pow(nearRidge(u, 0.1), 1.6);
+    return Math.max(mesa, hills);
   });
-  ring(175, 240, 7102, new THREE.Color(0.4, 0.36, 0.36), 0.42, "horizon-far", (a, noise) => {
-    const u = a / (Math.PI * 2);
-    return 12 + 14 * noise(u * 1.3 + 0.2, 0.55) + 6 * noise(u * 4 + 0.7, 0.2);
-  });
+  // Mid: a taller range with serrated crest lines.
+  const midBase = makeFbm(7102, 14, 2), midRidge = ridged(7122, 60, 3);
+  ring(150, 1440, new THREE.Color(0.41, 0.38, 0.37), 0.44, 22, "horizon-mid", (_a, u) => 5 + 11 * midBase(u * 1.0 + 0.2, 0.55) + 6 * Math.pow(midRidge(u, 0.2), 1.4));
+  // Far: the tallest, a ghost in the haze.
+  const farBase = makeFbm(7103, 9, 2), farRidge = ridged(7133, 40, 3);
+  ring(188, 1200, new THREE.Color(0.5, 0.48, 0.49), 0.62, 34, "horizon-far", (_a, u) => 10 + 16 * farBase(u * 1.3 + 0.7, 0.2) + 8 * Math.pow(farRidge(u, 0.3), 1.3));
 }
 
 /* ------------------------------------------------------------------------------------------
- * Vehicles (rev 3). The rev 2 cars were a side silhouette extruded across the width — slabs
- * with no tyres under the fenders, vertical flanks and a nose 10 cm off the asphalt. rev 3
- * lofts the body through real cross-sections (rounded sills, a side bulge to the belt,
- * tumblehome up to a radiused roof), cuts the wheel arches into the lower edge so the tyres
- * actually show, and hangs the hardware a viewer 4–30 m away resolves: four lathed tyres
- * with sidewall shading, steel wheels + caps, chrome bumpers at 0.45 m with a painted
- * valance below, dual sealed beams in chrome bezels with a glassy lens, amber signals, an
- * egg-crate grille, plates, door mirrors, wipers, handles, side moulding and drip rails.
+ * Vehicles (rev 3 loft, rev 4 detail). The body is lofted through real cross-sections
+ * (rounded sills, a side bulge to the belt, tumblehome up to a radiused roof) with the wheel
+ * arches cut into the lower edge. Rev 4 adds what the critics measured missing at ≤ 6 m:
+ * real panel shut lines (3–4 mm grooves lofted into the body, dark floor/walls), a 6 cm cab-
+ * to-bed gap and an open bed on the pickup (same mechanism, deeper), a cowl step under the
+ * windshield with parked wiper arm + blade assemblies, cabin interiors behind thin dielectric
+ * glass (premultiplied Fresnel alpha, so the dash, wheel and seats show under a sky
+ * reflection), lathed tyres with tread grooves and a sidewall bulge inside flatter (sedan) /
+ * squarer (pickup) arches, steel wheels with lip + lugs or a full cover with a hub ring and
+ * brake-dust shading, and a corrected square-body front end (axle under the A-pillar, 28 %
+ * overhang, full-width egg-crate grille between dual sealed beams in chrome bowls).
  * Car frame: nose at z = 0, tail at z = L, +x = the car's right when facing +z, y up from
  * the asphalt.
  * ---------------------------------------------------------------------------------------- */
@@ -184,6 +204,16 @@ interface Station {
   rTop: number;
   /** Hard shading break at this station (hood → windshield, roof → backlight …). */
   crease?: boolean;
+  /** Shut line / gap / bed: moves ring point j (given its outward 2D normal) or leaves it (null). */
+  inset?: (j: number, p: [number, number], n: [number, number]) => [number, number] | null;
+}
+
+/** A lofted groove between two z's; `span` picks which ring points drop. */
+interface Groove {
+  z0: number;
+  z1: number;
+  depth: number;
+  span: "side" | "top" | "all" | "bed";
 }
 
 interface CarSpec {
@@ -192,30 +222,57 @@ interface CarSpec {
   sillY: number;
   beltY: number;
   wheelR: number;
+  /** Tyre section half width. */
+  tyreHw: number;
   wheelZ: [number, number];
+  /** Wheel-arch opening: Caprice arches are flat-topped and wide, C/K openings are rounded rectangles. */
+  arch: "flat" | "square";
   /** Body top line as (z, yTop, hwTop, rTop, crease?) — the loft resamples between them. */
   top: Array<[number, number, number, number, boolean?]>;
-  /** Side glass panes along the flank and the shut lines / handles. */
+  /** Side glass panes along the flank. */
   sideGlass: Array<{ z0: number; z1: number }>;
+  /** Door shut lines (z). The handle of each door sits ahead of its REAR cut. */
   doors: number[];
+  grooves: Groove[];
+  /** Longitudinal cut lines on the top surface (hood/fender, deck/quarter): x offset and z range. */
+  topLines: Array<{ x: number; z0: number; z1: number }>;
   /** Windshield / backlight: z at the base, z at the top, y base, y top. */
   screens: Array<{ zb: number; zt: number; yb: number; yt: number }>;
-  bed?: { z0: number; z1: number; y: number };
-  /** Headlamps: "round2" = two 5¾" sealed beams per side (square-body pickup), "rect2" = stacked-pair rectangular (80s sedan). */
+  /** Headlamps: "round2" = two 5¾" sealed beams per side (square-body pickup), "rect2" = two rectangular per side (80s sedan). */
   lamps: "round2" | "rect2";
   lampY: number;
   grille: { y0: number; y1: number; hw: number };
-  plateSerial: string;
+  interior: {
+    cabin: { z0: number; z1: number; y0: number; y1: number; hw: number };
+    dash: { z0: number; z1: number; y: number; hw: number };
+    wheel: { x: number; y: number; z: number; r: number };
+    seats: Array<{ z: number; x0: number; x1: number; y0: number; y1: number; headrest?: boolean }>;
+    shelf?: { z0: number; z1: number; y: number; hw: number };
+    pillars: number[];
+  };
   paint: THREE.Material;
   grilleMat: THREE.Material;
   plateMat: THREE.Material;
   wheelFace: THREE.Material;
+  wheelStyle: "steel" | "cover";
 }
 
 interface CarMats {
-  glass: THREE.Material; chrome: THREE.Material; tyre: THREE.Material; dark: THREE.Material;
-  lens: THREE.Material; amber: THREE.Material; tail: THREE.Material; rubber: THREE.Material; shadow: THREE.Material;
+  glass: THREE.Material; lensGlass: THREE.Material; chrome: THREE.Material; tyre: THREE.Material; dark: THREE.Material;
+  amber: THREE.Material; tail: THREE.Material; rubber: THREE.Material; shadow: THREE.Material;
+  cabin: THREE.Material; seat: THREE.Material; trim: THREE.Material;
 }
+
+/** Geometry that is NOT merged through the builder: the blended glass panes get their own meshes. */
+interface CarSink {
+  panes: THREE.BufferGeometry[];
+  lenses: THREE.BufferGeometry[];
+}
+
+/** Ring point classes (24-point ring, see stationRing). */
+const RING_N = 24;
+const RING_SIDE = new Set([0, 1, 2, 3, 4, 5, 6, 7, 17, 18, 19, 20, 21, 22, 23]);
+const RING_TOP = new Set([9, 10, 11, 12, 13, 14, 15]);
 
 /** Ring of 24 points around a station: bottom centre → right side up → top centre → left side down. */
 function stationRing(s: Station): Array<[number, number]> {
@@ -233,35 +290,58 @@ function stationRing(s: Station): Array<[number, number]> {
   R.push([s.hwTop - rT, s.yTop]);
   const out: Array<[number, number]> = [[0, s.yLo], ...R, [0, s.yTop]];
   for (let i = R.length - 1; i >= 0; i--) out.push([-R[i][0], R[i][1]]);
-  return out;
+  if (!s.inset) return out;
+  // Outward 2D normals from the neighbours, then let the station move its points.
+  const cy = (s.yLo + s.yTop) / 2;
+  const moved = out.map((p, j) => {
+    const a = out[(j + RING_N - 1) % RING_N], b = out[(j + 1) % RING_N];
+    let nx = b[1] - a[1], ny = -(b[0] - a[0]);
+    const l = Math.hypot(nx, ny) || 1;
+    nx /= l; ny /= l;
+    if (nx * p[0] + ny * (p[1] - cy) < 0) { nx = -nx; ny = -ny; }
+    return s.inset!(j, p, [nx, ny]) ?? p;
+  });
+  return moved;
 }
 
 /**
  * Loft the stations into one closed body: quads between consecutive rings, triangulated end
  * caps, analytic normals (ring tangent × length tangent; one-sided at creases so the hood →
  * windshield break stays sharp while the radii shade smoothly), UVs u = z/L, v = around.
+ * Quads that touch an inset (moved) ring point are the groove walls / floors and go to the
+ * second geometry (dark material) so a 3 mm shut line reads without shadow-map resolution.
  */
-function loftBody(stations: Station[], L: number): THREE.BufferGeometry {
+function loftBody(stations: Station[], L: number): { body: THREE.BufferGeometry; grooves: THREE.BufferGeometry } {
   const rings = stations.map(stationRing);
+  const plain = stations.map((s) => stationRing({ ...s, inset: undefined }));
+  const moved = rings.map((r, i) => r.map((p, j) => Math.abs(p[0] - plain[i][j][0]) + Math.abs(p[1] - plain[i][j][1]) > 1e-9));
   const N = rings[0].length;
   const P = (i: number, j: number) => new THREE.Vector3(rings[i][(j + N) % N][0], rings[i][(j + N) % N][1], stations[i].z);
-  const pos: number[] = [], nor: number[] = [], uv: number[] = [];
+  const out = { body: { pos: [] as number[], nor: [] as number[], uv: [] as number[] }, grooves: { pos: [] as number[], nor: [] as number[], uv: [] as number[] } };
   const normalAt = (i: number, j: number, dir: -1 | 0 | 1) => {
     const around = P(i, j + 1).sub(P(i, j - 1));
     const back = dir <= 0 && i > 0 ? P(i - 1, j) : P(i, j);
     const fwd = dir >= 0 && i < stations.length - 1 ? P(i + 1, j) : P(i, j);
     const along = fwd.sub(back);
     if (along.lengthSq() < 1e-12) along.set(0, 0, 1);
+    if (Math.abs(along.z) < 1e-7) {
+      // Groove wall (two stations at one z): the face looks INTO the groove, i.e. toward the
+      // inset station of the pair.
+      const jj = (j + N) % N;
+      const insetAhead = dir >= 0 ? moved[i + 1]?.[jj] && !moved[i][jj] : moved[i][jj] && !moved[i - 1]?.[jj];
+      return new THREE.Vector3(0, 0, insetAhead ? 1 : -1);
+    }
     const n = new THREE.Vector3().crossVectors(along, around).normalize();
     const c = new THREE.Vector3(0, (stations[i].yLo + stations[i].yTop) / 2, stations[i].z);
     if (n.dot(P(i, j).sub(c)) < 0) n.negate();
     return n;
   };
-  const tri = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, na: THREE.Vector3, nb: THREE.Vector3, nc: THREE.Vector3, ua: number[], ub: number[], uc: number[]) => {
+  const tri = (dst: { pos: number[]; nor: number[]; uv: number[] }, a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, na: THREE.Vector3, nb: THREE.Vector3, nc: THREE.Vector3, ua: number[], ub: number[], uc: number[]) => {
     const fn = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
+    if (fn.lengthSq() < 1e-16) return; // degenerate (coincident groove stations)
     const flip = fn.dot(na.clone().add(nb).add(nc)) < 0;
     const order = flip ? [[a, na, ua], [c, nc, uc], [b, nb, ub]] : [[a, na, ua], [b, nb, ub], [c, nc, uc]];
-    for (const [p, n, t] of order as Array<[THREE.Vector3, THREE.Vector3, number[]]>) { pos.push(p.x, p.y, p.z); nor.push(n.x, n.y, n.z); uv.push(t[0], t[1]); }
+    for (const [p, n, t] of order as Array<[THREE.Vector3, THREE.Vector3, number[]]>) { dst.pos.push(p.x, p.y, p.z); dst.nor.push(n.x, n.y, n.z); dst.uv.push(t[0], t[1]); }
   };
   for (let i = 0; i < stations.length - 1; i++) {
     const nA: THREE.Vector3[] = [], nB: THREE.Vector3[] = [];
@@ -274,8 +354,10 @@ function loftBody(stations: Station[], L: number): THREE.BufferGeometry {
       const j1 = (j + 1) % N;
       const a = P(i, j), b = P(i, j1), c = P(i + 1, j1), d = P(i + 1, j);
       const va = j / N, vb = (j + 1) / N;
-      tri(a, b, c, nA[j], nA[j1], nB[j1], [uA, va], [uA, vb], [uB, vb]);
-      tri(a, c, d, nA[j], nB[j1], nB[j], [uA, va], [uB, vb], [uB, va]);
+      const groove = moved[i][j] || moved[i][j1] || moved[i + 1][j] || moved[i + 1][j1];
+      const dst = groove ? out.grooves : out.body;
+      tri(dst, a, b, c, nA[j], nA[j1], nB[j1], [uA, va], [uA, vb], [uB, vb]);
+      tri(dst, a, c, d, nA[j], nB[j1], nB[j], [uA, va], [uB, vb], [uB, va]);
     }
   }
   // End caps
@@ -284,14 +366,17 @@ function loftBody(stations: Station[], L: number): THREE.BufferGeometry {
     const n = new THREE.Vector3(0, 0, nz);
     for (const [a, b, c] of THREE.ShapeUtils.triangulateShape(pts, [])) {
       const u = stations[i].z / L;
-      tri(P(i, a), P(i, b), P(i, c), n, n, n, [u, a / N], [u, b / N], [u, c / N]);
+      tri(out.body, P(i, a), P(i, b), P(i, c), n, n, n, [u, a / N], [u, b / N], [u, c / N]);
     }
   }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
-  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-  return g;
+  const make = (o: { pos: number[]; nor: number[]; uv: number[] }) => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(o.pos, 3));
+    g.setAttribute("normal", new THREE.Float32BufferAttribute(o.nor, 3));
+    g.setAttribute("uv", new THREE.Float32BufferAttribute(o.uv, 2));
+    return g;
+  };
+  return { body: make(out.body), grooves: make(out.grooves) };
 }
 
 /** Rounded box (all edges radius r) via ExtrudeGeometry of a rounded rectangle. */
@@ -308,25 +393,93 @@ function roundedBox(w: number, h: number, d: number, r: number): THREE.BufferGeo
   return g;
 }
 
-function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats: CarMats, at: THREE.Vector3, yaw: number): void {
+/** Turn a surface inside out (concave reflector bowls): reverse winding, negate normals. */
+function flipFaces(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const ng = g.index ? g.toNonIndexed() : g;
+  const p = ng.attributes.position as THREE.BufferAttribute;
+  const n = ng.attributes.normal as THREE.BufferAttribute | undefined;
+  for (let i = 0; i < p.count; i += 3) {
+    const bx = p.getX(i + 1), by = p.getY(i + 1), bz = p.getZ(i + 1);
+    p.setXYZ(i + 1, p.getX(i + 2), p.getY(i + 2), p.getZ(i + 2));
+    p.setXYZ(i + 2, bx, by, bz);
+    if (n) {
+      const nx = n.getX(i + 1), ny = n.getY(i + 1), nz = n.getZ(i + 1);
+      n.setXYZ(i + 1, n.getX(i + 2), n.getY(i + 2), n.getZ(i + 2));
+      n.setXYZ(i + 2, nx, ny, nz);
+    }
+  }
+  if (n) for (let i = 0; i < n.count; i++) n.setXYZ(i, -n.getX(i), -n.getY(i), -n.getZ(i));
+  return ng;
+}
+
+/** Vertex colour attribute from a per-vertex function of (radius, height) in the lathe's frame. */
+function latheColors(g: THREE.BufferGeometry, f: (r: number, h: number) => number, tint: [number, number, number] = [1, 1, 1]): void {
+  const p = g.attributes.position as THREE.BufferAttribute;
+  const col = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    const k = f(Math.hypot(p.getX(i), p.getZ(i)), p.getY(i));
+    col[i * 3] = k * tint[0]; col[i * 3 + 1] = k * tint[1]; col[i * 3 + 2] = k * tint[2];
+  }
+  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+}
+
+/**
+ * Thin dielectric pane without a transmission pass. The material stays in the OPAQUE list
+ * (transparent: false) so it is drawn into three's transmission buffer — the diner's window
+ * and door glass see it — but blends premultiplied: gl_FragColor = (reflection, α) with
+ * α = α₀ + (1 − α₀)·F(θ) (Schlick, F₀ 0.04), source ONE / dest ONE_MINUS_SRC_ALPHA, so the
+ * result is reflection + (1 − α)·(whatever was drawn behind: the cabin interior, the far
+ * pane, the sky beyond). renderOrder 5 puts it after every other opaque; depthWrite off so
+ * both panes of a cabin composite. Seen from inside the cabin (back face) the reflection is
+ * cut to 12 % — the inner face mirrors the dark cabin, not the probe's sky.
+ */
+function makePaneGlass(alpha0: number, envInt: number): THREE.MeshPhysicalMaterial {
+  const m = new THREE.MeshPhysicalMaterial({
+    color: 0x000000, roughness: 0.04, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: envInt, specularIntensity: 1,
+    side: THREE.DoubleSide, transparent: false, depthWrite: false,
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+  });
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uAlpha0 = { value: alpha0 };
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform float uAlpha0;")
+      .replace(
+        "#include <opaque_fragment>",
+        [
+          "float paneNdV = saturate( dot( normal, geometryViewDir ) );",
+          "float paneF = 0.04 + 0.96 * pow( 1.0 - paneNdV, 5.0 );",
+          "float paneA = uAlpha0 + ( 1.0 - uAlpha0 ) * paneF;",
+          "vec3 paneLight = gl_FrontFacing ? outgoingLight : outgoingLight * 0.12;",
+          "gl_FragColor = vec4( paneLight, paneA );",
+        ].join("\n"),
+      );
+  };
+  m.customProgramCacheKey = () => "pane-glass";
+  return m;
+}
+
+function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats: CarMats, sink: CarSink, at: THREE.Vector3, yaw: number): void {
   const M = new THREE.Matrix4().makeRotationY(yaw).setPosition(at);
-  // `noCast` is documentary only: casting is decided per material by MergedBuilder
-  // (material.userData.noCast); all trim materials below are flagged, the body/tyres cast.
-  const place = (g: THREE.BufferGeometry, mat: THREE.Material, _noCast = false) => {
+  // Casting is decided per material by MergedBuilder (material.userData.noCast): the body, tyres
+  // and glass cast, every trim / interior material is flagged.
+  const place = (g: THREE.BufferGeometry, mat: THREE.Material) => {
     b.add(g, mat, M);
   };
-  const box = (mat: THREE.Material, min: [number, number, number], max: [number, number, number], noCast = false) => {
+  const box = (mat: THREE.Material, min: [number, number, number], max: [number, number, number]) => {
     const g = new THREE.BoxGeometry(max[0] - min[0], max[1] - min[1], max[2] - min[2]);
     g.translate((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
-    place(g, mat, noCast);
+    place(g, mat);
   };
-  const rbox = (mat: THREE.Material, min: [number, number, number], max: [number, number, number], r: number, noCast = false) => {
+  const rbox = (mat: THREE.Material, min: [number, number, number], max: [number, number, number], r: number) => {
     const g = roundedBox(max[0] - min[0], max[1] - min[1], max[2] - min[2], r);
     g.translate((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
-    place(g, mat, noCast);
+    place(g, mat);
   };
+  const sink2 = (list: THREE.BufferGeometry[], g: THREE.BufferGeometry) => { g.applyMatrix4(M); list.push(g); };
   const { hw, length: L, wheelR: R, beltY, sillY } = spec;
-  const rArch = R + 0.065;
+  // Arch opening as a superellipse about the axle: |d/w|^p + |(y−R)/h|^p = 1.
+  const arch = spec.arch === "square" ? { w: R + 0.08, h: R + 0.05, p: 4 } : { w: R + 0.1, h: R + 0.025, p: 2.6 };
 
   /* ---- body loft ---- */
   const topAt = (z: number): [number, number, number, boolean] => {
@@ -346,31 +499,67 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
     let y = sillY;
     for (const wz of spec.wheelZ) {
       const d = Math.abs(z - wz);
-      if (d < rArch) y = Math.max(y, R + Math.sqrt(rArch * rArch - d * d));
+      if (d < arch.w) y = Math.max(y, R + arch.h * Math.pow(1 - Math.pow(d / arch.w, arch.p), 1 / arch.p));
     }
-    // Valances: the body drops to 0.36 under the bumpers and the ends are slightly narrower
-    if (z < 0.35) y = Math.max(y, 0.36 + (0.35 - z) * 0.0);
+    if (z < 0.35) y = Math.max(y, 0.36); // valance under the bumper
     return y;
   };
+  const inGroove = (z: number) => spec.grooves.some((g) => z > g.z0 - 1e-9 && z < g.z1 + 1e-9);
   const zs = new Set<number>();
   for (const [z] of spec.top) zs.add(z);
-  for (const wz of spec.wheelZ) for (let k = -8; k <= 8; k++) zs.add(THREE.MathUtils.clamp(wz + (k / 8) * rArch, 0, L));
+  for (const wz of spec.wheelZ) for (let k = -10; k <= 10; k++) zs.add(THREE.MathUtils.clamp(wz + (k / 10) * arch.w, 0, L));
   for (let z = 0; z <= L; z += 0.25) zs.add(Math.min(L, z));
   zs.add(0); zs.add(L);
   const creaseZ = new Set(spec.top.filter((t) => t[4]).map((t) => t[0]));
-  const stations: Station[] = [...zs].sort((p, q) => p - q).map((z) => {
+  type Entry = { z: number; k: number; groove?: Groove };
+  const entries: Entry[] = [...zs].filter((z) => !inGroove(z)).map((z) => ({ z, k: 1 }));
+  for (const g of spec.grooves) entries.push({ z: g.z0, k: 0 }, { z: g.z0, k: 1, groove: g }, { z: g.z1, k: 1, groove: g }, { z: g.z1, k: 2 });
+  entries.sort((p, q) => p.z - q.z || p.k - q.k);
+  const insetFor = (g: Groove, st: Station): Station["inset"] => (j, p, n) => {
+    if (g.span === "bed") {
+      if (!RING_TOP.has(j)) return null;
+      const xr = Math.max(0.02, st.hwTop - 0.07);
+      return [THREE.MathUtils.clamp(p[0], -xr, xr), st.yTop - g.depth];
+    }
+    const ok = g.span === "all" || (g.span === "side" ? RING_SIDE.has(j) : RING_TOP.has(j));
+    return ok ? [p[0] - n[0] * g.depth, p[1] - n[1] * g.depth] : null;
+  };
+  const stations: Station[] = entries.map((e) => {
+    const z = e.z;
     const [yTop, hwTop, rTop] = topAt(z);
     // Plan taper: the body narrows 40 mm over the last 0.6 m at each end
     const taper = Math.min(1, Math.min(z, L - z) / 0.6);
     const hwB = hw - 0.04 * (1 - taper);
     const yLo = lowAt(z);
-    return { z, yLo, yBelt: Math.max(beltY, yLo + 0.05), yTop, hwSill: hwB - 0.035, hwBelt: hwB, hwTop: Math.min(hwTop, hwB - 0.012), rTop, crease: creaseZ.has(z) };
+    const st: Station = { z, yLo, yBelt: Math.max(beltY, yLo + 0.05), yTop, hwSill: hwB - 0.035, hwBelt: hwB, hwTop: Math.min(hwTop, hwB - 0.012), rTop, crease: creaseZ.has(z) || e.k !== 1 || !!e.groove };
+    if (e.groove) st.inset = insetFor(e.groove, st);
+    return st;
   });
-  place(loftBody(stations, L), spec.paint);
+  const loft = loftBody(stations, L);
+  place(loft.body, spec.paint);
+  place(loft.grooves, mats.dark);
+  // Longitudinal cut lines (hood ↔ fender, deck ↔ quarter): 3 mm dark strips 0.8 mm over the top skin
+  for (const ln of spec.topLines)
+    for (const sx of [-1, 1]) {
+      const pos: number[] = [], nor: number[] = [], idx: number[] = [];
+      const n = Math.max(2, Math.round((ln.z1 - ln.z0) / 0.08));
+      for (let i = 0; i <= n; i++) {
+        const z = ln.z0 + ((ln.z1 - ln.z0) * i) / n;
+        const y = topAt(z)[0] + 0.0008;
+        pos.push(sx * ln.x - 0.0015, y, z, sx * ln.x + 0.0015, y, z);
+        nor.push(0, 1, 0, 0, 1, 0);
+        if (i < n) { const p = i * 2; idx.push(p, p + 2, p + 1, p + 2, p + 3, p + 1); }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+      g.setIndex(idx);
+      place(g, mats.dark);
+    }
 
   /* ---- glass ---- */
   // Side glass: a quad on the tumblehome plane (belt → roof edge), 6 mm proud of the body
-  const sideQuad = (sx: number, z0: number, z1: number, mat: THREE.Material, inset: number) => {
+  const sideQuad = (sx: number, z0: number, z1: number, inset: number) => {
     const st = stations.find((s) => s.z >= (z0 + z1) / 2) ?? stations[0];
     const rT = Math.min(st.rTop, (st.yTop - st.yBelt) * 0.9);
     const a = new THREE.Vector2(st.hwBelt, st.yBelt + 0.02), c = new THREE.Vector2(st.hwTop, st.yTop - rT - 0.01);
@@ -385,9 +574,9 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
     g.setIndex(sx > 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2]);
     g.computeVertexNormals();
     g.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 1, 1, 0], 2));
-    place(g, mat, true);
+    sink2(sink.panes, g);
   };
-  for (const sx of [-1, 1]) for (const gl of spec.sideGlass) sideQuad(sx, gl.z0, gl.z1, mats.glass, 0.006);
+  for (const sx of [-1, 1]) for (const gl of spec.sideGlass) sideQuad(sx, gl.z0, gl.z1, 0.006);
   // Windshield / backlight: a trapezoid following the roof-to-cowl taper, 6 mm proud
   for (const sc0 of spec.screens) {
     // The glass lies on the body's top line between the two crease stations: derive its z
@@ -411,109 +600,270 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
     g.setIndex(dz > 0 ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3]);
     g.computeVertexNormals();
     g.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
-    place(g, mats.glass, true);
-    // Wipers at the windshield base (front screen only): two dark arms lying on the glass
+    sink2(sink.panes, g);
+    // Wipers (front screen only): arm + blade assemblies parked along the cowl, pivots in the
+    // cowl channel behind the hood's trailing edge, 12° rake, blades pointing to the passenger side.
     if (dz > 0) {
-      for (const sx of [-1, 1]) {
-        const arm = new THREE.BoxGeometry(0.46, 0.012, 0.022);
-        arm.rotateY(sx * 0.42);
-        arm.rotateX(-Math.atan2(dy, dz)); // thin axis → glass normal
-        arm.translate(sx * 0.3, sc.yb + (dy / l) * 0.07 + ny * 0.018, sc.zb + (dz / l) * 0.07 + nz * 0.018);
-        place(arm, mats.rubber, true);
+      const up = new THREE.Vector3(0, dy / l, dz / l); // up the glass
+      const nrm = new THREE.Vector3(0, ny, nz); // glass normal (outward)
+      const basis = new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), nrm, up);
+      const rake = THREE.MathUtils.degToRad(12);
+      for (const [xp, len] of [[0.34, 0.44], [-0.24, 0.42]] as Array<[number, number]>) {
+        // Root 60 mm below the glass base in the (extended) glass plane: down in the cowl channel,
+        // so the hood's trailing edge hides the post and the lower part of the blade.
+        const root = new THREE.Vector3(xp, sc.yb, sc.zb).addScaledVector(up, -0.06);
+        const T2 = new THREE.Matrix4().copy(basis).setPosition(root);
+        const part = (g: THREE.BufferGeometry, mat: THREE.Material) => { g.rotateY(rake); g.applyMatrix4(T2); place(g, mat); };
+        // Pivot post: 12 mm, standing out of the cowl to the arm plane (local y = glass normal)
+        const post = new THREE.CylinderGeometry(0.006, 0.006, 0.06, 10);
+        post.translate(0, 0.008, 0);
+        part(post, mats.dark);
+        const nut = new THREE.CylinderGeometry(0.009, 0.009, 0.006, 10);
+        nut.translate(0, 0.037, 0);
+        part(nut, mats.dark);
+        // Arm: from the pivot toward −x (passenger side), 18 mm off the glass, with a hinge block
+        const arm = new THREE.BoxGeometry(len, 0.005, 0.009);
+        arm.translate(-len / 2 + 0.02, 0.03, 0);
+        part(arm, mats.dark);
+        const hinge = new THREE.BoxGeometry(0.04, 0.012, 0.014);
+        hinge.translate(-0.01, 0.03, 0);
+        part(hinge, mats.dark);
+        // Blade: superstructure + rubber, lying 8 mm off the glass, slightly ahead of the arm end
+        const blade = new THREE.BoxGeometry(0.46, 0.006, 0.014);
+        blade.translate(-len + 0.06, 0.017, 0.012);
+        part(blade, mats.dark);
+        const rub = new THREE.BoxGeometry(0.46, 0.008, 0.004);
+        rub.translate(-len + 0.06, 0.01, 0.012);
+        part(rub, mats.rubber);
+        const clip = new THREE.BoxGeometry(0.03, 0.01, 0.012);
+        clip.translate(-len + 0.02, 0.026, 0.008);
+        part(clip, mats.dark);
       }
     }
   }
 
+  /* ---- cabin interior (behind the panes) ---- */
+  {
+    const I = spec.interior;
+    // Dark cabin volume: an inside-out box (headliner, door panels, floor) so the eye never
+    // passes through the culled back faces of the body loft to the asphalt.
+    const cab = new THREE.BoxGeometry(I.cabin.hw * 2, I.cabin.y1 - I.cabin.y0, I.cabin.z1 - I.cabin.z0);
+    cab.translate(0, (I.cabin.y0 + I.cabin.y1) / 2, (I.cabin.z0 + I.cabin.z1) / 2);
+    place(cab, mats.cabin);
+    // Dash: a padded top under the windshield with a lip, instrument binnacle on the driver's side
+    rbox(mats.trim, [-I.dash.hw, I.dash.y - 0.1, I.dash.z0], [I.dash.hw, I.dash.y, I.dash.z1], 0.012);
+    rbox(mats.trim, [I.wheel.x - 0.2, I.dash.y, I.dash.z1 - 0.2], [I.wheel.x + 0.2, I.dash.y + 0.07, I.dash.z1 - 0.02], 0.01);
+    // Steering wheel + column (LHD: driver at +x in this frame)
+    const tilt = THREE.MathUtils.degToRad(28);
+    const wheel = new THREE.TorusGeometry(I.wheel.r, 0.017, 8, 36);
+    wheel.rotateX(-tilt);
+    wheel.translate(I.wheel.x, I.wheel.y, I.wheel.z);
+    place(wheel, mats.rubber);
+    for (const a of [0, 2.1, -2.1]) {
+      const spoke = new THREE.BoxGeometry(0.022, I.wheel.r - 0.03, 0.012);
+      spoke.translate(0, (I.wheel.r - 0.03) / 2 + 0.03, 0);
+      spoke.rotateZ(a);
+      spoke.rotateX(-tilt);
+      spoke.translate(I.wheel.x, I.wheel.y, I.wheel.z);
+      place(spoke, mats.rubber);
+    }
+    const hub = new THREE.CylinderGeometry(0.045, 0.045, 0.03, 16);
+    hub.rotateX(Math.PI / 2 - tilt);
+    hub.translate(I.wheel.x, I.wheel.y, I.wheel.z);
+    place(hub, mats.rubber);
+    const colLen = 0.34;
+    const column = new THREE.CylinderGeometry(0.02, 0.026, colLen, 12);
+    column.rotateX(Math.PI / 2 - tilt);
+    const u = new THREE.Vector3(0, Math.sin(tilt), Math.cos(tilt)); // wheel normal (up + back)
+    column.translate(I.wheel.x - u.x * colLen / 2, I.wheel.y - u.y * colLen / 2, I.wheel.z - u.z * colLen / 2);
+    place(column, mats.trim);
+    // Seats: backs with a rolled top, headrests on posts (sedan), bench (pickup)
+    for (const s of I.seats) {
+      rbox(mats.seat, [s.x0, s.y0, s.z], [s.x1, s.y1, s.z + 0.12], 0.03);
+      rbox(mats.seat, [s.x0, s.y0 - 0.04, s.z - 0.45], [s.x1, s.y0 + 0.04, s.z + 0.08], 0.03); // cushion
+      if (s.headrest) {
+        const xc = (s.x0 + s.x1) / 2;
+        rbox(mats.seat, [xc - 0.14, s.y1 + 0.05, s.z + 0.01], [xc + 0.14, s.y1 + 0.17, s.z + 0.11], 0.025);
+        for (const dx of [-0.06, 0.06]) box(mats.trim, [xc + dx - 0.006, s.y1 - 0.01, s.z + 0.05], [xc + dx + 0.006, s.y1 + 0.06, s.z + 0.062]);
+      }
+    }
+    if (I.shelf) rbox(mats.trim, [-I.shelf.hw, I.shelf.y - 0.02, I.shelf.z0], [I.shelf.hw, I.shelf.y, I.shelf.z1], 0.008);
+    // Inner pillars between the side panes (B-pillar trim)
+    for (const pz of I.pillars) {
+      const st = stations.find((s) => s.z >= pz) ?? stations[0];
+      for (const sx of [-1, 1]) box(mats.trim, [Math.min(sx * (st.hwBelt - 0.06), sx * (st.hwBelt - 0.015)), st.yBelt, pz - 0.035], [Math.max(sx * (st.hwBelt - 0.06), sx * (st.hwBelt - 0.015)), st.yTop - 0.02, pz + 0.035]);
+    }
+  }
+
   /* ---- wheels ---- */
+  const hwT = spec.tyreHw;
   const tyreProfile = [
-    [0.19, -0.095], [R - 0.06, -0.1], [R - 0.014, -0.086], [R, -0.07], [R, 0.07], [R - 0.014, 0.086], [R - 0.06, 0.1], [0.19, 0.095],
+    [0.19, -(hwT - 0.012)], [0.235, -hwT], [R - 0.055, -(hwT - 0.004)], [R - 0.02, -(hwT - 0.014)], [R - 0.006, -(hwT - 0.024)], [R, -(hwT - 0.034)],
+    [R, -0.046], [R - 0.007, -0.043], [R - 0.007, -0.039], [R, -0.036],
+    [R, -0.006], [R - 0.007, -0.003], [R - 0.007, 0.003], [R, 0.006],
+    [R, 0.036], [R - 0.007, 0.039], [R - 0.007, 0.043], [R, 0.046],
+    [R, hwT - 0.034], [R - 0.006, hwT - 0.024], [R - 0.02, hwT - 0.014], [R - 0.055, hwT - 0.004], [0.235, hwT], [0.19, hwT - 0.012],
   ].map(([r, h]) => new THREE.Vector2(r, h));
+  const tyreTone = (r: number, h: number) => {
+    const side = Math.abs(h) > hwT - 0.03 || r < R - 0.02; // sidewall
+    const shoulder = THREE.MathUtils.clamp((r - (R - 0.06)) / 0.05, 0, 1);
+    return side ? 0.72 + 0.1 * shoulder : 1.08; // tread carries a little road dust
+  };
   for (const wz of spec.wheelZ)
     for (const sx of [-1, 1]) {
-      const xc = sx * (hw - 0.035 - 0.1); // tyre centre: outer sidewall 35 mm inside the flank
-      const tyre = new THREE.LatheGeometry(tyreProfile, 32);
+      const xc = sx * (hw - 0.035 - hwT - (spec.arch === "flat" ? 0.025 : 0.0)); // tyre centre: outer sidewall inside the flank
+      const tyre = new THREE.LatheGeometry(tyreProfile, 48);
+      latheColors(tyre, tyreTone);
       tyre.rotateZ(sx > 0 ? -Math.PI / 2 : Math.PI / 2); // axis → x, +h outboard
       tyre.translate(xc, R, wz);
       place(tyre, mats.tyre);
-      // Steel wheel face recessed 25 mm inside the sidewall, hub dome, brake drum / dark well behind
-      const face = new THREE.CylinderGeometry(0.19, 0.185, 0.02, 24);
-      face.rotateZ(Math.PI / 2);
-      face.translate(xc + sx * 0.07, R, wz);
-      place(face, spec.wheelFace, true);
-      const cap = new THREE.SphereGeometry(0.075, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-      cap.scale(1, 0.4, 1);
-      cap.rotateZ(sx > 0 ? -Math.PI / 2 : Math.PI / 2);
-      cap.translate(xc + sx * 0.08, R, wz);
-      place(cap, mats.chrome, true);
-      const drum = new THREE.CylinderGeometry(0.18, 0.18, 0.12, 16);
+      const dust = (r: number) => (r > 0.1 ? 1 - 0.42 * Math.min(1, (r - 0.1) / 0.085) : 1); // brake dust toward the rim
+      if (spec.wheelStyle === "steel") {
+        // Painted steel wheel: barrel → rolled lip → dished spider face 60 mm inside the sidewall
+        const face = new THREE.LatheGeometry(
+          [[0.19, hwT - 0.014], [0.19, 0.06], [0.181, 0.046], [0.166, 0.036], [0.15, 0.031], [0.14, 0.03], [0.07, 0.03], [0.062, 0.036], [0.045, 0.04], [0, 0.04]].map(([r, h]) => new THREE.Vector2(r, h)),
+          40,
+        );
+        latheColors(face, (r) => dust(r));
+        face.rotateZ(sx > 0 ? -Math.PI / 2 : Math.PI / 2);
+        face.translate(xc, R, wz);
+        place(face, spec.wheelFace);
+        // Five lug nuts on a 116 mm circle, small chrome centre cap
+        for (let k = 0; k < 5; k++) {
+          const a = (k / 5) * Math.PI * 2 + 0.3;
+          const nut = new THREE.CylinderGeometry(0.011, 0.011, 0.016, 6);
+          nut.rotateZ(Math.PI / 2);
+          nut.translate(xc + sx * 0.038, R + Math.cos(a) * 0.058, wz + Math.sin(a) * 0.058);
+          place(nut, mats.chrome);
+        }
+        const cap = new THREE.LatheGeometry([[0.042, 0.03], [0.044, 0.045], [0.036, 0.058], [0.015, 0.066], [0, 0.067]].map(([r, h]) => new THREE.Vector2(r, h)), 24);
+        cap.rotateZ(sx > 0 ? -Math.PI / 2 : Math.PI / 2);
+        cap.translate(xc, R, wz);
+        place(cap, mats.chrome);
+      } else {
+        // Full chrome wheel cover: outer ring, stepped dish, raised hub ring, centre medallion
+        const cover = new THREE.LatheGeometry(
+          [[0.19, hwT - 0.014], [0.19, 0.07], [0.186, 0.06], [0.176, 0.056], [0.166, 0.05], [0.16, 0.042], [0.15, 0.042], [0.145, 0.05], [0.1, 0.05], [0.095, 0.058], [0.062, 0.062], [0.058, 0.052], [0, 0.054]].map(([r, h]) => new THREE.Vector2(r, h)),
+          40,
+        );
+        latheColors(cover, (r) => dust(r));
+        cover.rotateZ(sx > 0 ? -Math.PI / 2 : Math.PI / 2);
+        cover.translate(xc, R, wz);
+        place(cover, spec.wheelFace);
+        const ring = new THREE.TorusGeometry(0.125, 0.005, 8, 40);
+        latheColors(ring, () => 1);
+        ring.rotateY(Math.PI / 2);
+        ring.translate(xc + sx * 0.052, R, wz);
+        place(ring, spec.wheelFace);
+        const medallion = new THREE.CylinderGeometry(0.03, 0.03, 0.004, 20);
+        medallion.rotateZ(Math.PI / 2);
+        medallion.translate(xc + sx * 0.056, R, wz);
+        place(medallion, mats.dark);
+      }
+      // Brake drum / dark well behind the wheel face
+      const drum = new THREE.CylinderGeometry(0.17, 0.17, 0.12, 16);
       drum.rotateZ(Math.PI / 2);
-      drum.translate(xc - sx * 0.02, R, wz);
-      place(drum, mats.dark, true);
+      drum.translate(xc - sx * 0.04, R, wz);
+      place(drum, mats.dark);
       // Wheel-well liner: blocks the see-through behind the tyre, up to the arch
-      box(mats.dark, [Math.min(0, sx * (hw - 0.24)), 0.18, wz - rArch], [Math.max(0, sx * (hw - 0.24)), R + rArch - 0.01, wz + rArch], true);
+      box(mats.dark, [Math.min(0, sx * (hw - 0.29)), 0.15, wz - arch.w], [Math.max(0, sx * (hw - 0.29)), R + arch.h - 0.01, wz + arch.w]);
     }
   // Underbody mass between the wheels (frame, tank, exhaust — one dark block)
-  box(mats.dark, [-hw + 0.25, sillY - 0.14, spec.wheelZ[0] + rArch], [hw - 0.25, sillY + 0.02, spec.wheelZ[1] - rArch], true);
-  box(mats.dark, [-hw + 0.25, 0.26, 0.12], [hw - 0.25, 0.37, spec.wheelZ[0] - rArch], true);
-  box(mats.dark, [-hw + 0.25, 0.26, spec.wheelZ[1] + rArch], [hw - 0.25, 0.37, L - 0.12], true);
+  box(mats.dark, [-hw + 0.25, sillY - 0.14, spec.wheelZ[0] + arch.w], [hw - 0.25, sillY + 0.02, spec.wheelZ[1] - arch.w]);
+  box(mats.dark, [-hw + 0.25, 0.26, 0.12], [hw - 0.25, 0.37, spec.wheelZ[0] - arch.w]);
+  box(mats.dark, [-hw + 0.25, 0.26, spec.wheelZ[1] + arch.w], [hw - 0.25, 0.37, L - 0.12]);
 
   /* ---- bumpers, valance lamps, plates ---- */
   const bw = hw * 2 + 0.06;
   rbox(mats.chrome, [-bw / 2, 0.45, -0.13], [bw / 2, 0.58, 0.01], 0.03);
   rbox(mats.chrome, [-bw / 2, 0.45, L - 0.01], [bw / 2, 0.58, L + 0.13], 0.03);
-  for (const sx of [-1, 1]) { // rubber bumper guards
-    rbox(mats.rubber, [sx * 0.42 - 0.035, 0.44, -0.16], [sx * 0.42 + 0.035, 0.59, -0.1], 0.012, true);
-    rbox(mats.rubber, [sx * 0.42 - 0.035, 0.44, L + 0.1], [sx * 0.42 + 0.035, 0.59, L + 0.16], 0.012, true);
+  for (const sx of [-1, 1]) { // rubber bumper guards, a mirrored pair flanking the plate
+    rbox(mats.rubber, [sx * 0.3 - 0.035, 0.44, -0.16], [sx * 0.3 + 0.035, 0.59, -0.1], 0.012);
+    rbox(mats.rubber, [sx * 0.3 - 0.035, 0.44, L + 0.1], [sx * 0.3 + 0.035, 0.59, L + 0.16], 0.012);
   }
-  box(spec.plateMat, [-0.1525, 0.455, -0.14], [0.1525, 0.575, -0.13], true); // front plate on the bumper
+  box(spec.plateMat, [-0.1525, 0.455, -0.14], [0.1525, 0.575, -0.13]); // front plate on the bumper
   {
     // Rear plate on the tail face, centred above the bumper
     const st = stations[stations.length - 1];
     const yP = Math.min(st.yTop - 0.12, 0.72);
-    box(spec.plateMat, [-0.1525, yP - 0.076, L + 0.001], [0.1525, yP + 0.076, L + 0.012], true);
+    box(spec.plateMat, [-0.1525, yP - 0.076, L + 0.001], [0.1525, yP + 0.076, L + 0.012]);
     // Tail lamps: wide red lenses with a chrome surround
     for (const sx of [-1, 1]) {
       const xc = sx * (hw - 0.3);
-      box(mats.chrome, [xc - 0.24, yP - 0.085, L], [xc + 0.24, yP + 0.085, L + 0.012], true);
-      box(mats.tail, [xc - 0.225, yP - 0.07, L + 0.01], [xc + 0.225, yP + 0.07, L + 0.02], true);
-      box(mats.amber, [xc - sx * 0.05 - 0.05, yP - 0.06, L + 0.012], [xc - sx * 0.05 + 0.05, yP + 0.06, L + 0.022], true);
+      box(mats.chrome, [xc - 0.24, yP - 0.085, L], [xc + 0.24, yP + 0.085, L + 0.012]);
+      box(mats.tail, [xc - 0.225, yP - 0.07, L + 0.01], [xc + 0.225, yP + 0.07, L + 0.02]);
+      box(mats.amber, [xc - sx * 0.05 - 0.05, yP - 0.06, L + 0.012], [xc - sx * 0.05 + 0.05, yP + 0.06, L + 0.022]);
     }
   }
 
   /* ---- front fascia: grille, sealed beams, signals ---- */
   const g = spec.grille;
+  const hwNose = hw - 0.05;
   {
     const q = new THREE.PlaneGeometry(g.hw * 2, g.y1 - g.y0);
     q.rotateY(Math.PI); // face −z
     q.translate(0, (g.y0 + g.y1) / 2, -0.012);
-    place(q, spec.grilleMat, true);
-    // Chrome grille surround
-    box(mats.chrome, [-g.hw - 0.02, g.y1, -0.018], [g.hw + 0.02, g.y1 + 0.02, 0.0], true);
-    box(mats.chrome, [-g.hw - 0.02, g.y0 - 0.02, -0.018], [g.hw + 0.02, g.y0, 0.0], true);
+    place(q, spec.grilleMat);
+    // Chrome surround: full fascia width, framing grille and lamp bays together
+    box(mats.chrome, [-hwNose, g.y1, -0.02], [hwNose, g.y1 + 0.02, 0.0]);
+    box(mats.chrome, [-hwNose, g.y0 - 0.02, -0.02], [hwNose, g.y0, 0.0]);
+    for (const sx of [-1, 1]) box(mats.chrome, [Math.min(sx * hwNose, sx * (hwNose - 0.02)), g.y0 - 0.02, -0.02], [Math.max(sx * hwNose, sx * (hwNose - 0.02)), g.y1 + 0.02, 0.0]);
   }
   for (const sx of [-1, 1]) {
-    const xc = sx * (g.hw + 0.02 + (hw - g.hw - 0.02) / 2 - 0.01); // centre of the lamp bay
+    const bayHalf = (hwNose - 0.02 - g.hw) / 2 - 0.004;
+    const xc = sx * (g.hw + 0.004 + bayHalf); // centre of the lamp bay
     const yc = spec.lampY;
+    const bayH = spec.lamps === "round2" ? 0.09 : 0.1;
+    // Dark bay behind a proud chrome frame (the sealed beams sit recessed inside it)
+    box(mats.dark, [xc - bayHalf, yc - bayH, -0.006], [xc + bayHalf, yc + bayH, 0.01]);
+    const fr = 0.013;
+    box(mats.chrome, [xc - bayHalf, yc + bayH - fr, -0.028], [xc + bayHalf, yc + bayH, -0.005]);
+    box(mats.chrome, [xc - bayHalf, yc - bayH, -0.028], [xc + bayHalf, yc - bayH + fr, -0.005]);
+    box(mats.chrome, [xc - bayHalf, yc - bayH, -0.028], [xc - bayHalf + fr, yc + bayH, -0.005]);
+    box(mats.chrome, [xc + bayHalf - fr, yc - bayH, -0.028], [xc + bayHalf, yc + bayH, -0.005]);
+    box(mats.chrome, [xc - 0.006, yc - bayH, -0.026], [xc + 0.006, yc + bayH, -0.005]); // divider
     if (spec.lamps === "round2") {
-      rbox(mats.chrome, [xc - 0.17, yc - 0.09, -0.02], [xc + 0.17, yc + 0.09, 0.01], 0.02, true);
       for (const k of [-1, 1]) {
-        const lens = new THREE.SphereGeometry(0.072, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2);
+        const xk = xc + k * 0.08;
+        // Concave chrome reflector bowl, 40 mm deep, rim at the bay face
+        const bowl = flipFaces(new THREE.SphereGeometry(0.074, 24, 8, 0, Math.PI * 2, 0, 1.0));
+        bowl.rotateX(Math.PI / 2); // cap points +z (into the bay)
+        bowl.translate(xk, yc, -0.02 - 0.074 * Math.cos(1.0)); // rim at the bay face, pole 34 mm in
+        place(bowl, mats.chrome);
+        const ring = new THREE.TorusGeometry(0.075, 0.006, 6, 24);
+        ring.translate(xk, yc, -0.022);
+        place(ring, mats.chrome);
+        // Fluted glass: shallow dome with five vertical prism ribs let into it (ends flush)
+        const lens = new THREE.SphereGeometry(0.072, 24, 10, 0, Math.PI * 2, 0, Math.PI / 2);
         lens.scale(1, 0.3, 1);
         lens.rotateX(-Math.PI / 2); // dome faces −z
-        lens.translate(xc + k * 0.078, yc, -0.02);
-        place(lens, mats.lens, true);
-        const ring = new THREE.TorusGeometry(0.074, 0.006, 6, 20);
-        ring.translate(xc + k * 0.078, yc, -0.022);
-        place(ring, mats.chrome, true);
+        lens.translate(xk, yc, -0.02);
+        sink2(sink.lenses, lens);
+        for (const rx of [-0.048, -0.024, 0, 0.024, 0.048]) {
+          const chord = Math.sqrt(0.072 * 0.072 - rx * rx);
+          const rib = new THREE.CylinderGeometry(0.0025, 0.0025, chord * 0.66 * 2, 6);
+          rib.translate(xk + rx, yc, -0.02 - 0.3 * chord * 0.75);
+          sink2(sink.lenses, rib);
+        }
       }
     } else {
-      rbox(mats.chrome, [xc - 0.19, yc - 0.1, -0.02], [xc + 0.19, yc + 0.1, 0.01], 0.015, true);
       for (const k of [-1, 1]) {
-        rbox(mats.lens, [xc + k * 0.09 - 0.08, yc - 0.075, -0.03], [xc + k * 0.09 + 0.08, yc + 0.075, -0.012], 0.008, true);
+        const xk = xc + k * 0.088;
+        // Flat chrome reflector at the back of the bay, fluted rectangular lens recessed in the frame
+        box(mats.chrome, [xk - 0.078, yc - 0.07, -0.007], [xk + 0.078, yc + 0.07, -0.004]);
+        const lens = new THREE.PlaneGeometry(0.16, 0.15);
+        lens.rotateY(Math.PI);
+        lens.translate(xk, yc, -0.024);
+        sink2(sink.lenses, lens);
+        for (let i = -2; i <= 2; i++) {
+          const rib = new THREE.CylinderGeometry(0.0025, 0.0025, 0.146, 6);
+          rib.translate(xk + i * 0.03, yc, -0.0255);
+          sink2(sink.lenses, rib);
+        }
       }
     }
     // Amber turn signal under the lamp bay, above the bumper
-    rbox(mats.amber, [xc - 0.11, yc - 0.155, -0.03], [xc + 0.11, yc - 0.105, -0.01], 0.008, true);
+    rbox(mats.amber, [xc - 0.11, yc - bayH - 0.06, -0.03], [xc + 0.11, yc - bayH - 0.012, -0.01], 0.008);
   }
 
   /* ---- flank hardware ---- */
@@ -527,47 +877,42 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
       const k = THREE.MathUtils.clamp((y - st.yBelt) / Math.max(0.01, st.yTop - st.rTop - st.yBelt), 0, 1);
       return st.hwBelt + (st.hwTop - st.hwBelt) * k;
     };
-    // Door shut lines: 3 mm dark slivers buried 30 mm into the body, 1 mm proud
-    for (const dz of spec.doors) {
-      const xo = flankX(beltY - 0.05, dz);
-      box(mats.dark, [Math.min(sx * (xo - 0.04), sx * (xo + 0.001)), sillY + 0.03, dz - 0.0015], [Math.max(sx * (xo - 0.04), sx * (xo + 0.001)), beltY + 0.02, dz + 0.0015], true);
-    }
-    // Door handles: chrome pulls just under the belt, 180 mm ahead of each shut line
-    for (const dz of spec.doors) {
-      const xo = flankX(beltY - 0.1, dz);
-      rbox(mats.chrome, [Math.min(sx * xo, sx * (xo + 0.022)), beltY - 0.115, dz - 0.19], [Math.max(sx * xo, sx * (xo + 0.022)), beltY - 0.085, dz - 0.03], 0.006, true);
+    // Door handles: one chrome pull per door, on the door just ahead of its REAR shut line
+    for (const dz of spec.doors.slice(1)) {
+      const xo = flankX(beltY - 0.1, dz - 0.14);
+      rbox(mats.chrome, [Math.min(sx * xo, sx * (xo + 0.02)), beltY - 0.115, dz - 0.22], [Math.max(sx * xo, sx * (xo + 0.02)), beltY - 0.085, dz - 0.06], 0.006);
+      box(mats.dark, [Math.min(sx * (xo - 0.002), sx * (xo + 0.004)), beltY - 0.108, dz - 0.21], [Math.max(sx * (xo - 0.002), sx * (xo + 0.004)), beltY - 0.092, dz - 0.07]); // finger recess
     }
     // Body side moulding: black rubber strip with a chrome insert, 6 mm proud, wheel arch to wheel arch
     {
       const y = beltY - 0.28, xo = flankX(y, L / 2);
-      const z0 = spec.wheelZ[0] + rArch + 0.02, z1 = spec.wheelZ[1] - rArch - 0.02;
-      box(mats.rubber, [Math.min(sx * (xo - 0.02), sx * (xo + 0.007)), y - 0.025, z0], [Math.max(sx * (xo - 0.02), sx * (xo + 0.007)), y + 0.025, z1], true);
-      box(mats.chrome, [Math.min(sx * (xo + 0.007), sx * (xo + 0.009)), y - 0.006, z0], [Math.max(sx * (xo + 0.007), sx * (xo + 0.009)), y + 0.006, z1], true);
+      const z0 = spec.wheelZ[0] + arch.w + 0.02, z1 = spec.wheelZ[1] - arch.w - 0.02;
+      box(mats.rubber, [Math.min(sx * (xo - 0.02), sx * (xo + 0.007)), y - 0.025, z0], [Math.max(sx * (xo - 0.02), sx * (xo + 0.007)), y + 0.025, z1]);
+      box(mats.chrome, [Math.min(sx * (xo + 0.007), sx * (xo + 0.009)), y - 0.006, z0], [Math.max(sx * (xo + 0.007), sx * (xo + 0.009)), y + 0.006, z1]);
     }
     // Drip rail: chrome bead along the roof edge over the side glass
     {
       const g0 = spec.sideGlass[0], g1 = spec.sideGlass[spec.sideGlass.length - 1];
       const st = stations.find((s) => s.z >= (g0.z0 + g1.z1) / 2) ?? stations[0];
       const y = st.yTop - st.rTop + 0.004, xo = st.hwTop + 0.003;
-      box(mats.chrome, [Math.min(sx * (xo - 0.01), sx * (xo + 0.006)), y - 0.008, g0.z0 - 0.08], [Math.max(sx * (xo - 0.01), sx * (xo + 0.006)), y + 0.008, g1.z1 + 0.1], true);
+      box(mats.chrome, [Math.min(sx * (xo - 0.01), sx * (xo + 0.006)), y - 0.008, g0.z0 - 0.08], [Math.max(sx * (xo - 0.01), sx * (xo + 0.006)), y + 0.008, g1.z1 + 0.1]);
     }
-    // Door mirror on a chrome arm at the A-pillar base, painted housing, chrome face aft
+    // Door mirror: 150 × 100 × 70 mm painted head on a chrome arm at the A-pillar base, chrome face aft
     {
-      const z = spec.sideGlass[0].z0 + 0.05, y = beltY + 0.2;
+      const z = spec.sideGlass[0].z0 + 0.06, y = beltY + 0.19;
       const xo = flankX(y, z);
-      box(mats.chrome, [Math.min(sx * xo, sx * (xo + 0.1)), y - 0.012, z - 0.012], [Math.max(sx * xo, sx * (xo + 0.1)), y + 0.012, z + 0.012], true);
-      rbox(spec.paint, [Math.min(sx * (xo + 0.08), sx * (xo + 0.2)), y - 0.06, z - 0.05], [Math.max(sx * (xo + 0.08), sx * (xo + 0.2)), y + 0.06, z + 0.05], 0.015, true);
-      box(mats.chrome, [Math.min(sx * (xo + 0.09), sx * (xo + 0.19)), y - 0.05, z + 0.05], [Math.max(sx * (xo + 0.09), sx * (xo + 0.19)), y + 0.05, z + 0.056], true);
+      box(mats.chrome, [Math.min(sx * xo, sx * (xo + 0.075)), y - 0.01, z - 0.01], [Math.max(sx * xo, sx * (xo + 0.075)), y + 0.01, z + 0.01]);
+      rbox(spec.paint, [Math.min(sx * (xo + 0.06), sx * (xo + 0.13)), y - 0.05, z - 0.075], [Math.max(sx * (xo + 0.06), sx * (xo + 0.13)), y + 0.05, z + 0.075], 0.012);
+      box(mats.chrome, [Math.min(sx * (xo + 0.066), sx * (xo + 0.124)), y - 0.042, z + 0.075], [Math.max(sx * (xo + 0.066), sx * (xo + 0.124)), y + 0.042, z + 0.08]);
     }
     // Rocker panel: dark strip along the sill (mud + shadow)
     {
-      const z0 = spec.wheelZ[0] + rArch, z1 = spec.wheelZ[1] - rArch;
+      const z0 = spec.wheelZ[0] + arch.w, z1 = spec.wheelZ[1] - arch.w;
       const st = stations.find((s) => s.z >= L / 2) ?? stations[0];
       const xo = st.hwSill;
-      box(mats.rubber, [Math.min(sx * (xo - 0.01), sx * (xo + 0.002)), sillY + 0.005, z0], [Math.max(sx * (xo - 0.01), sx * (xo + 0.002)), sillY + 0.07, z1], true);
+      box(mats.rubber, [Math.min(sx * (xo - 0.01), sx * (xo + 0.002)), sillY + 0.005, z0], [Math.max(sx * (xo - 0.01), sx * (xo + 0.002)), sillY + 0.07, z1]);
     }
   }
-  if (spec.bed) box(mats.dark, [-hw + 0.1, spec.bed.y - 0.008, spec.bed.z0], [hw - 0.1, spec.bed.y + 0.004, spec.bed.z1], true);
 
   // Contact shadow decal: its own mesh so it never casts
   const decal = new THREE.PlaneGeometry(hw * 2 + 0.5, L + 0.5);
@@ -578,6 +923,26 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
   dm.renderOrder = 2;
   dm.name = "car-shadow";
   parent.add(dm);
+}
+
+/** Merge loose geometries (any index state) into one non-indexed BufferGeometry. */
+function mergeLoose(list: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const pos: number[] = [], nor: number[] = [], uv: number[] = [];
+  for (const g of list) {
+    const ng = g.index ? g.toNonIndexed() : g;
+    pos.push(...Array.from(ng.attributes.position.array as Float32Array));
+    nor.push(...Array.from(ng.attributes.normal.array as Float32Array));
+    const u = ng.attributes.uv;
+    if (u) uv.push(...Array.from(u.array as Float32Array));
+    else for (let i = 0; i < ng.attributes.position.count; i++) uv.push(0, 0);
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+  out.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  out.computeBoundingBox();
+  out.computeBoundingSphere();
+  return out;
 }
 
 export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Vector3, bank?: TextureBank): ExteriorResult {
@@ -638,19 +1003,33 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
     parent.add(m);
   }
 
-  /* ---------------- kerb stops at the stall heads ---------------- */
-  const stopMat = skyFill(new THREE.MeshStandardMaterial({ color: 0xa9a49a, roughness: 0.9, metalness: 0 }), 0.22);
+  /* ---------------- wheel stops at the stall heads ---------------- */
+  // Rev 4 to spec: 72" × 8" × 5½" precast bars (1.83 × 0.2 × 0.14), 15 mm chamfers on the
+  // top edges, two Ø 20 mm rebar pin holes at ±0.6 m, centred in the stall (≈ 17" clear each
+  // side), 0.75 m off the kerb face so a nosed-in bumper overhangs the bar, not the kerb.
+  const stopMat = skyFill(new THREE.MeshStandardMaterial({ map: pal.concrete.map, color: 0xb9b5ac, roughness: 0.92, metalness: 0 }), 0.22);
+  const pinMat = new THREE.MeshStandardMaterial({ color: 0x141312, roughness: 0.9, metalness: 0 });
+  pinMat.userData.noCast = true;
   for (let i = 0; i < stallLinesX.length - 1; i++) {
     if (i % 2 === 1 && rng() < 0.5) continue;
-    const cx = (stallLinesX[i] + stallLinesX[i + 1]) / 2 + (rng() - 0.5) * 0.08;
-    const z = LOT.kerbZ + 0.55 + (rng() - 0.5) * 0.05;
-    // Precast wheel stop: 1.8 m bar, trapezoid section 220 mm at the base → 140 mm top, 130 mm high
+    const cx = (stallLinesX[i] + stallLinesX[i + 1]) / 2 + (rng() - 0.5) * 0.06;
+    const z = LOT.kerbZ + LOT.stopZ + (rng() - 0.5) * 0.04;
+    const skew = (rng() - 0.5) * 0.03; // a degree or so off square, as they are set by eye
     const sh = new THREE.Shape();
-    sh.moveTo(-0.11, 0); sh.lineTo(0.11, 0); sh.lineTo(0.07, 0.13); sh.lineTo(-0.07, 0.13); sh.closePath();
-    const bar = new THREE.ExtrudeGeometry(sh, { depth: 1.8, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.008, bevelSegments: 2 });
+    sh.moveTo(-0.1, 0); sh.lineTo(0.1, 0); sh.lineTo(0.1, 0.125); sh.lineTo(0.085, 0.14); sh.lineTo(-0.085, 0.14); sh.lineTo(-0.1, 0.125); sh.closePath();
+    const bar = new THREE.ExtrudeGeometry(sh, { depth: 1.83, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.006, bevelSegments: 2 });
     bar.rotateY(Math.PI / 2); // extrusion (z) → x; profile x → −z
-    bar.translate(cx - 0.9, yLot, z);
+    bar.translate(-0.915, 0, 0);
+    bar.rotateY(skew);
+    bar.translate(cx, yLot, z);
     b.add(bar, stopMat);
+    for (const px of [-0.6, 0.6]) {
+      const pin = new THREE.CylinderGeometry(0.011, 0.011, 0.02, 10);
+      pin.translate(px, 0.1365, 0); // top 0.5 mm over the bevelled bar top so the hole reads as a dark disc
+      pin.rotateY(skew);
+      pin.translate(cx, yLot, z);
+      b.add(pin, pinMat);
+    }
   }
 
   /* ---------------- CMU wall at the far edge, with a cap and a gap for the entrance ---------------- */
@@ -662,6 +1041,7 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
   const gravelTex = ext.desertDirt(512, 3340);
   gravelTex.repeat.set(30, 1);
   const gravel = skyFill(new THREE.MeshStandardMaterial({ map: gravelTex, color: 0xb0aa9c, roughness: 1, metalness: 0 }), 0.22);
+  const pierMat = skyFill(new THREE.MeshStandardMaterial({ color: 0xa9a49a, roughness: 0.9, metalness: 0 }), 0.22);
   for (const [xa, xb] of [[-40, -6], [1, 40]] as Array<[number, number]>) {
     b.box(cmu, [xa, yLot - 0.05, LOT.wallZ], [xb, yLot + 0.82, LOT.wallZ + 0.2], { metric: true });
     // Cap course: a 90 mm precast cap with a 25 mm overhang each side, lighter than the block
@@ -689,10 +1069,10 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
     const pierTop = yLot + 0.75;
     const pier = new THREE.CylinderGeometry(0.285, 0.3, 0.735, 28);
     pier.translate(px, yLot + 0.735 / 2, pz);
-    b.add(pier, stopMat);
+    b.add(pier, pierMat);
     const chamfer = new THREE.CylinderGeometry(0.27, 0.285, 0.015, 28);
     chamfer.translate(px, pierTop - 0.0075, pz);
-    b.add(chamfer, stopMat);
+    b.add(chamfer, pierMat);
     b.box(grout, [px - 0.2, pierTop, pz - 0.2], [px + 0.2, pierTop + 0.03, pz + 0.2]); // grout collar
     b.rbox(steel, [px - 0.19, pierTop + 0.03, pz - 0.19], [px + 0.19, pierTop + 0.055, pz + 0.19], 0.006, 2); // base plate
     for (const [ax, az] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
@@ -719,69 +1099,120 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
   }
 
   /* ---------------- vehicles ---------------- */
-  // Glass: a dielectric (metalness 0) so the sky reflection is white Fresnel over a dark
-  // tint. rev 2 used metalness 0.55 with a near-black colour, which *tints the reflection
-  // black* — that is why the windshields read as uniform dark slabs while the chrome caught sky.
+  // Glass: a dielectric (metalness 0) so the sky reflection is white Fresnel over the cabin.
+  // rev 2 used metalness 0.55 with a near-black colour, which *tints the reflection black*;
+  // rev 3 was opaque navy; rev 4 blends (see makePaneGlass) so the interior shows through.
   const carMats: CarMats = {
-    glass: new THREE.MeshPhysicalMaterial({ color: 0x0b1014, roughness: 0.04, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.6, specularIntensity: 1, side: THREE.DoubleSide }),
+    glass: makePaneGlass(0.3, 1.5),
+    lensGlass: makePaneGlass(0.1, 1.2),
     chrome: new THREE.MeshStandardMaterial({ color: 0xc4c7cb, roughness: 0.22, metalness: 1 }),
-    tyre: new THREE.MeshStandardMaterial({ color: 0x1e1e1e, roughness: 0.85, metalness: 0 }), // sidewall shading needs a little albedo to show
+    tyre: new THREE.MeshStandardMaterial({ color: 0x222221, roughness: 0.82, metalness: 0, vertexColors: true }), // sidewall/tread tones in the vertex colour
     dark: new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.95, metalness: 0 }),
-    lens: new THREE.MeshPhysicalMaterial({ color: 0x9aa4ab, roughness: 0.06, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.4 }),
     amber: new THREE.MeshPhysicalMaterial({ color: 0xd9741a, roughness: 0.15, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 1 }),
     tail: new THREE.MeshPhysicalMaterial({ color: 0x8a1212, roughness: 0.15, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 1 }),
     rubber: new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.8, metalness: 0 }),
     shadow: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, alphaMap: ext.contactShadowAlpha(128), depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }),
+    // Cabin: inside-out headliner/door-panel box, cloth seats, dark padded trim
+    cabin: new THREE.MeshStandardMaterial({ color: 0x2a211e, roughness: 0.95, metalness: 0, side: THREE.BackSide }),
+    seat: new THREE.MeshStandardMaterial({ color: 0x4a2f2a, roughness: 0.92, metalness: 0 }),
+    trim: new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.88, metalness: 0 }),
   };
+  carMats.glass.name = "car-glass"; carMats.lensGlass.name = "lamp-glass";
   // Trim sits inside the body's silhouette (lamps in the nose, chrome on the flanks, liners
-  // behind the tyres): no shadow of its own, so skip its depth draws in both maps.
-  for (const m of [carMats.chrome, carMats.lens, carMats.amber, carMats.tail, carMats.rubber, carMats.dark]) m.userData.noCast = true;
+  // behind the tyres) and the interior is behind the glass: no shadow of their own, so skip
+  // their depth draws in both maps.
+  for (const m of [carMats.chrome, carMats.amber, carMats.tail, carMats.rubber, carMats.dark, carMats.cabin, carMats.seat, carMats.trim]) m.userData.noCast = true;
   // Paint: faded clearcoat under a dust film (carDust: sills and roof/hood dusty, flanks clean)
   const dustW = ext.carDust(512, 3330), dustM = ext.carDust(512, 3331);
   const whitePaint = skyFill(new THREE.MeshPhysicalMaterial({ color: 0xdcd9ce, map: dustW.map, roughnessMap: dustW.roughnessMap, roughness: 1, metalness: 0, clearcoat: 0.35, clearcoatRoughness: 0.4, envMapIntensity: 0.7 }), 0.2);
   const maroonPaint = skyFill(new THREE.MeshPhysicalMaterial({ color: 0x3a1014, map: dustM.map, roughnessMap: dustM.roughnessMap, roughness: 0.85, metalness: 0, clearcoat: 0.7, clearcoatRoughness: 0.22, envMapIntensity: 1 }), 0.2);
-  const grilleP = ext.grilleTexture(512, 18, 6, false, 3332), grilleS = ext.grilleTexture(512, 24, 5, true, 3333);
+  const grilleP = ext.grilleTexture(512, 8, 2, false, 3332), grilleS = ext.grilleTexture(512, 24, 6, true, 3333);
   const grillePickup = new THREE.MeshStandardMaterial({ map: grilleP.map, roughnessMap: grilleP.roughnessMap, roughness: 1, metalness: 0.6 });
   const grilleSedan = new THREE.MeshStandardMaterial({ map: grilleS.map, roughnessMap: grilleS.roughnessMap, roughness: 1, metalness: 0.8 });
   const platePickup = new THREE.MeshStandardMaterial({ map: ext.plateTexture(256, "CVN 4187", false, 3334), roughness: 0.45, metalness: 0.1 });
   const plateSedan = new THREE.MeshStandardMaterial({ map: ext.plateTexture(256, "LKR 902", true, 3335), roughness: 0.45, metalness: 0.1 });
-  const steelWheelWhite = new THREE.MeshStandardMaterial({ color: 0xd8d5cc, roughness: 0.5, metalness: 0.2 }); // painted steel wheel
-  const wheelCover = new THREE.MeshStandardMaterial({ color: 0xb8bbbf, roughness: 0.3, metalness: 0.95 }); // full chrome cover
+  const steelWheelWhite = new THREE.MeshStandardMaterial({ color: 0xd8d5cc, roughness: 0.5, metalness: 0.2, vertexColors: true }); // painted steel wheel, brake dust in the vertex colour
+  const wheelCover = new THREE.MeshStandardMaterial({ color: 0xb8bbbf, roughness: 0.3, metalness: 0.95, vertexColors: true }); // full chrome cover
   for (const m of [grillePickup, grilleSedan, platePickup, plateSedan, steelWheelWhite, wheelCover]) m.userData.noCast = true;
-  envMaterials.push(carMats.glass, carMats.chrome, carMats.lens, carMats.amber, carMats.tail, whitePaint, maroonPaint, grilleSedan, wheelCover, steelWheelWhite);
+  envMaterials.push(carMats.glass, carMats.lensGlass, carMats.chrome, carMats.amber, carMats.tail, whitePaint, maroonPaint, grilleSedan, wheelCover, steelWheelWhite);
 
-  // Dusty white single-cab square-body pickup (5.2 m, 1.8 wide, 1.80 tall), nose to the kerb stop
+  // Dusty white single-cab square-body pickup (5.0 m, 1.8 wide, 1.80 tall, 3.0 m wheelbase):
+  // front axle 0.72 m behind the body nose (28 % of WB with the bumper), A-pillar base at
+  // 0.27 WB behind it, 1.58 m cab, 6 cm cab–bed gap, 2.0 m open bed.
   const pickup: CarSpec = {
-    length: 5.2, hw: 0.9, sillY: 0.42, beltY: 0.98, wheelR: 0.38, wheelZ: [1.0, 4.12],
+    length: 5.0, hw: 0.9, sillY: 0.42, beltY: 0.98, wheelR: 0.38, tyreHw: 0.115, wheelZ: [0.72, 3.72], arch: "square",
     top: [
-      [0.0, 0.90, 0.85, 0.02], [0.12, 0.94, 0.86, 0.02], [1.72, 0.99, 0.88, 0.02, true],
-      [1.8, 1.04, 0.86, 0.02], [2.18, 1.74, 0.79, 0.07, true], [2.28, 1.79, 0.78, 0.08], [3.3, 1.79, 0.78, 0.08],
-      [3.4, 1.74, 0.78, 0.06, true], [3.46, 1.14, 0.88, 0.02, true], [3.5, 1.10, 0.888, 0.012], [5.14, 1.10, 0.888, 0.012], [5.2, 1.02, 0.86, 0.02],
+      [0.0, 0.90, 0.85, 0.02], [0.12, 0.94, 0.86, 0.02], [1.26, 0.995, 0.88, 0.02, true], [1.265, 0.95, 0.88, 0.008, true], [1.32, 0.955, 0.88, 0.008],
+      [1.36, 1.02, 0.86, 0.02, true], [1.70, 1.74, 0.79, 0.07, true], [1.80, 1.79, 0.78, 0.08], [2.80, 1.79, 0.78, 0.08],
+      [2.86, 1.74, 0.78, 0.06, true], [2.90, 1.14, 0.88, 0.02, true], [2.92, 1.10, 0.888, 0.012], [4.94, 1.10, 0.888, 0.012], [5.0, 1.02, 0.86, 0.02],
     ],
-    sideGlass: [{ z0: 2.3, z1: 3.32 }],
-    doors: [2.26, 3.38],
-    screens: [{ zb: 1.8, zt: 2.18, yb: 1.04, yt: 1.7 }, { zb: 3.46, zt: 3.4, yb: 1.2, yt: 1.7 }],
-    bed: { z0: 3.6, z1: 5.05, y: 1.1 },
-    lamps: "round2", lampY: 0.75, grille: { y0: 0.62, y1: 0.86, hw: 0.36 },
-    plateSerial: "CVN 4187", paint: whitePaint, grilleMat: grillePickup, plateMat: platePickup, wheelFace: steelWheelWhite,
+    sideGlass: [{ z0: 1.8, z1: 2.8 }],
+    doors: [1.54, 2.84],
+    grooves: [
+      { z0: 1.538, z1: 1.542, depth: 0.004, span: "side" }, { z0: 2.838, z1: 2.842, depth: 0.004, span: "side" },
+      { z0: 2.92, z1: 2.98, depth: 0.15, span: "all" }, // cab-to-bed gap
+      { z0: 3.04, z1: 4.9, depth: 0.42, span: "bed" }, // open bed between the rails
+    ],
+    topLines: [{ x: 0.8, z0: 0.15, z1: 1.25 }],
+    screens: [{ zb: 1.36, zt: 1.7, yb: 1.02, yt: 1.7 }, { zb: 2.9, zt: 2.86, yb: 1.2, yt: 1.68 }],
+    lamps: "round2", lampY: 0.75, grille: { y0: 0.62, y1: 0.88, hw: 0.5 },
+    interior: {
+      cabin: { z0: 1.3, z1: 2.9, y0: 0.55, y1: 1.76, hw: 0.84 },
+      dash: { z0: 1.36, z1: 1.82, y: 0.98, hw: 0.82 },
+      wheel: { x: 0.4, y: 1.1, z: 2.08, r: 0.2 },
+      seats: [{ z: 2.6, x0: -0.78, x1: 0.78, y0: 0.66, y1: 1.28 }],
+      pillars: [],
+    },
+    paint: whitePaint, grilleMat: grillePickup, plateMat: platePickup, wheelFace: steelWheelWhite, wheelStyle: "steel",
   };
-  // Maroon 3-box sedan (4.95 m, 1.8 wide, 1.42 tall), full wheel covers
+  // Maroon 3-box sedan (4.95 m, 1.8 wide, 1.42 tall), full wheel covers. Modelled as the
+  // 1977–90 box Caprice (the brief said 1991–96; the box body suits the diner and its front
+  // graphic already reads — see BUILD.md).
   const sedan: CarSpec = {
-    length: 4.95, hw: 0.9, sillY: 0.31, beltY: 0.87, wheelR: 0.35, wheelZ: [0.92, 3.8],
+    length: 4.95, hw: 0.9, sillY: 0.31, beltY: 0.87, wheelR: 0.35, tyreHw: 0.105, wheelZ: [0.95, 3.85], arch: "flat",
     top: [
-      [0.0, 0.78, 0.85, 0.02], [0.12, 0.80, 0.87, 0.02], [1.8, 0.87, 0.88, 0.02, true],
-      [1.9, 0.92, 0.85, 0.03], [2.44, 1.38, 0.72, 0.08, true], [2.52, 1.42, 0.71, 0.09], [3.5, 1.42, 0.71, 0.09],
+      [0.0, 0.78, 0.85, 0.02], [0.12, 0.80, 0.87, 0.02], [1.8, 0.875, 0.88, 0.02, true], [1.805, 0.835, 0.88, 0.008, true], [1.86, 0.84, 0.88, 0.008],
+      [1.9, 0.90, 0.86, 0.02, true], [2.44, 1.38, 0.72, 0.08, true], [2.52, 1.42, 0.71, 0.09], [3.5, 1.42, 0.71, 0.09],
       [3.58, 1.38, 0.72, 0.08, true], [4.12, 1.02, 0.86, 0.03, true], [4.2, 1.0, 0.888, 0.015], [4.88, 0.98, 0.888, 0.015], [4.95, 0.9, 0.86, 0.02],
     ],
     sideGlass: [{ z0: 2.0, z1: 2.9 }, { z0: 2.98, z1: 3.62 }],
     doors: [1.96, 2.94, 3.72],
-    screens: [{ zb: 1.9, zt: 2.44, yb: 0.92, yt: 1.34 }, { zb: 4.12, zt: 3.58, yb: 1.04, yt: 1.34 }],
+    grooves: [
+      { z0: 1.958, z1: 1.962, depth: 0.004, span: "side" }, { z0: 2.938, z1: 2.942, depth: 0.004, span: "side" }, { z0: 3.718, z1: 3.722, depth: 0.004, span: "side" },
+      { z0: 4.238, z1: 4.242, depth: 0.004, span: "top" }, // trunk lid leading edge
+    ],
+    topLines: [{ x: 0.8, z0: 0.15, z1: 1.79 }, { x: 0.79, z0: 4.24, z1: 4.9 }],
+    screens: [{ zb: 1.9, zt: 2.44, yb: 0.9, yt: 1.34 }, { zb: 4.12, zt: 3.58, yb: 1.04, yt: 1.34 }],
     lamps: "rect2", lampY: 0.7, grille: { y0: 0.61, y1: 0.78, hw: 0.34 },
-    plateSerial: "LKR 902", paint: maroonPaint, grilleMat: grilleSedan, plateMat: plateSedan, wheelFace: wheelCover,
+    interior: {
+      cabin: { z0: 1.86, z1: 4.14, y0: 0.45, y1: 1.37, hw: 0.82 },
+      dash: { z0: 1.9, z1: 2.36, y: 0.86, hw: 0.8 },
+      wheel: { x: 0.4, y: 0.98, z: 2.58, r: 0.19 },
+      seats: [
+        { z: 2.9, x0: 0.12, x1: 0.68, y0: 0.55, y1: 1.02, headrest: true },
+        { z: 2.9, x0: -0.68, x1: -0.12, y0: 0.55, y1: 1.02, headrest: true },
+        { z: 3.86, x0: -0.76, x1: 0.76, y0: 0.55, y1: 1.0 },
+      ],
+      shelf: { z0: 3.95, z1: 4.13, y: 1.02, hw: 0.8 },
+      pillars: [2.94],
+    },
+    paint: maroonPaint, grilleMat: grilleSedan, plateMat: plateSedan, wheelFace: wheelCover, wheelStyle: "cover",
   };
   const stall = (i: number) => (stallLinesX[i] + stallLinesX[i + 1]) / 2;
-  buildCar(b, parent, pickup, carMats, new THREE.Vector3(stall(4) + 0.12, yLot, LOT.kerbZ + 0.62), THREE.MathUtils.degToRad(1.5));
-  buildCar(b, parent, sedan, carMats, new THREE.Vector3(stall(6) - 0.08, yLot, LOT.kerbZ + 0.7), THREE.MathUtils.degToRad(-2));
+  const sink: CarSink = { panes: [], lenses: [] };
+  // Nosed in against the stops: the pickup's front tyres 0.10 m short of the bar (bumper 0.37 m
+  // past it, 0.48 m off the kerb), the sedan's 0.08 m short (bumper 0.48 m past, 0.20 m off the kerb).
+  const stopFace = LOT.kerbZ + LOT.stopZ + 0.1;
+  buildCar(b, parent, pickup, carMats, sink, new THREE.Vector3(stall(4) + 0.12, yLot, stopFace + 0.1 - (pickup.wheelZ[0] - pickup.wheelR)), THREE.MathUtils.degToRad(1.5));
+  buildCar(b, parent, sedan, carMats, sink, new THREE.Vector3(stall(6) - 0.08, yLot, stopFace + 0.08 - (sedan.wheelZ[0] - sedan.wheelR)), THREE.MathUtils.degToRad(-2));
+  for (const [list, mat, name] of [[sink.panes, carMats.glass, "car-glass"], [sink.lenses, carMats.lensGlass, "lamp-glass"]] as Array<[THREE.BufferGeometry[], THREE.Material, string]>) {
+    const mesh = new THREE.Mesh(mergeLoose(list), mat);
+    mesh.renderOrder = 5; // after every other opaque (the cabin, the far pane's backdrop) — blended, see makePaneGlass
+    mesh.castShadow = true; // tinted glass: the cabin stays in shadow
+    mesh.receiveShadow = false;
+    mesh.name = name;
+    parent.add(mesh);
+  }
 
   /* ---------------- desert dirt, scrub, horizon, sky ---------------- */
   const dirtTex = ext.desertDirt(1024, 3313);
@@ -795,6 +1226,14 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
     m.name = "desert";
     parent.add(m);
   }
+  // Scrub edge behind the wall: not a ruler line. The clear strip along the wall wanders 0–4 m
+  // (`edgeAt`) and the bushes thin out over the next 3 m (`edgeKeep`) — a graded shoulder.
+  const edgeNoise = makeValueNoise(3361, 64);
+  const edgeAt = (x: number) => LOT.wallZ + 1.5 + 3.5 * edgeNoise(x / 6 + 32, 0.5);
+  const edgeKeep = (x: number, z: number) => {
+    const d = z - edgeAt(x);
+    return d > 0 && (d > 3 || rng() < 0.2 + 0.8 * (d / 3));
+  };
   {
     // Scrub: noise-jittered low blobs, one InstancedMesh, colour per instance
     const base = new THREE.IcosahedronGeometry(0.5, 1);
@@ -821,7 +1260,7 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
       tries++;
       const r = 22 + Math.pow(rng(), 0.7) * 100, a = rng() * Math.PI * 2;
       const x = Math.sin(a) * r, z = Math.cos(a) * r;
-      if (z < LOT.wallZ + 1.5 && Math.abs(x) < 42) continue; // not in the lot
+      if (Math.abs(x) < 42 && z < LOT.wallZ + 6 && !edgeKeep(x, z)) continue; // not in the lot, graded edge
       if (z < ROOM.zBack - 4 && Math.abs(x) < 12) continue; // not behind the kitchen
       if (Math.abs(z - ROAD.z) < ROAD.halfW + 1.2) continue; // not on the road or its shoulders
       // Three size classes: rabbitbrush clumps, sage, the odd big saltbush
@@ -859,6 +1298,46 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
     decals.frustumCulled = false;
     decals.renderOrder = 1;
     parent.add(scrub, decals);
+  }
+  // Tyre tracks in the dirt behind the wall: a dirt approach from the road to the entrance gap
+  // (two wheel ruts 1.9 m apart) and two stray single tracks — darker compacted dirt strips.
+  {
+    const trackMat = skyFill(new THREE.MeshStandardMaterial({ map: dirtTex, color: 0x8c8578, roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }), 0.22);
+    trackMat.userData.noCast = true;
+    const rut = (pts: Array<[number, number]>, w: number) => {
+      const pos: number[] = [], nor: number[] = [], uv: number[] = [], idx: number[] = [];
+      for (let i = 0; i < pts.length; i++) {
+        const [x, z] = pts[i];
+        const [xa, za] = pts[Math.max(0, i - 1)], [xb, zb] = pts[Math.min(pts.length - 1, i + 1)];
+        let tx = xb - xa, tz = zb - za;
+        const l = Math.hypot(tx, tz) || 1;
+        tx /= l; tz /= l;
+        pos.push(x - tz * w / 2, yLot - 0.036, z + tx * w / 2, x + tz * w / 2, yLot - 0.036, z - tx * w / 2);
+        nor.push(0, 1, 0, 0, 1, 0);
+        uv.push(x / 7, z / 7, (x + tz * w) / 7, (z - tx * w) / 7);
+        if (i < pts.length - 1) { const p = i * 2; idx.push(p, p + 1, p + 2, p + 1, p + 3, p + 2); }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+      g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      b.add(g, trackMat);
+    };
+    const wander = makeValueNoise(3362, 16);
+    const path = (x0: number, z0: number, x1: number, z1: number, amp: number, seedU: number): Array<[number, number]> => {
+      const out: Array<[number, number]> = [];
+      for (let i = 0; i <= 24; i++) {
+        const t = i / 24;
+        const w = (wander(t * 6 + seedU, seedU) - 0.5) * amp * Math.sin(Math.PI * t);
+        out.push([x0 + (x1 - x0) * t + w, z0 + (z1 - z0) * t]);
+      }
+      return out;
+    };
+    const gapX = -2.5; // centre of the wall opening (−6 … 1)
+    for (const dx of [-0.95, 0.95]) rut(path(gapX + dx + 1.2, ROAD.z - ROAD.halfW - 1.4, gapX + dx, LOT.wallZ + 0.6, 1.2, 3 + dx), 0.32);
+    rut(path(14, ROAD.z - ROAD.halfW - 1.0, 30, LOT.wallZ + 3, 4, 11), 0.3);
+    rut(path(-22, LOT.wallZ + 2.5, -9, ROAD.z - ROAD.halfW - 1.2, 3, 17), 0.3);
   }
 
   /* ---------------- frontage road + utility poles behind the wall ---------------- */
@@ -920,71 +1399,111 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
     parent.add(wires);
   }
 
-  /* ---------------- creosote bushes: 1–2 m open shrubs among the scrub ---------------- */
+  /* ---------------- creosote + mesquite: 1–2.5 m open shrubs among the scrub ---------------- */
   {
-    // Creosote (Larrea): a fan of thin dark stems from one root crown, sparse olive foliage
-    // in small clumps at the stem ends — nothing like the low rounded scrub blobs, which is
-    // exactly why the flat needs them. Two InstancedMeshes (stems / foliage), same matrices.
-    const stemGeos: THREE.BufferGeometry[] = [], leafGeos: THREE.BufferGeometry[] = [];
+    // Creosote (Larrea): a fan of thin dark stems from one root crown, sparse olive foliage in
+    // small clumps at the stem ends; mesquite: two or three thicker leaning trunks under a
+    // broad flat canopy. Rev 4: five distinct silhouettes (the rev 3 flat repeated one
+    // instanced sprite — the critics counted its copies), baked with a random pick, yaw and
+    // scale per bush into ONE merged geometry per material (two draw calls, ~80 k triangles).
     const brng = makeRng(3350);
-    for (let s = 0; s < 9; s++) {
-      const a = (s / 9) * Math.PI * 2 + brng() * 0.5, tilt = 0.25 + brng() * 0.3, len = 0.75 + brng() * 0.35;
-      const stem = new THREE.CylinderGeometry(0.008, 0.02, len, 5);
-      stem.translate(0, len / 2, 0);
-      stem.rotateX(tilt);
-      stem.rotateY(a);
-      stemGeos.push(stem);
-      const tip = new THREE.Vector3(0, len, 0).applyEuler(new THREE.Euler(tilt, a, 0, "YXZ"));
-      for (let k = 0; k < 3; k++) {
-        const leaf = new THREE.IcosahedronGeometry(0.11 + brng() * 0.07, 0);
-        leaf.scale(1, 0.7, 1);
-        leaf.translate(tip.x * (0.7 + k * 0.15) + (brng() - 0.5) * 0.12, tip.y * (0.65 + k * 0.17), tip.z * (0.7 + k * 0.15) + (brng() - 0.5) * 0.12);
-        leafGeos.push(leaf);
+    type Variant = { stems: THREE.BufferGeometry[]; leaves: THREE.BufferGeometry[] };
+    const variants: Variant[] = [];
+    const creosote = (nStems: number, spread: number, height: number, clumps: number): Variant => {
+      const v: Variant = { stems: [], leaves: [] };
+      for (let s = 0; s < nStems; s++) {
+        const a = (s / nStems) * Math.PI * 2 + brng() * (Math.PI * 2 / nStems), tilt = spread + brng() * 0.3, len = height * (0.7 + brng() * 0.4);
+        const stem = new THREE.CylinderGeometry(0.008, 0.02, len, 5);
+        stem.translate(0, len / 2, 0);
+        stem.rotateX(tilt);
+        stem.rotateY(a);
+        v.stems.push(stem);
+        const tip = new THREE.Vector3(0, len, 0).applyEuler(new THREE.Euler(tilt, a, 0, "YXZ"));
+        for (let k = 0; k < clumps; k++) {
+          const leaf = new THREE.IcosahedronGeometry(0.1 + brng() * 0.08, 0);
+          leaf.scale(1, 0.7, 1);
+          const t = 0.6 + k * (0.4 / clumps) + brng() * 0.1;
+          leaf.translate(tip.x * t + (brng() - 0.5) * 0.14, tip.y * t, tip.z * t + (brng() - 0.5) * 0.14);
+          v.leaves.push(leaf);
+        }
       }
-    }
-    const merge = (gs: THREE.BufferGeometry[]) => {
-      const pos: number[] = [], nor: number[] = [];
-      for (const g of gs) {
-        const ng = g.index ? g.toNonIndexed() : g;
-        pos.push(...Array.from(ng.attributes.position.array));
-        nor.push(...Array.from(ng.attributes.normal.array));
-      }
-      const out = new THREE.BufferGeometry();
-      out.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-      out.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
-      return out;
+      return v;
     };
+    const mesquite = (trunks: number): Variant => {
+      const v: Variant = { stems: [], leaves: [] };
+      for (let s = 0; s < trunks; s++) {
+        const a = (s / trunks) * Math.PI * 2 + brng(), tilt = 0.35 + brng() * 0.3, len = 1.1 + brng() * 0.4;
+        const trunk = new THREE.CylinderGeometry(0.03, 0.06, len, 6);
+        trunk.translate(0, len / 2, 0);
+        trunk.rotateX(tilt);
+        trunk.rotateY(a);
+        v.stems.push(trunk);
+        const tip = new THREE.Vector3(0, len, 0).applyEuler(new THREE.Euler(tilt, a, 0, "YXZ"));
+        for (let k = 0; k < 3; k++) {
+          const br = new THREE.CylinderGeometry(0.012, 0.025, 0.7, 5);
+          br.translate(0, 0.35, 0);
+          br.rotateX(0.9 + brng() * 0.5);
+          br.rotateY(a + (k - 1) * 0.9 + brng() * 0.4);
+          br.translate(tip.x, tip.y, tip.z);
+          v.stems.push(br);
+        }
+        // Flat, wide canopy: a ring of squashed clumps around the crown
+        for (let k = 0; k < 7; k++) {
+          const ca = (k / 7) * Math.PI * 2, cr = 0.45 + brng() * 0.35;
+          const leaf = new THREE.IcosahedronGeometry(0.22 + brng() * 0.12, 0);
+          leaf.scale(1.3, 0.45, 1.3);
+          leaf.translate(tip.x + Math.cos(ca) * cr, tip.y + 0.15 + (brng() - 0.5) * 0.15, tip.z + Math.sin(ca) * cr);
+          v.leaves.push(leaf);
+        }
+      }
+      return v;
+    };
+    variants.push(creosote(9, 0.25, 0.95, 3), creosote(6, 0.45, 0.8, 2), creosote(12, 0.18, 1.15, 3), creosote(5, 0.6, 0.7, 4), mesquite(2), mesquite(3));
     const stemMat = skyFill(new THREE.MeshStandardMaterial({ color: 0x4a4038, roughness: 1, metalness: 0 }), 0.2);
-    const leafMat = skyFill(new THREE.MeshStandardMaterial({ color: 0x6b6e4c, roughness: 1, metalness: 0 }), 0.22);
+    const leafMat = skyFill(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, vertexColors: true }), 0.0);
+    leafMat.emissive.setRGB(0.42, 0.44, 0.3).multiplyScalar(0.22 * 0.45); // sky fill for the mean tone (vertex colour carries the tint)
+    const stemParts: THREE.BufferGeometry[] = [], leafParts: THREE.BufferGeometry[] = [];
     const N = 110;
-    const stems = new THREE.InstancedMesh(merge(stemGeos), stemMat, N);
-    const leaves = new THREE.InstancedMesh(merge(leafGeos), leafMat, N);
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3(), c = new THREE.Color();
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
     const yAxis = new THREE.Vector3(0, 1, 0);
     let placed = 0, tries = 0;
     while (placed < N && tries < 4000) {
       tries++;
       const r = 24 + Math.pow(rng(), 0.8) * 110, a = rng() * Math.PI * 2;
       const x = Math.sin(a) * r, z = Math.cos(a) * r;
-      if (z < LOT.wallZ + 2 && Math.abs(x) < 42) continue;
+      if (Math.abs(x) < 42 && z < LOT.wallZ + 6 && !edgeKeep(x, z)) continue;
       if (z < ROOM.zBack - 4 && Math.abs(x) < 12) continue;
       if (Math.abs(z - ROAD.z) < ROAD.halfW + 1.5) continue;
-      const h = 1.0 + rng() * 1.0; // 1–2 m tall
+      const v = variants[Math.floor(rng() * variants.length)];
+      const h = 1.0 + rng() * 1.0; // 1–2 m tall (mesquite variants are taller by construction)
       s.set(h * (0.85 + rng() * 0.3), h, h * (0.85 + rng() * 0.3));
       q.setFromAxisAngle(yAxis, rng() * Math.PI * 2);
       p.set(x, yLot - 0.03, z);
       m.compose(p, q, s);
-      stems.setMatrixAt(placed, m);
-      leaves.setMatrixAt(placed, m);
-      c.setRGB(0.42 + rng() * 0.12, 0.44 + rng() * 0.1, 0.3 + rng() * 0.08); // dusty olive, not lawn green
-      leaves.setColorAt(placed, c);
+      const tint: [number, number, number] = [0.42 + rng() * 0.12, 0.44 + rng() * 0.1, 0.3 + rng() * 0.08]; // dusty olive, not lawn green
+      for (const g of v.stems) stemParts.push(g.clone().applyMatrix4(m));
+      for (const g of v.leaves) {
+        const lg = g.clone().applyMatrix4(m);
+        const n = lg.attributes.position.count;
+        const col = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) { col[i * 3] = tint[0]; col[i * 3 + 1] = tint[1]; col[i * 3 + 2] = tint[2]; }
+        lg.setAttribute("color", new THREE.BufferAttribute(col, 3));
+        leafParts.push(lg);
+      }
       placed++;
     }
-    stems.count = leaves.count = placed;
-    stems.instanceMatrix.needsUpdate = leaves.instanceMatrix.needsUpdate = true;
-    if (leaves.instanceColor) leaves.instanceColor.needsUpdate = true;
+    const stems = new THREE.Mesh(mergeLoose(stemParts), stemMat);
+    const leafGeo = mergeLoose(leafParts);
+    {
+      // mergeLoose drops colours; re-gather them in the same order
+      const col: number[] = [];
+      for (const g of leafParts) col.push(...Array.from((g.index ? g.toNonIndexed() : g).attributes.color.array as Float32Array));
+      leafGeo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+    }
+    const leaves = new THREE.Mesh(leafGeo, leafMat);
     stems.name = "creosote-stems"; leaves.name = "creosote";
     stems.frustumCulled = leaves.frustumCulled = false;
+    stems.castShadow = leaves.castShadow = false; // outside the lot light's frustum anyway
     parent.add(stems, leaves);
   }
   buildHorizon(parent);
