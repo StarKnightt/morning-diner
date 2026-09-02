@@ -62,8 +62,9 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3();
     const tint = new THREE.Color();
     const rng = makeRng(4141);
-    // A few tiles sag: laid on a slightly bowed cross tee, one edge drops 4–6 mm.
-    const sag = new Map<string, number>([["4,3", 0.55], ["11,8", -0.7], ["17,5", 0.5]]);
+    // A few tiles sag: one edge has slipped off its cross-tee flange, so the tile tilts ~1°
+    // and that edge hangs 8–12 mm low, opening a dark slot to the plenum along the tee.
+    const sag = new Map<string, number>([["4,3", 1.0], ["11,8", -1.2], ["17,5", 0.9]]);
     const sagAxis = new THREE.Vector3(1, 0, 0), yaw = new THREE.Quaternion(), tiltQ = new THREE.Quaternion();
     cells.forEach(([i, j], k) => {
       const x0 = cellX(i), x1 = cellX1(i), z0 = cellZ(j), z1 = cellZ1(j);
@@ -76,7 +77,7 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
       if (sg) {
         tiltQ.setFromAxisAngle(sagAxis, THREE.MathUtils.degToRad(sg));
         q.copy(tiltQ).multiply(yaw);
-        p.y -= 0.003;
+        p.y -= 0.005; // tilt drops one edge ±5 mm; this puts the high edge back on the flange
       } else q.copy(yaw);
       m.compose(p, q, s);
       im.setMatrixAt(k, m);
@@ -90,12 +91,32 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
     im.instanceMatrix.needsUpdate = true;
     im.name = "ceiling-tiles";
     parent.add(im);
+    // The stained map is a 2 × 1 atlas (two different stains): tile k reads u ∈ [k/2, (k+1)/2].
+    // The first (under the AC line, over booth 3) has soaked through and SAGS: the slab bows
+    // 10 mm at the centre and its −z edge has slipped off the cross-tee flange by 13 mm, so a
+    // dark slot into the plenum opens between that edge and the tee (visible from the aisle).
     const sb = new MergedBuilder();
-    for (const key of stained) {
+    [...stained].forEach((key, k) => {
       const [i, j] = key.split(",").map(Number);
-      const x0 = cellX(i), x1 = cellX1(i), z0 = cellZ(j), z1 = cellZ1(j);
-      sb.box(pal.ceilingTileStained, [x0 + 0.01, teeY0 - tegularDrop, z0 + 0.01], [x1 - 0.01, teeY0 - tegularDrop + tileT, z1 - 0.01]);
-    }
+      const x0 = cellX(i) + 0.01, x1 = cellX1(i) - 0.01, z0 = cellZ(j) + 0.01, z1 = cellZ1(j) - 0.01;
+      const g = new THREE.BoxGeometry(x1 - x0, tileT, z1 - z0, 10, 1, 10);
+      const uv = g.attributes.uv as THREE.BufferAttribute;
+      for (let n = 0; n < uv.count; n++) uv.setX(n, k * 0.5 + uv.getX(n) * 0.5);
+      if (k === 0) {
+        const pos = g.attributes.position as THREE.BufferAttribute;
+        const hw = (x1 - x0) / 2, hd = (z1 - z0) / 2;
+        for (let n = 0; n < pos.count; n++) {
+          const x = pos.getX(n), z = pos.getZ(n);
+          const bow = 0.010 * (1 - (x / hw) * (x / hw)) * (1 - (z / hd) * (z / hd));
+          const slip = 0.013 * (0.5 - z / (2 * hd)); // 13 mm at the −z edge, 0 at +z
+          pos.setY(n, pos.getY(n) - bow - slip);
+        }
+        pos.needsUpdate = true;
+        g.computeVertexNormals();
+      }
+      g.translate((x0 + x1) / 2, teeY0 - tegularDrop + tileT / 2, (z0 + z1) / 2);
+      sb.add(g, pal.ceilingTileStained);
+    });
     sb.build(parent, { name: "ceiling-stained", castShadow: false });
   }
 

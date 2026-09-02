@@ -9,6 +9,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { DECAL, atlasQuad } from "../core/shapes";
+import { dinerFloorWear, floorCrackPath } from "../procedural/textures";
 import { DOOR, KITCHEN_DOOR, PASS_THROUGH, REGISTER, ROOM, WINDOW } from "./layout";
 
 export interface Opening {
@@ -87,6 +88,36 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     floor.receiveShadow = true;
     floor.name = "floor";
     parent.add(floor);
+
+    // The hairline crack (System 5): a 2 mm ribbon 0.6 mm proud of the tile along the same
+    // polyline the floor map shades. Drawn in the map alone it beaded — one antialiased texel
+    // (3.75 mm) magnified through bilinear filtering — so the dark floor of the crack is
+    // geometry. Folded into the cove-base bucket: the top strip of that map is plain matte
+    // black vinyl, which is what a crack floor looks like. +0 draw calls.
+    {
+      const wear = dinerFloorWear();
+      const pts = floorCrackPath(wear);
+      const hw = 0.0011, y = 0.0006;
+      const pos: number[] = [], nrm: number[] = [], uv: number[] = [], idx: number[] = [];
+      for (let i = 0; i < pts.length; i++) {
+        const [x, z] = pts[i];
+        const [px, pz] = pts[Math.max(0, i - 1)], [nx, nz] = pts[Math.min(pts.length - 1, i + 1)];
+        const dx = nx - px, dz = nz - pz, l = Math.hypot(dx, dz) || 1;
+        // Perpendicular, tapering to a point at both ends
+        const taper = i === 0 || i === pts.length - 1 ? 0.15 : 1;
+        const ox = (-dz / l) * hw * taper, oz = (dx / l) * hw * taper;
+        pos.push(x + ox, y, z + oz, x - ox, y, z - oz);
+        nrm.push(0, 1, 0, 0, 1, 0);
+        uv.push(i / (pts.length - 1) * 3, 0.96, i / (pts.length - 1) * 3, 0.95);
+        if (i) { const k = i * 2; idx.push(k - 2, k - 1, k, k - 1, k + 1, k); }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+      g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      b.add(g, pal.baseboardWorn);
+    }
   }
 
   /* ---------------- front (window) wall, +z ---------------- */
@@ -196,6 +227,7 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     {
       const fx0 = x0 + fw + stop, fx1 = x1 - fw - stop, fy0 = y0 + fw + stop, fy1 = ty - fw / 2 - stop;
       const film = atlasQuad(fx1 - fx0, fy1 - fy0, DECAL.film);
+      film.rotateY(Math.PI); // decal material is FrontSide: face the room (−z)
       film.translate((fx0 + fx1) / 2, (fy0 + fy1) / 2, zMid - 0.0015);
       filmGeos.push(film);
     }

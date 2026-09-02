@@ -39,9 +39,10 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       const arris = ny > 0.2 && ny < 0.94 ? 1 : 0;
       if (arris) {
         const h = Math.sin(p.getX(i) * 37.1 + p.getZ(i) * 53.7) * 0.5 + 0.5;
-        k *= 1 + 0.09 * (0.45 + 0.55 * h) * (0.5 + 0.5 * (1 - THREE.MathUtils.smoothstep(d, 0.05, 0.5)));
+        // Rev 2: 9 % → 20 % and warmer (the stain goes, the yellow wood shows).
+        k *= 1 + 0.2 * (0.45 + 0.55 * h) * (0.5 + 0.5 * (1 - THREE.MathUtils.smoothstep(d, 0.05, 0.5)));
       }
-      col[i * 3] = k; col[i * 3 + 1] = k * (arris ? 0.995 : 1); col[i * 3 + 2] = k * (arris ? 0.985 : 1);
+      col[i * 3] = k; col[i * 3 + 1] = k * (arris ? 0.99 : 1); col[i * 3 + 2] = k * (arris ? 0.955 : 1);
     }
     slab.setAttribute("color", new THREE.BufferAttribute(col, 3));
     b.add(slab, pal.capWood);
@@ -91,7 +92,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       );
       void bellRim; void bossH;
       bell.translate(cx, 0, pz);
-      b.add(bell, pal.darkMetal);
+      b.add(bell, pal.castBaseDusty); // rev 2: dust film + kick marks at floor contact
       const colH = table.top - table.thickness - 0.02 - collarTop;
       const col = new THREE.CylinderGeometry(columnR, columnR, colH, 28);
       col.translate(cx, collarTop + colH / 2, pz);
@@ -100,16 +101,23 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       // inside the T-mould, plus the 5 mm dark-steel spider plate screwed flush to it.
       const yU = table.top - table.thickness;
       b.rbox(pal.darkSeal, [cx - table.width / 2 + 0.012, yU - 0.0015, zT0 + 0.012], [cx + table.width / 2 - 0.012, yU + 0.0005, zOuter - 0.012], 0.001);
+      // Spider plate, arms and hub share the bells' castBaseDusty bucket (v pinned to the clean
+      // part of its map) so the tables add no darkMetal bucket — +0 draw calls for the dust.
+      const clean = (g: THREE.BufferGeometry): THREE.BufferGeometry => {
+        const uv = g.attributes.uv as THREE.BufferAttribute;
+        for (let i = 0; i < uv.count; i++) uv.setY(i, 0.9);
+        return g;
+      };
       const plate = new THREE.CylinderGeometry(0.15, 0.15, 0.005, 40);
       plate.translate(cx, yU - 0.004, pz);
-      b.add(plate, pal.darkMetal);
+      b.add(clean(plate), pal.castBaseDusty);
       for (let k = 0; k < 4; k++) {
         const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
         const arm = new THREE.BoxGeometry(spider / 2 - columnR, 0.024, 0.04);
         arm.translate((spider / 2 + columnR) / 2, 0, 0);
         arm.rotateY(a);
         arm.translate(cx, yU - 0.0185, pz);
-        b.add(arm, pal.darkMetal);
+        b.add(clean(arm), pal.castBaseDusty);
         // Pan-head screw through the plate at each arm
         const screw = new THREE.CylinderGeometry(0.006, 0.0065, 0.003, 12);
         screw.translate(cx + Math.cos(a) * 0.125, yU - 0.008, pz - Math.sin(a) * 0.125);
@@ -117,7 +125,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       }
       const hub = new THREE.CylinderGeometry(columnR + 0.012, columnR + 0.012, 0.03, 28);
       hub.translate(cx, yU - 0.0215, pz);
-      b.add(hub, pal.darkMetal);
+      b.add(clean(hub), pal.castBaseDusty);
       b.collider([cx - table.width / 2, 0, zT0], [cx + table.width / 2, table.top, zOuter]);
     }
 
@@ -203,7 +211,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
             puv.setX(i, dmin);
           }
           b.add(panel, pal.vinylRedWeltCracked, m);
-        } else b.add(panel, pal.vinylRedCrazed, m);
+        } else b.add(panel, pal.vinylRed, m); // rev 2: crazing is booth 2's alone
         // 6 mm welt cord sewn ON every seam: centre 1 mm above the crown tangent line
         // (crowns at 20 mm), so it carries its own highlight and throws a line shadow
         // both sides (baked into the panel's vertex colour). Ends tuck under the seams.
@@ -219,7 +227,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       roll.rotateX(Math.PI / 2);
       roll.translate(rollX, back.top, zMid);
       metricUv(roll);
-      b.add(plainColor(roll), pal.vinylRedCrazed);
+      b.add(plainColor(roll), ti === 1 ? pal.vinylRedCrazed : pal.vinylRed); // rev 2: only booth 2's roll top has crazed
       const seamZ = (x: number, y: number, r: number) => piping([new THREE.Vector3(x, y, zInner + 0.008), new THREE.Vector3(x, y, zMid), new THREE.Vector3(x, y, zOuter - 0.008)], r, false);
       // 6 mm piped seam where the channels dive under the head roll, proud of the junction
       b.add(plainColor(seamZ(X(back.frontX + lean * 0.94) - s * 0.021, back.top - 0.046, 0.003), 1.15), pal.vinylRed);

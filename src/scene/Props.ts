@@ -411,9 +411,10 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     );
     const coffeeMesh = new THREE.Mesh(coffee, pal.coffee);
     coffeeMesh.name = "coffeePot:coffee";
-    // Tide-line stain just above the fill, inside the glass
-    const stain = new THREE.CylinderGeometry(R - 0.0035, R - 0.0033, 0.014, 64, 1, true);
-    stain.translate(0, fillY + 0.0085, 0);
+    // Tide-line stain above the fill, inside the glass: 22 mm band whose alpha map puts the
+    // dense line ~3 mm above the meniscus and thins upward (the level of earlier, fuller pots).
+    const stain = new THREE.CylinderGeometry(R - 0.0036, R - 0.0032, 0.022, 64, 1, true);
+    stain.translate(0, fillY + 0.0135, 0);
     const stainMesh = new THREE.Mesh(stain, pal.coffeeStain);
     // Black spout collar and 25 mm handle bonded to the body
     const collar = new THREE.CylinderGeometry(0.0655, 0.062, 0.03, 48, 1, true);
