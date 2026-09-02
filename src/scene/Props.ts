@@ -13,10 +13,13 @@ import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { makeRng } from "../core/rng";
 import { BACK_BAR, BOOTH, COUNTER, PROPS, ROOM, WINDOW } from "./layout";
+import type { ContactDisc } from "./Lighting";
 
 export interface PropsResult {
   pourMug: THREE.Mesh;
   coffeePot: THREE.Group;
+  /** Contact-occlusion rings under the mugs and saucers, for Lighting.ts buildContactShadows. */
+  contactDiscs: ContactDisc[];
 }
 
 const V2 = (x: number, y: number) => new THREE.Vector2(x, y);
@@ -266,11 +269,17 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     }
   }
   const mugPoses: THREE.Matrix4[] = [];
-  const mugAt = (x: number, y: number, z: number, yaw: number, inverted: boolean) => {
+  const contactDiscs: ContactDisc[] = [];
+  const mugAt = (x: number, y: number, z: number, yaw: number, inverted: boolean, onSaucer = false) => {
     const m = new THREE.Matrix4().makeRotationY(yaw);
     if (inverted) m.premultiply(new THREE.Matrix4().makeRotationX(Math.PI)).setPosition(x, y + MUG_H, z);
     else m.setPosition(x, y, z);
     mugPoses.push(m);
+    // Contact occlusion (System 4 rev 2): inverted, the Ø 82 rim sits on the surface and the
+    // shade spreads ≈ 35 mm out from it; upright, the Ø 63 foot ring. Inside the ring the
+    // disc is hidden by the mug itself. On a saucer the saucer's own ring stands in (a disc
+    // at the well's level would sit inside the flared rim).
+    if (!onSaucer) contactDiscs.push(inverted ? { x, y, z, r0: 0.041, r1: 0.078, ao: 0.6 } : { x, y, z, r0: 0.031, r1: 0.062, ao: 0.6 });
   };
   // Seven spare mugs inverted straight onto the mat: two staggered rows, one slot left
   // empty, ±15 mm scatter and any handle angle, so the mat does not read as a grid.
@@ -292,7 +301,9 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     const s = saucerGeo.clone();
     s.translate(x, COUNTER.height, PROPS.saucerZ);
     b.add(s, pal.ceramic);
-    mugAt(x, COUNTER.height + 0.009, PROPS.saucerZ, Math.PI * (0.9 + rng() * 0.3), true);
+    // The saucer's flared rim stands 18 mm over the counter: shade under the flare and out.
+    contactDiscs.push({ x, y: COUNTER.height, z: PROPS.saucerZ, r0: 0.05, r1: 0.12, ao: 0.45 });
+    mugAt(x, COUNTER.height + 0.009, PROPS.saucerZ, Math.PI * (0.9 + rng() * 0.3), true, true);
   }
   for (const [geo, mat, name] of [[mugGeo, pal.ceramic, "mugs"], [footGeo, pal.bisque, "mug-feet"]] as const) {
     const im = new THREE.InstancedMesh(geo, mat, mugPoses.length);
@@ -311,6 +322,7 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
   const pourFoot = new THREE.Mesh(footGeo, pal.bisque);
   pourMug.add(pourFoot);
   parent.add(pourMug);
+  contactDiscs.push({ x: PROPS.pourMug.x, y: yBar, z: PROPS.pourMug.z, r0: 0.031, r1: 0.062, ao: 0.6 });
 
   /* ---------------- BUNN VPR-class brewer + decanter ---------------- */
   const coffeePot = new THREE.Group();
@@ -503,5 +515,5 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
   }
 
   b.build(parent, { name: "props" });
-  return { pourMug, coffeePot };
+  return { pourMug, coffeePot, contactDiscs };
 }

@@ -343,3 +343,54 @@ Window side vs counter side: the sunlit vinyl stripes / table (+1.5 … +3.8) ag
 - **The probe must not stare at the sun patches.** A probe at counter height 0.9 m from the windows put the 14,000-nit floor patches into the PMREM blur and lit the ceiling and far wall to 0 EV. Moving it to (−2.3, 1.3, −0.2) and splitting it (sun off for dielectrics, sun on for metals) dropped the ceiling a stop while keeping the chrome's sun reflections.
 - **Fresh-lamp lumens are not maintained lumens.** 10.5 klm per troffer (the brief's figure, near the initial lamp lumens) gave 1,200 lux on the counter side and a ceiling at 0 EV. 7,500 (still above the 5,800 maintained estimate) is the compromise that keeps the tubes "on but losing".
 - **AgX vs the lens.** Everything above +2 EV lands in 190–235 on the display under AgX, so the 4,500-nit lens (+2.05) and the 14,000-nit sun patch (+3.8) read closer than their 1.7-stop scene difference. Photographs do the same thing (film shoulder); the difference is carried by the surroundings, so keep the ceiling tiles under −0.5 EV.
+
+### Rev 2 (branch `sys4-rev2`) — as built
+
+Supersedes the tables above where it disagrees. Method: the same float render-target probe (`%TEMP%\sys4\probe.mjs`, RGBA16F, per-region p10/50/90 in nits; EV relative to middle grey), plus display codes from the post-on frame; full output `%TEMP%\sys4\out\r2k-summary.txt`.
+
+**Exposure.** ISO 100, f/5.6, **1/250 s** → EV100 12.94, L_sat = 1.2 · 2^12.94 ≈ 9,400 nits, `toneMappingExposure ≈ 1.06`, middle grey **1,690 nits**. Tone curve: **camera** (`CustomToneMapping`, Hable shoulder with display white at +2.5 EV over grey = 9,600 nits ≈ L_sat, so "sensor saturation" and "curve white" are the same event). AgX is kept behind `?tm=agx` for comparison: under AgX everything from +2 to +6 EV lands in codes 190–235, which is why rev 1's table (+3.8), lens (+2.05) and sky (+2.3 … +3.1) were indistinguishable on the display though 1.5 stops apart in the probe. Display prediction: `camtone.mjs` inverts curve + sRGB (nits ↔ code), e.g. −1.2 EV → 88, −0.8 → 105, +1.6 → 215, +2.3 → 248.
+
+**Measured HDR values, rev 2** (nits, p50 unless noted; EV over 1,690):
+
+| Region (pose) | nits | EV | display |
+|---|---|---|---|
+| Wall sun patch core (`counter`, p90) | 6,490 | +1.9 | 230 (clips at the centre) |
+| Wall in shade (`counter` / `length`) | 838 / 726 | −1.0 / −1.2 | 97 / 90 |
+| Sky through the slats (`window`) | 8,480 (p90 13,500) | +2.3 | 248 → 255, (201, 202, 201) mean, blue at the edges |
+| Sky, door glass (`door-glass`) | 7,515 | +2.15 | (228, 235, 239) |
+| Sunlit sand (`door-glass`) | 6,180 | +1.9 | 228 |
+| Asphalt in sun (`lot-shadow`) | 3,585 | +1.1 | 191 |
+| Asphalt in pole shadow | 1,369 | −0.3 | 126 |
+| Asphalt under the sedan (real shadow + decal) | 793 | −1.1 | 82 |
+| Sedan, sunlit side / shade side | 5,940 / 388 | +1.8 / −2.1 | 226 / 63 |
+| Troffer lens (`ceiling`, p10/50/90) | 3,400 / 5,100 / 6,300 | +1.0 / +1.6 / +1.9 | 187 / 215 / 229 |
+| Ceiling tile, window side → back (`ceiling`) | 861 → 830 | −1.0 → −1.0 | 99 → 97 |
+| Ceiling, window side → back (`length`) | 608 → 659 | −1.5 → −1.4 | 82 → 86 |
+| Vinyl, sunlit back cushion (`stripes`) | 872 (p90 1,554) | −1.0 | (184, 38, 32) |
+| Vinyl in shade (`booth`) | 140 | −3.6 | (93, 44, 37) |
+| Table, sunlit (`stripes`) | 4,710 (p90 9,580) | +1.5 (core clips) | 209 → 252 |
+| Counter top, fluorescent side (`counter` / `length`) | 464 / 199 | −1.9 / −3.1 | 70 / 42 |
+| Pass-through shelf under the heat lamps (`warmer`) | 978 | −0.8 | 106 |
+| Kitchen box (`warmer`) | 124 | −3.8 | 32 |
+| Floor under the table / aisle (`undertable`) | 157 / 443 | −3.4 / −1.9 | 41 / 71 |
+| Door frame, interior shade (`door-glass`) | 40 | −5.4 | 14 |
+
+Ratios: wall sun : shade **3.0 EV** (rev 1: 0.3); lot lit : pole shadow 1.4 EV, lit : under-car 2.2 EV; sky through the slats vs wall shade 3.5 EV; sunlit vs shaded vinyl 2.6 EV. Display clipping (≥ 250): `length` 1.3 %, `booth` 2.9 %, `counter` 0.4 %, `stripes` 4.8 %, `door-glass` 4.5 %, `window` 22 % (the sky and the sunlit sill — the pose is a window). No pose has any pixel at 0.
+
+**Sky.** Dome horizon 10,000 nits (0.78, 0.86, 0.97), zenith ≈ 2,900 (0.15, 0.25, 0.48), linear gradient, circumsolar ×(1 + cos⁴). Cosine-weighted hemisphere integral (`skyE.mjs`): **23 klux** diffuse (rev 1 dome ≈ 14; the first rev 2 dome — 12,000 nits, `pow(h, 1.6)`, ×1.5 — 39 klux, which flattened the lot to 2.5 : 1). Sun on the horizontal 51.6 klux → lit : shade 3.2 : 1 on the asphalt (measured 3.8 : 1 including the poles' partial occlusion of the sky).
+
+**Light list, rev 2** (scene value = physical × K):
+
+| Light | Type | Physical | Notes |
+|---|---|---|---|
+| `sun` | SpotLight 150 m out, az 38° / el 35°, 2.1° cone | 90 klux at the glass, 5500 K | 4096² BasicShadowMap, PCSS 8 blocker + 12 bilinear PCF on a Vogel spiral, phase from `shadowCoord · mapSize · 8` |
+| `sun-beam` | detached twin | same | compare-mode depth for System 8 |
+| `sun-lot` | DirectionalLight over the lot | 90 klux | 2048², single bilinear tap (`radius −0.25`), `normalBias 0.03`; cone occluder unchanged |
+| Troffers ×6 | SpotLight 89° / penumbra 1 / decay 2 (Lambertian), 12 mm under the lens | 7,500 lm each, 4100 K + 4 % green | lens emissive 4,200 nits mean, tubes 1.5× via `trofferLens` emissive map |
+| Sun bounce ×5 | upward Lambertian spot per booth at the flux centroid (first one on the −x wall, horizontal) | Σ E·A·ρ = (31k, 24k, 22k) lm-eq, colour (1.0, 0.77, 0.70) | replaces the floor-patch RectAreas; the pink on the ceiling is the vinyl's 20 % of the red channel |
+| Heat lamps ×1 spot + 2 emissive caps | 60° spot over the pass-through | 1,200 lm, (1.0, 0.45, 0.20) | `kitchenDim` raised so the box reads −3.8 EV |
+| Ambient | `scene.environment` = sun-off room probe × `environmentIntensity 0.7` | — | near-field correction, see BUILD.md; metals on the sun-on probe |
+| Window fills, floor-patch fills | — | removed | the probe carries the sky; the bounce spots carry the patches |
+| Lot `skyFill` emissive | — | removed (`?skyfill=1`) | the lot probe is the skylight |
+
+Materials touched (additive): `glass` / `glassDoor` `0xf9fbfa` (colour applied twice by the transmission path); `blackPowder` `0x383838`, `rubberMat` `0x363636` (3–4 % albedo, were 0.6–1.3 %); `fixtureLens` emissive map. Performance: scene pass 7.7 ms at `length`, boot 10.0 s, 168 draw calls (rev 1 on merged `main`: 27.3 ms — 16 RectAreaLights ≈ 15.6 ms, `sunLot` 4096² 8-tap ≈ 4.7 ms, 16 + 24-tap PCSS ≈ 2.9 ms).

@@ -20,7 +20,7 @@ import { buildCeiling } from "./Ceiling";
 import { buildCounter } from "./Counter";
 import { buildDoor } from "./Door";
 import { buildExterior } from "./Exterior";
-import { buildContactShadows, buildLighting, installShadowMasks, sunDirection } from "./Lighting";
+import { ROOM_PROBE_INTENSITY, buildContactShadows, buildLighting, installShadowMasks, sunDirection } from "./Lighting";
 import { buildProps } from "./Props";
 import { buildShell } from "./Shell";
 import { buildSystem9, type System9 } from "./Sys9";
@@ -90,8 +90,9 @@ export class Diner {
     await hooks.stage("Hanging the blinds", 7 / 8);
     const exterior = buildExterior(this.group, this.palette, sunDirection(), this.bank);
     // System 4: baked contact occlusion along every base line (nothing else in the rig
-    // shadows those regions). Casts nothing, so it stays out of the shadow-mask lists.
-    buildContactShadows(this.group);
+    // shadows those regions) and, rev 2, under the mugs and saucers. Casts nothing, so it
+    // stays out of the shadow-mask lists.
+    buildContactShadows(this.group, props.contactDiscs);
     this.pourMug = props.pourMug;
     this.coffeePot = props.coffeePot;
     this.fanRotor = ceiling.fanRotor;
@@ -163,7 +164,7 @@ export class Diner {
       // Interior metals (chrome, stool rings, edge banding, T-bar): a mirror shows the room as
       // it is, sun stripes included, so they take the probe captured WITH the sun. Dielectrics
       // take `scene.environment`, captured with the interior sun off: their first bounce off
-      // the sun patches comes from the floor-patch RectAreaLights instead (Lighting.ts), which
+      // the sun patches comes from the per-booth bounce spots instead (Lighting.ts), which
       // fall off with distance — a probe cannot — and would otherwise be counted twice.
       const propSet = new Set<THREE.Material>(propMats);
       const metalMats: THREE.MeshStandardMaterial[] = [];
@@ -234,8 +235,9 @@ export class Diner {
         // the aisle sun patches — from there (rev 1: (-2.3, 0.8, 0.95)) the bounce off the
         // patches filled its lower hemisphere and every counter-side surface read 1.3 stops
         // over the daylight-factor estimate (REFERENCE §8). From the counter edge the patches
-        // are 1.5–2.5 m away and oblique; the near-window daylight comes from the window and
-        // floor-patch RectAreaLights (Lighting.ts), which fall off with distance as it should.
+        // are 1.5–2.5 m away and oblique; the near-window sun bounce comes from the per-booth
+        // bounce spots (Lighting.ts), which fall off with distance as it should, and the sky
+        // through the windows is in this probe (it sees all five).
         const room = probe(-2.3, 1.3, -0.2);
         this.sun.intensity = sunIntensity;
         if (pass === 0) await hooks.probes(1);
@@ -263,6 +265,12 @@ export class Diner {
         propEnv = prop;
         lotEnv = lot;
         scene.environment = room.texture;
+        // Near-field correction for a one-point probe (Lighting.ts ROOM_PROBE_INTENSITY). Note
+        // three ignores a material's own envMapIntensity whenever its envMap comes from
+        // scene.environment (WebGLRenderer: the uniform is overwritten with this value), so
+        // this is the ONE knob on the dielectrics' ambient; per-material values only act on
+        // the metals, props and exterior, which carry their own probes.
+        scene.environmentIntensity = ROOM_PROBE_INTENSITY;
         assign(metalMats, roomSpec.texture);
         assign(propMats, prop.texture);
         assign(exteriorMats, lot.texture);

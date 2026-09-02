@@ -609,13 +609,25 @@ export function blockWall(size: number, seed: number): { map: THREE.Texture; rou
   return { map: finish(c, true, 8), roughnessMap: finish(rc, false, 8) };
 }
 
-/** Radial falloff alpha for the vehicles' and scrub patches' contact-shadow decals. */
+/**
+ * Radial falloff alpha for the vehicles' and scrub patches' contact-shadow decals.
+ *
+ * Painted as GREY on an opaque canvas, not as alpha: `alphaMap` samples the green channel,
+ * and a canvas gradient's RGB stays white wherever its alpha is non-zero (the browser
+ * un-premultiplies on upload), so the previous rgba(255,255,255,0.72→0) gradient uploaded
+ * as a solid white disc — the decals were opaque black ellipses under every car (0 nits,
+ * the critics' "black holes"; System 4 rev 2 probe `lot-shadow/car-shadow` p50 1 nit).
+ * Peak 0.8: the asphalt under a car keeps 20 % of its shade value (~340 nits), the sky
+ * leak + ground bounce a real undercarriage gets.
+ */
 export function contactShadowAlpha(size: number): THREE.Texture {
   const { c, ctx } = canvas(size, size);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, size, size);
   const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  g.addColorStop(0, "rgba(255,255,255,0.72)");
-  g.addColorStop(0.55, "rgba(255,255,255,0.45)");
-  g.addColorStop(1, "rgba(255,255,255,0)");
+  g.addColorStop(0, "rgb(204,204,204)");
+  g.addColorStop(0.55, "rgb(115,115,115)");
+  g.addColorStop(1, "rgb(0,0,0)");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, size, size);
   const t = new THREE.CanvasTexture(c);
