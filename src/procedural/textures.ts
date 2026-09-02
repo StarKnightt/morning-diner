@@ -629,7 +629,7 @@ export function paintedWall(hex: string, size: number, seed: number, strength = 
         const u = x / size;
         const patch = 0.35 + 0.65 * along(u, 0.3); // where people sit more
         // smudge field: stretched 5:1 along the wall, plus a fine grain so it is not airbrush
-        const sm = 0.3 + 0.7 * smudge(u * 0.2 + 0.11, y / size);
+        const sm = (0.3 + 0.7 * smudge(u * 0.2 + 0.11, y / size)) * (0.6 + 0.8 * grain(u * 0.33 + 0.5, y / size + 0.2));
         const gr = 0.75 + 0.6 * (grain(x / size, y / size) - 0.5);
         let a = prof * Math.sqrt(prof) * 0.85 * patch * sm * gr;
         for (const [su, sl, sy, sw] of smears) {
@@ -811,42 +811,49 @@ export function acousticTile(size: number, seed = 555, stain = false): TextureSe
       }
       return best;
     };
-    const craze = makeFbm(seed + 21 + k, 40, 3);
+    // Rev 3: the stain is a TINT MULTIPLIED into the tile (the fissures and their shading show
+    // through it — a wet board, not a decal): a soft tan wash grading to brown toward the rim
+    // (minerals travel to the drying edge), the rim itself a brown line whose weight and
+    // darkness wander 2–8 mm around the outline, and inside it 2–3 nested tide rings — the
+    // same leak drying back on successive days — each fainter and thinner, each wandering
+    // on its own. No crazing network, no chalk flakes. The board still swells ~1 mm.
     const mottle = makeFbm(seed + 33 + k, 9, 3);
+    const wander = makeFbm(seed + 51 + k, 14, 2);
+    const rings: Array<[number, number, number]> = k === 0 ? [[0.13, 0.42, 1.6], [0.27, 0.3, 2.2], [0.42, 0.2, 2.6]] : [[0.16, 0.4, 1.6], [0.34, 0.25, 2.2]]; // [s, alpha, width×]
     for (let y = 0; y < size; y++)
       for (let x = 0; x < size; x++) {
         const s = field(blobs, x, y, 0.3 + k);
         if (s < -0.06) continue;
         const i = (y * W + k * size + x) * 4, j = y * W + k * size + x;
-        // Perimeter: a 3–5 mm dark brown line just inside the edge, sharper outside
-        const edge = smoothstep(-0.02, 0.0, s) * (1 - smoothstep(0.012, 0.045, s));
-        // Interior wash: pale tan, weaker toward the centre (dried from the middle out),
-        // with a darker mottled halo band a little inside the rim
-        const inside = smoothstep(0.0, 0.02, s);
-        const halo = inside * (1 - smoothstep(0.05, 0.16, s)) * (0.5 + 0.5 * mottle(x / size, y / size));
-        const wash = inside * (0.10 + 0.08 * (1 - smoothstep(0.1, 0.5, s)) + 0.06 * mottle(x / size + 3, y / size));
-        // Older tide line inside: fainter, its own outline
+        const u = x / size, v = y / size;
+        const m1 = mottle(u, v), m2 = mottle(u + 3, v), wd = wander(u, v) - 0.5;
+        const inside = smoothstep(0.0, 0.015, s);
+        // Rim: 2–8 mm wide, its weight wandering along the outline
+        const rimW = 0.012 + 0.035 * m1;
+        const rim = smoothstep(-0.012, 0.0, s) * (1 - smoothstep(rimW * 0.35, rimW, s)) * (0.55 + 0.45 * m2);
+        // Wash: tan, heavier toward the rim, mottled; the centre nearly dry
+        const wash = inside * (0.25 + 0.55 * (1 - smoothstep(0.02, 0.4, s))) * (0.7 + 0.5 * m2);
+        // Nested tide rings: thin brown lines at fixed depths s_k, each wandering ±0.03 in s
+        // — soft-edged, and BROKEN: a tide ring only shows where enough mineral was left, so
+        // each is open for a third or so of its length (gated on its own noise), not a contour.
+        let tide = 0;
+        for (const [sk, ak, wk] of rings) {
+          const ds = Math.abs(s - (sk + wd * 0.06));
+          const gate = smoothstep(0.36, 0.5, mottle(u + sk * 5, v - sk * 3));
+          tide = Math.max(tide, (1 - smoothstep(0.0, 0.012 * wk, ds)) * ak * gate);
+        }
+        // Older leak's own outline, faint
         const si = field([inner], x, y, 0.7 + k);
-        const tide = smoothstep(-0.02, 0.0, si) * (1 - smoothstep(0.008, 0.03, si)) * inside;
-        // Blend: perimeter in dark brown, wash/halo in tan
-        const aLine = Math.min(1, edge * 0.85 + tide * 0.35);
-        const aWash = Math.min(1, wash + halo * 0.22);
-        let r = d2[i], g = d2[i + 1], b = d2[i + 2];
-        r = r * (1 - aWash) + 196 * aWash; g = g * (1 - aWash) + 168 * aWash; b = b * (1 - aWash) + 118 * aWash;
-        r = r * (1 - aLine) + 104 * aLine; g = g * (1 - aLine) + 72 * aLine; b = b * (1 - aLine) + 38 * aLine;
-        // Swelling: the board domes up to 1.2 mm inside the stain; crazing: dark hairline
-        // cracks where the paint film broke over the swell (thresholded noise ridges)
-        const dome = inside * smoothstep(0.0, 0.25, s) * 1.2;
-        const cz = craze(x / size, y / size);
-        const crack = inside * smoothstep(0.0, 0.1, s) * (1 - smoothstep(0.012, 0.03, Math.abs(cz - 0.5)));
-        hf2[j] += dome - crack * 0.5;
-        const ck = crack * 0.35;
-        r = r * (1 - ck) + 90 * ck; g = g * (1 - ck) + 70 * ck; b = b * (1 - ck) + 48 * ck;
-        // Flaked paint: a few lighter chalky patches where the film lifted
-        const flake = inside * smoothstep(0.62, 0.7, mottle(x / size + 7, y / size + 2));
-        r = r * (1 - flake * 0.5) + 232 * flake * 0.5; g = g * (1 - flake * 0.5) + 226 * flake * 0.5; b = b * (1 - flake * 0.5) + 214 * flake * 0.5;
-        d2[i] = r; d2[i + 1] = g; d2[i + 2] = b;
-        rough2[j] = Math.max(rough2[j] - aWash * 0.15 - aLine * 0.1 + flake * 0.1, 0.7);
+        tide = Math.max(tide, smoothstep(-0.015, 0.0, si) * (1 - smoothstep(0.006, 0.02, si)) * inside * 0.3);
+        // Multiply: tan (0.86,0.74,0.52) by the wash, brown (0.42,0.29,0.14) by rim + tide
+        const aW = Math.min(1, wash), aL = Math.min(1, rim * 0.9 + tide * inside);
+        const mr = (1 - aW + 0.86 * aW) * (1 - aL + 0.42 * aL);
+        const mg = (1 - aW + 0.74 * aW) * (1 - aL + 0.29 * aL);
+        const mb = (1 - aW + 0.52 * aW) * (1 - aL + 0.14 * aL);
+        d2[i] = d2[i] * mr; d2[i + 1] = d2[i + 1] * mg; d2[i + 2] = d2[i + 2] * mb;
+        // Swelling: the board domes up to 1 mm inside the stain
+        hf2[j] += inside * smoothstep(0.0, 0.25, s) * 1.0;
+        rough2[j] = Math.max(rough2[j] - aW * 0.12 - aL * 0.08, 0.7);
       }
   }
   ctx2.putImageData(img2, 0, 0);

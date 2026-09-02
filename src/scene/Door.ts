@@ -88,27 +88,35 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
     // rotated out 10°, over a 160 mm run ending 90 mm from the latch end; the dish above it
     // is a shallow wedge (2 mm proud at the strip, fading over 30 mm).
     const lx1 = kx1 - 0.09, lx0 = lx1 - 0.16, lipH = 0.014, lift = THREE.MathUtils.degToRad(10);
-    // Both pieces carry the plate's own canvas: their UVs are the plate-face UVs of the
-    // spot they cover (the RoundedBox −z face runs u from the +x end, v up), so the brushing
-    // and the rubber continue across the bend instead of a patch of clean metal.
-    const plateUv = (g: THREE.BufferGeometry, cx: number, yTop: number) => {
-      const p = g.attributes.position as THREE.BufferAttribute, uv = g.attributes.uv as THREE.BufferAttribute;
-      for (let i = 0; i < p.count; i++) uv.setXY(i, (kx1 - (p.getX(i) + cx)) / (kx1 - kx0), (p.getY(i) + yTop - ky0) / (ky1 - ky0));
-    };
+    // The sheet carries the plate's own canvas: its UVs are the plate-face UVs of the spot it
+    // covers (the RoundedBox −z face runs u from the +x end, v up), so the brushing and the
+    // rubber continue across the bend instead of a patch of clean metal.
     // (+z is the door's exterior; the plate face is at z0 − 0.0015 on the interior side, so
-    // "out" is −z. Both pieces pivot about their top edge.)
-    const dish = new THREE.BoxGeometry(lx1 - lx0, 0.03, 0.0015);
-    dish.translate(0, -0.015, 0.00075);
-    plateUv(dish, (lx0 + lx1) / 2, ky0 + lipH + 0.03);
-    dish.rotateX(THREE.MathUtils.degToRad(3.8)); // bottom edge 2 mm proud
-    dish.translate((lx0 + lx1) / 2, ky0 + lipH + 0.03, z0 - 0.0015);
-    b.add(dish, pal.kickPlateWorn);
-    const lip = new THREE.BoxGeometry(lx1 - lx0, lipH, 0.0015);
-    lip.translate(0, -lipH / 2, 0.00075);
-    plateUv(lip, (lx0 + lx1) / 2, ky0 + lipH);
-    lip.rotateX(lift);
-    lip.translate((lx0 + lx1) / 2, ky0 + lipH, z0 - 0.0015 - 0.002);
-    b.add(lip, pal.kickPlateWorn);
+    // "out" is −z.) One bent sheet, not boxes: a 24 × 8 grid over 160 × 48 mm whose stand-off
+    // from the plate face is a bell along the run (nothing at the ends — a dent has no step)
+    // times a profile up the plate: 1 at the lip's bend line, the lip below it swinging out
+    // a further 10°, fading to nothing 48 mm up.
+    const dishH = 0.048, nx = 24, ny = 8;
+    const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+    for (let j = 0; j <= ny; j++)
+      for (let i = 0; i <= nx; i++) {
+        const fx = i / nx, fy = j / ny;
+        const x = lx0 + (lx1 - lx0) * fx, y = ky0 + dishH * fy;
+        const bell = Math.sin(Math.PI * fx) ** 1.5;
+        const yl = y - (ky0 + lipH); // height above the bend line
+        const prof = yl >= 0 ? 1 - yl / (dishH - lipH) : 1 + (-yl / lipH) * (lipH * Math.tan(lift)) / 0.0025;
+        const out = 0.0025 * bell * Math.max(0, prof);
+        pos.push(x, y, z0 - 0.0015 - out);
+        uv.push((kx1 - x) / (kx1 - kx0), (y - ky0) / (ky1 - ky0));
+        // wound to face −z (the room)
+        if (i < nx && j < ny) { const k = j * (nx + 1) + i; idx.push(k, k + nx + 1, k + 1, k + 1, k + nx + 1, k + nx + 2); }
+      }
+    const dent = new THREE.BufferGeometry();
+    dent.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    dent.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    dent.setIndex(idx);
+    dent.computeVertexNormals();
+    b.add(dent.toNonIndexed(), pal.kickPlateWorn);
   }
   const screwAt = (sx: number, sy: number) => {
     const screw = new THREE.SphereGeometry(0.004, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2);

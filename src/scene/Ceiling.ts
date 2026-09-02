@@ -108,11 +108,18 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
         for (let n = 0; n < pos.count; n++) {
           const x = pos.getX(n), z = pos.getZ(n);
           const bow = 0.010 * (1 - (x / hw) * (x / hw)) * (1 - (z / hd) * (z / hd));
-          const slip = 0.013 * (0.5 - z / (2 * hd)); // 13 mm at the −z edge, 0 at +z
+          // Rev 3: the −z edge sags 14 mm at its middle but its corners still sit on the
+          // flanges (the tile is held at the crossings), so the slot TAPERS to nothing at
+          // both ends and the tile's raw edge face is a thin crescent, not a lit strip.
+          const slip = 0.014 * (0.5 - z / (2 * hd)) * Math.sqrt(Math.max(0, 1 - (x / hw) ** 2));
           pos.setY(n, pos.getY(n) - bow - slip);
         }
         pos.needsUpdate = true;
         g.computeVertexNormals();
+        // The plenum behind the slot is unlit: a matte near-black slab above the −z edge,
+        // spanning the gap, so the slot reads as a hole into darkness rather than as the
+        // lit back of the neighbouring tile.
+        sb.add(new THREE.BoxGeometry(x1 - x0, 0.06, 0.09).translate((x0 + x1) / 2, teeY0 + 0.03, z0 + 0.03), pal.voidBlack);
       }
       g.translate((x0 + x1) / 2, teeY0 - tegularDrop + tileT / 2, (z0 + z1) / 2);
       sb.add(g, pal.ceilingTileStained);
