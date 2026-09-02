@@ -346,13 +346,22 @@ export function presenceAtlas(size = 1024): PresenceSet {
         px(R + Q + E + x, Y0 + y, 0.05, 0.04, 0.03, a);
         rough[(Y0 + y) * S + R + Q + E + x] = 0.9;
         height[(Y0 + y) * S + R + Q + E + x] = 0.5;
-        // Dreg: cold coffee - a little lighter and browner at the meniscus (thinner film over
-        // the pale glaze), a skin of dust dulling the middle.
+      }
+    // Dreg: cold coffee - a little lighter and browner at the meniscus (thinner film over the
+    // pale glaze), a skin of dust dulling the middle. Its tile is the last 64 px of the row
+    // (PRESENCE_UV.dreg), NOT another CE: drawn CE wide it ran off the canvas edge and `px`
+    // wrapped the overflow into x 0..31 of the next rows — a 30 px coffee-brown bar on the
+    // cotton tile's left edge that showed as a dark strip up the apron's left selvedge.
+    const DX = R + Q + 2 * E, DW = S - DX;
+    for (let y = 0; y < E; y++)
+      for (let x = 0; x < DW; x++) {
+        const u = x / DW, v = y / E;
+        const d = Math.hypot(u - 0.5, v - 0.5) * 2;
         const rim = clamp01((d - 0.82) / 0.16);
         const skin = 0.5 + 0.5 * crumb(u * 3 + 5, v * 3);
-        px(R + Q + 2 * E + x, Y0 + y, 0.17 + 0.14 * rim, 0.09 + 0.07 * rim, 0.04 + 0.03 * rim, 1);
-        rough[(Y0 + y) * S + R + Q + 2 * E + x] = 0.06 + 0.1 * skin;
-        height[(Y0 + y) * S + R + Q + 2 * E + x] = 0.5;
+        px(DX + x, Y0 + y, 0.17 + 0.14 * rim, 0.09 + 0.07 * rim, 0.04 + 0.03 * rim, 1);
+        rough[(Y0 + y) * S + DX + x] = 0.06 + 0.1 * skin;
+        height[(Y0 + y) * S + DX + x] = 0.5;
       }
   }
 

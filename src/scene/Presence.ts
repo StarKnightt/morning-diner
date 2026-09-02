@@ -438,7 +438,10 @@ function buildApron(s: MergedBuilder, pal: Palette, cloth: THREE.Material): THRE
   const relief = (t: number, u: number) => {
     let z = 0;
     const open = 0.35 + 0.65 * smooth(t / 0.35), relax = 1 - 0.2 * t;
-    for (const f of folds) z += f.a * open * relax * Math.exp(-Math.pow(Math.abs(u - f.s) / f.w, 1.4));
+    // The selvedges hang flatter: a fold crest right at the edge made a steep left flank that
+    // faced away from every light in the aisle and read as a black slab from the apron camera.
+    const edge = 0.55 + 0.45 * smooth(Math.min(u, 1 - u) / 0.14);
+    for (const f of folds) z += f.a * open * relax * edge * Math.exp(-Math.pow(Math.abs(u - f.s) / f.w, 1.4));
     const gDecay = 1 - 0.7 * smooth(t / 0.55);
     for (const g of gathers) z += g.a * gDecay * Math.sin(u * Math.PI * 2 * g.f + g.ph + 0.9 * Math.sin(t * 5 + g.ph));
     return z;
@@ -447,7 +450,8 @@ function buildApron(s: MergedBuilder, pal: Palette, cloth: THREE.Material): THRE
     const w = halfW(t);
     // Folds also bunch the cloth sideways: shift x toward each fold's crest a little.
     let dx = 0;
-    for (const f of folds) dx += 0.25 * f.a * (0.4 + 0.6 * t) * Math.tanh((u - f.s) / f.w) * Math.exp(-Math.pow(Math.abs(u - f.s) / (2 * f.w), 2));
+    const edge = 0.3 + 0.7 * smooth(Math.min(u, 1 - u) / 0.14);
+    for (const f of folds) dx += 0.25 * f.a * (0.4 + 0.6 * t) * edge * Math.tanh((u - f.s) / f.w) * Math.exp(-Math.pow(Math.abs(u - f.s) / (2 * f.w), 2));
     const x = hx + (u - 0.5) * 2 * w + 0.006 * t * t - dx;
     const z = wallZ + 0.03 + relief(t, u) + 0.018 * smooth(t / 0.5) + lift;
     // Hem dips a few millimetres where the folds hang heavier.
@@ -455,7 +459,10 @@ function buildApron(s: MergedBuilder, pal: Palette, cloth: THREE.Material): THRE
     const y = skirtTop - t * fall - dip;
     return out.set(x, y, z);
   };
-  s.add(loft(40, 72, (t, u, o) => skirt(t, u, o), R), cloth);
+  // Inset from the tile edges: the hem (v = 0.5) sits on the quarry tile's border, and where the
+  // side folds turn edge-on the anisotropic footprint reached across it — a dark red 10 mm strip
+  // up the left selvedge in the apron frame.
+  s.add(loft(40, 72, (t, u, o) => skirt(t, u, o), inset(R, 0.02, 0.035)), cloth);
   // Hem: a rolled 5 × 3 mm edge along the bottom; the side selvedges 3 × 2 mm.
   {
     const hem: THREE.Vector3[] = [];
@@ -476,7 +483,7 @@ function buildApron(s: MergedBuilder, pal: Palette, cloth: THREE.Material): THRE
       const sag = 0.004 * (1 - t) * Math.sin(u * Math.PI); // the top edge droops at its middle
       skirt(tt + sag / fall, uu, o, 0.004 + gape);
     };
-    s.add(loft(12, 14, face, PRESENCE_UV.pocket), cloth);
+    s.add(loft(12, 14, face, inset(PRESENCE_UV.pocket, 0.012)), cloth);
     // Side + bottom closure: a strip from the skirt to the pocket face.
     const edgeLoop = (q: number, o: THREE.Vector3, lift: number) => {
       // q 0..1 runs down the left side, along the bottom, up the right side.

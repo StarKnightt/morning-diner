@@ -567,10 +567,12 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
       can.translate(kx0 + 0.15, sy + 0.02 + 0.089, cz);
       s.add(can, pal.stainless);
     }
+    // Stainless mixing bowls, not ceramic: in the ceramic bucket their bounds stretched its sphere
+    // from this shelf to booth 2's plate and it stopped culling at the spawn (+2 draws for nothing).
     for (let i = 0; i < 4; i++) {
       const bowl = lathe([V2(0, 0), V2(0.05, 0), V2(0.085, 0.045), V2(0.088, 0.05), V2(0.08, 0.048), V2(0.046, 0.004), V2(0, 0.004)], 32);
       bowl.translate(kx0 + 0.15, sy + 0.02 + i * 0.03, tz1 - 0.35);
-      s.add(bowl, pal.ceramic);
+      s.add(bowl, pal.stainless);
     }
   }
   // Fluorescent strip on the -x wall over the table at 1.95 m: a 4 ft vapour-tight housing with
@@ -624,7 +626,7 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
     }
   }
 
-  // One shadowless 4100 K spot for the slice: 16,000 lm (four 2-lamp strips — a working
+  // One shadowless 5000 K spot for the slice: 16,000 lm (four 2-lamp strips — a working
   // kitchen's 600+ lux) at the ceiling just inside the door header, aimed 43° down into the
   // kitchen. Its 46° cone covers the far wall, the floor, the table and the -x wall beside
   // the door (what the vision glass shows); its +z edge misses every dining-room point
