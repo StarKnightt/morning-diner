@@ -155,7 +155,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       {
         const faceLen = Math.hypot(lean, back.top - yb0);
         const panelH = faceLen - 0.1;
-        const { geometry: panel, valleys } = channelPanel(cd - 0.03, panelH, 0.12, 0.03, 11 + Math.round(cx * 10) + s);
+        const { geometry: panel, valleys } = channelPanel(cd - 0.03, panelH, 0.12, 0.02, 11 + Math.round(cx * 10) + s);
         const ex = new THREE.Vector3(0, 0, s), ey = new THREE.Vector3(0, 1, 0), ez = new THREE.Vector3(-s, 0, 0);
         const m = new THREE.Matrix4().makeBasis(ex, ey, ez);
         m.premultiply(new THREE.Matrix4().makeRotationZ(-s * recl));
@@ -163,11 +163,12 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
         const t = 0.02 + panelH / 2;
         m.setPosition(X(back.frontX) + dirX * t + s * 0.003, yb0 + dirY * t, zMid);
         b.add(panel, pal.vinylRedCrazed, m);
-        // 5 mm welt cord sewn into every valley, sitting proud of the crown feet
+        // 6 mm welt cord sewn into every valley: its crown sits 2 mm under the channel
+        // crowns (20 mm) so it catches its own highlight instead of hiding in the V.
         for (const vx of valleys) {
-          const cord = new THREE.CylinderGeometry(0.0025, 0.0025, panelH - 0.006, 10);
-          cord.translate(vx, 0, 0.0085);
-          b.add(plainColor(cord, 1.3), pal.vinylRed, m);
+          const cord = new THREE.CylinderGeometry(0.003, 0.003, panelH - 0.006, 12);
+          cord.translate(vx, 0, 0.015);
+          b.add(plainColor(cord, 1.12), pal.vinylRed, m);
         }
       }
       // Rolled top cushion (90 mm Ø), tucked against the divider, with a welt where it meets the face.

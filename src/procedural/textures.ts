@@ -245,10 +245,10 @@ export function vinylSurface(size: number, metres: number, crazed: boolean): Vin
 }
 
 /**
- * Formica "Skylark" boomerang laminate: cream base with elongated bent chevrons
- * (pointed tips, 60–70 mm long × 12–15 mm wide) in two sizes and three colours
- * (tan, grey-blue, white) at ~40 % coverage, random rotation, plus a fine gold
- * fleck. One canvas = `metres`.
+ * Formica 6942 "Skylark" boomerang laminate: plain cream field, sparse (~30 %)
+ * smooth bent chevrons — two rounded lobes meeting at a soft elbow, ~60 mm long ×
+ * 12 mm wide, drawn as a round-capped, round-joined stroke — in tan, grey-blue and
+ * white at low contrast, random rotation, none touching. One canvas = `metres`.
  */
 export function formicaBoomerang(size: number, metres: number, seed: number): TextureSet {
   const { c, ctx } = canvas(size, size);
@@ -261,54 +261,55 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
   const img = ctx.getImageData(0, 0, size, size);
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
-      const n = (fbm(x / size, y / size) - 0.5) * 0.03;
+      const n = (fbm(x / size, y / size) - 0.5) * 0.012;
       const o = (y * size + x) * 4;
       img.data[o] *= 1 + n; img.data[o + 1] *= 1 + n; img.data[o + 2] *= 1 + n;
     }
   ctx.putImageData(img, 0, 0);
+  // Tones pulled 20 % toward the cream so the contrast stays under ~30 %.
+  const tones = ["#CFC0A8", "#A7ACAF", "#FBF9F4"];
   const areaCm2 = metres * metres * 1e4;
-  const count = Math.round((areaCm2 * 0.4) / 4.6);
-  const tones = ["#C9B79C", "#9AA0A4", "#FBF9F4", "#C9B79C", "#9AA0A4"];
+  const target = Math.round((areaCm2 * 0.3) / 7.2); // ≈ 7.2 cm² per shape
+  const placed: Array<[number, number]> = [];
+  const minD = 52 * pxPerMm; // centre spacing: no two shapes touch
   const wraps = [[0, 0], [size, 0], [-size, 0], [0, size], [0, -size], [size, size], [-size, -size], [size, -size], [-size, size]];
-  for (let k = 0; k < count; k++) {
+  const torusDist = (ax: number, ay: number, bx: number, by: number) => {
+    let dx = Math.abs(ax - bx), dy = Math.abs(ay - by);
+    dx = Math.min(dx, size - dx); dy = Math.min(dy, size - dy);
+    return Math.hypot(dx, dy);
+  };
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  let attempts = 0;
+  while (placed.length < target && attempts < 40000) {
+    attempts++;
     const x = rng() * size, y = rng() * size;
-    const L = (rng() < 0.5 ? 62 : 72) * pxPerMm;
-    const w = (12 + rng() * 3) * pxPerMm;
+    if (placed.some(([px, py]) => torusDist(x, y, px, py) < minD)) continue;
+    placed.push([x, y]);
+    const L = (56 + rng() * 12) * pxPerMm; // tip-to-tip along the arms
+    const w = (11 + rng() * 2) * pxPerMm;
     const rot = rng() * Math.PI * 2;
-    const theta = THREE.MathUtils.degToRad(50 + rng() * 8); // arm half-angle: 100–116° included
-    const La = L / 2;
-    // Local boomerang: a bent chevron. Two arms of near-constant width `w` leave the
-    // elbow (origin) toward +x at ±theta and taper to a point over the last 40 % of
-    // their length. Outer elbow and inner elbow sit on the bisector at ∓w/(2 sinθ).
-    const st = Math.sin(theta), ct = Math.cos(theta);
-    const d1: [number, number] = [ct, st], n1: [number, number] = [-st, ct];
-    const e = w / (2 * st);
-    const arm = (sgn: number): Array<[number, number]> => {
-      // Points along arm `sgn` (upper = +1, lower = −1): [outer-shoulder, tip, inner-shoulder]
-      const Ls = La * 0.6;
-      const P = (t: number, k: number): [number, number] => [t * d1[0] + k * (w / 2) * n1[0], sgn * (t * d1[1] + k * (w / 2) * n1[1])];
-      return [P(Ls, 1), P(La + w * 0.15, 0), P(Ls, -1)];
-    };
-    const up = arm(1), dn = arm(-1);
-    const poly: Array<[number, number]> = [up[1], up[0], [-e, 0], dn[0], dn[1], dn[2], [e, 0], up[2]];
+    const half = THREE.MathUtils.degToRad(52 + rng() * 8); // arm half-angle (104–120° included)
+    const La = L / 2 - w / 2; // stroke caps add w/2 at each tip
     const cr = Math.cos(rot), sr = Math.sin(rot);
-    const T = ([lx, ly]: [number, number], px: number, py: number): [number, number] => [px + lx * cr - ly * sr, py + lx * sr + ly * cr];
-    ctx.fillStyle = tones[Math.floor(rng() * tones.length)];
+    const T = (lx: number, ly: number, px: number, py: number): [number, number] => [px + lx * cr - ly * sr, py + lx * sr + ly * cr];
+    ctx.strokeStyle = tones[Math.floor(rng() * tones.length)];
+    ctx.lineWidth = w;
     for (const [ox, oy] of wraps) {
       const px = x + ox, py = y + oy;
       if (px < -L || px > size + L || py < -L || py > size + L) continue;
+      const t1 = T(La * Math.cos(half), La * Math.sin(half), px, py);
+      const el = T(-w * 0.15, 0, px, py);
+      const t2 = T(La * Math.cos(half), -La * Math.sin(half), px, py);
       ctx.beginPath();
-      poly.forEach((p, i) => {
-        const q = T(p, px, py);
-        if (i === 0) ctx.moveTo(q[0], q[1]);
-        else ctx.lineTo(q[0], q[1]);
-      });
-      ctx.closePath();
-      ctx.fill();
+      ctx.moveTo(t1[0], t1[1]);
+      ctx.lineTo(el[0], el[1]);
+      ctx.lineTo(t2[0], t2[1]);
+      ctx.stroke();
     }
   }
-  ctx.fillStyle = "#C8A860";
-  for (let k = 0; k < areaCm2 * 1.6; k++) ctx.fillRect(rng() * size, rng() * size, 1, 1);
+  ctx.fillStyle = "#D8C28A";
+  for (let k = 0; k < areaCm2 * 0.8; k++) ctx.fillRect(rng() * size, rng() * size, 1, 1);
   const wipe = makeFbm(seed + 5, 6, 3);
   const rimg = rctx.createImageData(size, size);
   for (let y = 0; y < size; y++)

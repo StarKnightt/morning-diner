@@ -26,7 +26,7 @@ export interface Palette {
   chromeSoft: THREE.MeshStandardMaterial;
   alumGroove: THREE.MeshStandardMaterial;
   chromeBrushed: THREE.MeshPhysicalMaterial;
-  ceramic: THREE.MeshStandardMaterial;
+  ceramic: THREE.MeshPhysicalMaterial;
   bisque: THREE.MeshStandardMaterial;
   coffeeStain: THREE.MeshStandardMaterial;
   capWood: THREE.MeshPhysicalMaterial;
@@ -62,6 +62,10 @@ export interface Palette {
   concrete: THREE.MeshStandardMaterial;
   acUnit: THREE.MeshStandardMaterial;
   stainless: THREE.MeshPhysicalMaterial;
+  /** Smooth directional brushed stainless for appliances/dispensers (no mottle). */
+  stainlessBrushed: THREE.MeshPhysicalMaterial;
+  /** Matte black powder coat (brewer body). */
+  blackPowder: THREE.MeshStandardMaterial;
 }
 
 export function createPalette(maxAnisotropy: number): Palette {
@@ -100,21 +104,22 @@ export function createPalette(maxAnisotropy: number): Palette {
   /* ---- System 2 surfaces (REFERENCE.md §4 + critic rev 2) ---- */
   // Vinyl: canvas covers 0.4 m; upholstery geometry carries metric UVs (1 unit = 1 m).
   // Two variants share colour/gloss; only the head roll and channel crowns craze.
-  const vinylColor = new THREE.Color("#AD161E");
+  const vinylColor = new THREE.Color("#A8141C"); // reads ≈ #AD161E after the crown vertex tint
   const mkVinyl = (crazed: boolean) => {
     const t = tex.vinylSurface(1024, 0.4, crazed);
-    t.normalMap.repeat.set(2.5, 2.5);
-    t.roughnessMap.repeat.set(2.5, 2.5);
+    // Canvas covers 0.1 m so the ~1.5 mm leather grain lands at ~0.4 mm: highlights break up.
+    t.normalMap.repeat.set(4, 4);
+    t.roughnessMap.repeat.set(4, 4);
     return new THREE.MeshPhysicalMaterial({
       color: vinylColor,
       normalMap: t.normalMap,
-      normalScale: new THREE.Vector2(0.6, 0.6),
+      normalScale: new THREE.Vector2(1.0, 1.0),
       roughnessMap: t.roughnessMap,
-      roughness: 0.9, // × map (0.35–0.55) → ≈ 0.4
+      roughness: 0.75, // × map (0.35–0.55) → ≈ 0.3–0.4
       metalness: 0,
-      specularIntensity: 0.5,
-      clearcoat: 0.25,
-      clearcoatRoughness: 0.2,
+      specularIntensity: 0.4,
+      clearcoat: 0.15,
+      clearcoatRoughness: 0.25,
       vertexColors: true,
     });
   };
@@ -147,9 +152,11 @@ export function createPalette(maxAnisotropy: number): Palette {
   // Three different grain sources (domain-warped noise, nothing periodic):
   // quarter-sawn oak caps (fine, straight), walnut-look laminate on panels and the
   // counter die (broad, low contrast, vertical), flat-cut maple laminate on cabinets.
-  const capTex = tex.woodVeneer(1024, 0.5, { hex: "#6E4A2E", seed: 501, contrast: 0.2, rough: 0.25, pore: 0.6, vertical: false, along: 3, across: 72, warp: 0.25, figure: 0.1 });
-  const panelTex = tex.woodVeneer(1024, 0.5, { hex: "#7A5236", seed: 502, contrast: 0.11, rough: 0.55, pore: 0, vertical: true, along: 2, across: 14, warp: 0.8, figure: 0.6 });
-  const cabTex = tex.woodVeneer(1024, 0.5, { hex: "#B98E5E", seed: 503, contrast: 0.07, rough: 0.5, pore: 0, vertical: true, along: 2, across: 20, warp: 0.6, figure: 0.3 });
+  // Ridge pitch 1–4 mm (base lattice 128 cells / 0.5 m + two finer octaves), cathedral
+  // figure from the low-frequency arch warp (~250–500 mm), contrast ≤ 12 %.
+  const capTex = tex.woodVeneer(1024, 0.5, { hex: "#6E4A2E", seed: 501, contrast: 0.12, rough: 0.3, pore: 0.4, vertical: false, along: 3, across: 128, warp: 0.3, figure: 0.25 });
+  const panelTex = tex.woodVeneer(1024, 0.5, { hex: "#7A5236", seed: 502, contrast: 0.08, rough: 0.5, pore: 0, vertical: true, along: 2, across: 128, warp: 0.6, figure: 0.8 });
+  const cabTex = tex.woodVeneer(1024, 0.5, { hex: "#B98E5E", seed: 503, contrast: 0.06, rough: 0.5, pore: 0, vertical: true, along: 2, across: 128, warp: 0.5, figure: 0.5 });
   for (const t of [capTex, panelTex, cabTex]) for (const m of [t.map, t.roughnessMap, t.normalMap]) m.repeat.set(2, 2);
   const capWood = new THREE.MeshPhysicalMaterial({
     map: capTex.map, roughnessMap: capTex.roughnessMap, normalMap: capTex.normalMap, normalScale: new THREE.Vector2(0.4, 0.4),
@@ -185,8 +192,17 @@ export function createPalette(maxAnisotropy: number): Palette {
     metalness: 1,
     anisotropy: 0.6,
   });
+  const stainlessBrushed = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color().setRGB(0.42, 0.44, 0.46, THREE.LinearSRGBColorSpace), // darker albedo: sunlit steel must not read as white plastic
+    roughness: 0.2, // tight so the room reads in the panel
+    metalness: 1,
+    anisotropy: 0.4, // at 1.0 the sun's stretched lobe whited out the whole sunlit face
+    anisotropyRotation: Math.PI / 2, // brushing runs vertically on upright panels
+  });
+  const blackPowder = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.55, metalness: 0.1 });
 
-  const ceramic = new THREE.MeshStandardMaterial({ color: 0xf2eee6, roughness: 0.14, metalness: 0 });
+  // Glazed ivory china: opaque, tight gloss from a clearcoat layer over a satin base.
+  const ceramic = new THREE.MeshPhysicalMaterial({ color: 0xf2eee6, roughness: 0.15, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.12 });
   const bisque = new THREE.MeshStandardMaterial({ color: 0xe1d7c8, roughness: 0.75, metalness: 0 });
   const glassClear = new THREE.MeshPhysicalMaterial({
     color: 0xf6f8f7,
@@ -286,6 +302,8 @@ export function createPalette(maxAnisotropy: number): Palette {
     concrete,
     acUnit: new THREE.MeshStandardMaterial({ color: 0xd8d6cf, roughness: 0.6, metalness: 0.2 }),
     stainless,
+    stainlessBrushed,
+    blackPowder,
   };
 
   // The procedural environment is bright enough for metals to read as metal.
@@ -310,6 +328,7 @@ export function createPalette(maxAnisotropy: number): Palette {
   // Laminates are semi-matt: cut the room reflection so grazing views don't turn the die into a mirror.
   palette.laminatePanel.envMapIntensity = 0.3;
   palette.laminateCabinet.envMapIntensity = 0.3;
-  palette.ceramic.envMapIntensity = 0.2; // ivory china: gloss from the lights, only a hint of room reflection
+  palette.ceramic.envMapIntensity = 0.45; // ivory china: the room's darks/lights shape the glossy body
+  palette.stainlessBrushed.envMapIntensity = 0.55;
   return palette;
 }

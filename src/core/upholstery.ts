@@ -191,7 +191,7 @@ export function channelPanel(w: number, h: number, pitch: number, depth: number,
     const z = depth * (pleat + pucker * pleat) * env;
     p.setZ(i, z);
     // Crowns pick up the light; the valleys are the shadow side of the seam.
-    const shade = (0.7 + 0.3 * pleat) * (1 - 0.2 * pucker);
+    const shade = (0.78 + 0.22 * pleat) * (1 - 0.2 * pucker);
     col[i * 3] = shade; col[i * 3 + 1] = shade; col[i * 3 + 2] = shade;
     uv.setXY(i, x + w / 2, y + h / 2);
   }

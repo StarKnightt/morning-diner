@@ -117,7 +117,7 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
   /* ---- troffers: whole cells, 20 mm door frame, recessed lens ---- */
   for (const [i, j] of CEILING.troffers) {
     // Door frame lip sits 8 mm inside the tees and 4 mm below their face, leaving a shadow gap.
-    const gap = 0.008;
+    const gap = 0.013; // 13 mm reveal between tee and door frame
     const x0 = cellX(i) + crossFace / 2 + gap, x1 = cellX(i + 2) - crossFace / 2 - gap;
     const z0 = cellZ(j) + mainFace / 2 + gap, z1 = cellZ(j + 1) - mainFace / 2 - gap;
     const f = 0.02;
