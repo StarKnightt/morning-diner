@@ -69,19 +69,31 @@ export const K = 1e-4;
 /** nits (or lux) → scene units. */
 export const nits = (n: number): number => n * K;
 
-/** Camera: ISO 100, f/5.6, 1/160 s. EV100 = log2(N²/t) − log2(ISO/100) = 12.29. */
-export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 160 } as const;
+/**
+ * Camera: ISO 100, f/5.6, 1/250 s. EV100 = log2(N²/t) − log2(ISO/100) = 12.94.
+ *
+ * Rev 1 shot at 1/160 (EV 12.29, grey 1,080 nits). Rev 2's HDR probe of the derived rig
+ * (BUILD.md System 4 rev 2) put the *shaded* room at 700–1,000 nits — five 1.7 m² windows of
+ * 90-klux sun bounce off a checker floor make a bright room, ≈ 3,000–4,500 lux in the shade
+ * — so at 1/160 a centre-weighted meter's exposure left the shade within half a stop of
+ * grey and the frame read "evenly lit". A photographer holding the sunlit table (12–14 k nits)
+ * closes down ⅔ of a stop: at 1/250 grey is 1,690 nits, the shaded walls sit at −0.9 EV
+ * (sRGB ≈ 90), the ceiling −0.6, the counter top −1.3, the kitchen −3.5, and everything
+ * above L_sat (9,560 nits: the sunlit table, the sky through the slats, the sand) clips.
+ * That is the histogram of the Reitz frame (f/5.6 · 1/125 · ISO 200 = EV 11.9 for a room
+ * with one window's worth of sun).
+ */
+export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 250 } as const;
 export const EV100 = Math.log2((CAMERA.fNumber * CAMERA.fNumber) / CAMERA.shutter) - Math.log2(CAMERA.iso / 100);
-/** Saturation luminance for that exposure (Lagarde: L_sat = 1.2 · 2^EV) ≈ 6,000 nits. */
+/** Saturation luminance for that exposure (Lagarde: L_sat = 1.2 · 2^EV) ≈ 9,560 nits. */
 export const L_SAT_NITS = 1.2 * Math.pow(2, EV100);
 /**
- * `renderer.toneMappingExposure`: scene value 1.0 = L_sat. ≈ 1.67 at K = 1e-4.
- * Middle grey (0.18) then sits at ≈ 1,080 nits (measured on the sys4 frames, REFERENCE §8):
- * the sunlit stripes on the red vinyl (≈ 3,000 nits) +1.5 EV over grey, the sunlit Formica
- * table (≈ 14,000 nits) +3.7 EV with its core clipping, the sky seen through the slats
- * (≈ 12,000 nits) +3.5 EV, the lot asphalt (≈ 2,700 nits) +1.3 EV, the counter top on the
- * fluorescent side (≈ 500 nits) −1.1 EV, the back wall (≈ 500) −1.1, the counter die
- * (≈ 170 nits) −2.7 EV, the vinyl seat in shade (≈ 140) −2.9 EV.
+ * `renderer.toneMappingExposure`: scene value 1.0 = L_sat. ≈ 1.05 at K = 1e-4.
+ * Middle grey (0.18) then sits at ≈ 1,690 nits. Measured scene-referred values (rev 2 probe,
+ * REFERENCE §8): sunlit Formica table 12–14 k nits (+3 EV, clips), sun patch on a wall
+ * ≈ 6,300 (+1.9), sky through the slats 7–12 k (+2 … clip), lot asphalt ≈ 3,000 (+0.8),
+ * shaded wall ≈ 900 (−0.9), ceiling tile ≈ 1,000 (−0.75), counter top ≈ 650 (−1.3),
+ * seat in shade ≈ 170 (−3.3), floor under a table ≈ 80–220 (−4.4 … −2.9).
  */
 export const EXPOSURE = 1 / (L_SAT_NITS * K);
 /** Scene luminance that lands on middle grey (0.18 of L_sat). */
@@ -91,21 +103,27 @@ export const GREY_NITS = 0.18 * L_SAT_NITS;
  * `installCameraToneMapping`. AgX (rev 1) maps 0.18 → 0.18 but does not reach display white
  * until ≈ +6.5 EV over grey, so nothing in the frame clipped: the 12,000-nit sunlit table
  * sat at sRGB 235, the 10,000-nit sky at 220, and the shaded room, at −1 EV, within a
- * stop of grey — a 12-stop HDR render, not a photograph. A camera JPEG clips ≈ 3–3.5
- * stops above middle grey (the sensor saturates at +2.5, the JPEG engine rolls the last
- * stop off); CAMERA_WHITE_EV puts display white there. `?tm=agx|aces|neutral` still select
- * the others for A/B captures, `?ev=±n` shifts the exposure.
+ * stop of grey — a 12-stop HDR render, not a photograph. A sensor saturates at L_sat, which
+ * is +2.47 EV over the 0.18 grey by construction (Lagarde's 1.2 · 2^EV); a camera JPEG
+ * rolls off into that point. CAMERA_WHITE_EV puts display white there, so `EXPOSURE` and
+ * the curve agree on what clips. `?tm=agx|aces|neutral` still select the others for A/B
+ * captures, `?ev=±n` shifts the exposure.
  */
 export const TONE_MAPPING: THREE.ToneMapping = THREE.CustomToneMapping;
-/** Scene value (in stops over middle grey) that reaches display white under the camera curve. */
-export const CAMERA_WHITE_EV = 3.5;
+/**
+ * Scene value (in stops over middle grey) that reaches display white under the camera
+ * curve: the sensor's saturation, log2(1 / 0.18) = 2.47. Rev 2's first round used 3.5
+ * ("the JPEG engine keeps a stop of headroom"); with it the 10 k-nit sky sat at sRGB 220
+ * and the sand at 226 — nothing in the exterior clipped, which no camera does.
+ */
+export const CAMERA_WHITE_EV = 2.5;
 /**
  * Hable ("Uncharted 2") filmic curve, per channel, normalised so x_white → 1 with
  * x_white = 0.18 · 2^CAMERA_WHITE_EV · CAMERA_CURVE_GAIN. The gain scales the input so
- * middle grey lands at 0.197 display-linear (sRGB 123; a camera JPEG puts a grey card at
+ * middle grey lands near 0.2 display-linear (sRGB ≈ 125; a camera JPEG puts a grey card at
  * 118–128) instead of Hable's default 0.149. Display-linear values on this curve, by stops
- * over grey: −4 → 0.009 (sRGB 24), −3 → 0.019 (38), −2 → 0.042 (58), −1 → 0.093 (86),
- * 0 → 0.197 (123), +1 → 0.377 (165), +2 → 0.623 (207), +3 → 0.884 (242), +3.5 → 1.0.
+ * over grey (white at +2.5): −4 → 0.011 (sRGB 27), −3 → 0.024 (43), −2 → 0.053 (65),
+ * −1 → 0.116 (95), 0 → 0.24 (134), +1 → 0.46 (180), +2 → 0.78 (228), +2.5 → 1.0.
  * Per-channel: a clipped sunlit red goes salmon → white the way film and sensors do
  * (AgX kept it red by design; the photographs the frame is judged against do not).
  */
@@ -198,15 +216,20 @@ export const TROFFER_LENS_AREA = (CEILING.tile * 2 - 0.09) * (CEILING.tile - 0.0
  */
 export const TROFFER_LENS_NITS = TROFFER_LUMENS / (Math.PI * TROFFER_LENS_AREA);
 /**
- * Sky dome: the shader's horizon (≈ 0.9) is authored at display scale; the scale puts the
- * horizon band at 8,000 nits (zenith ≈ 0.45 × → 3,600, a real blue). `scaleSky` adds the
- * circumsolar brightening on top (×2.5 at the sun, ×1.67 at 35° from it — the part of
- * the sky the windows look at, ≈ 13,000 nits, +3.6 EV over grey: white through the slats).
- * Hemisphere average ≈ 5,500 nits → ≈ 17 klux of diffuse skylight on the lot against
- * 51.6 klux of direct sun (90 klux · sin 35°): a 4:1 lit/shadow ratio (2 EV), the typical
- * clear-morning value. Rev 1's 5,500-nit horizon read as grey-green through the glass.
+ * Sky dome: the shader's horizon is authored at display scale (SKY_HORIZON_RGB); the scale
+ * puts the horizon band at 12,000 nits (zenith 0.48× → 5,800, a real blue). `scaleSky`
+ * adds the circumsolar brightening on top (×2.5 at the sun, ×1.67 at 35° from it — the
+ * part of the sky the windows look at, ≈ 20,000 nits: white through the slats).
+ * Hemisphere average ≈ 8,000 nits → ≈ 25 klux of diffuse skylight on the lot against
+ * 51.6 klux of direct sun (90 klux · sin 35°): a 3:1 lit/shadow ratio (1.6 EV), a hazy
+ * summer morning (CIE clear-sky types 11–12; a turbid horizon at 30–40° from a 35° sun
+ * measures 10–15 k cd/m²). Rev 1's 5,500-nit horizon read as grey-green through the
+ * glass; rev 2's first round at 8,000 put the sky through the slats at 5,500 nits after the
+ * glass — +2.3 EV, sRGB 219, not clipped — and the sand at 226. At 12,000 the horizon
+ * through the glass is ≈ 10,500 nits, over L_sat (9,560), so the sky, the sand and the
+ * sunlit slat faces clip and the exterior blows out the way it does from inside a room.
  */
-const SKY_HORIZON_NITS = 8_000;
+const SKY_HORIZON_NITS = 12_000;
 /**
  * Sky dome colours (display-scale, luminance ≈ 0.85 at the horizon; `scaleSky` sets them on
  * the shader and normalises by the horizon's luminance). Rev 1 kept System 3's near-white
@@ -768,6 +791,13 @@ export function scaleSky(sky: THREE.Mesh, scale: number): void {
       : "gl_FragColor.rgb *= skyScale;";
     shader.fragmentShader = shader.fragmentShader
       .replace("varying vec3 vDir;", "varying vec3 vDir;\nuniform float skyScale;")
+      // Horizon → zenith gradient shape. Exterior.ts authors mix(horizon, zenith, pow(h, 0.55)),
+      // which is halfway to the zenith by 15° of elevation, so the band the windows and the
+      // door see (5–25°) measured 8,800 nits under a 12,000-nit horizon. A clear or hazy sky's
+      // luminance is flat to slightly *rising* toward the horizon over the first 20° (CIE
+      // types 11–13); pow(h, 1.6) holds ≈ 94 % of the horizon value at 15° and 82 % at 30°,
+      // and leaves the zenith where it was.
+      .replace("pow(h, 0.55)", "pow(h, 1.6)")
       .replace("#include <tonemapping_fragment>", boost + "\n#include <tonemapping_fragment>");
   };
   mat.customProgramCacheKey = () => "sky-scaled";

@@ -309,7 +309,10 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     anisotropy: 0.4, // at 1.0 the sun's stretched lobe whited out the whole sunlit face
     anisotropyRotation: Math.PI / 2, // brushing runs vertically on upright panels
   });
-  const blackPowder = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.55, metalness: 0.1 });
+  // System 4 rev 2: #141414 is a 0.6 % albedo — no paint is that black (black powder coat
+  // measures 3–5 %); under the physical rig the brewer body sat at 35 nits, −5.6 EV, a hole
+  // in every frame. #2c2c2c ≈ 2.6 % keeps it black and puts it in the curve's toe (≈ sRGB 30).
+  const blackPowder = new THREE.MeshStandardMaterial({ color: 0x2c2c2c, roughness: 0.55, metalness: 0.1 });
   // Light brushed stainless for the brewer hood, funnel and base plate: albedo ≈ 0.6 with a
   // hint of blue. Deliberately left on the ROOM probe (not the prop probe under the
   // cabinets): the prop probe's ceiling is the dark cabinet underside, which turned the
@@ -423,7 +426,8 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     pepper: new THREE.MeshStandardMaterial({ color: 0x3a3430, roughness: 0.9, metalness: 0 }),
     trayBrown: new THREE.MeshStandardMaterial({ color: 0x4a2c1a, roughness: 0.55, metalness: 0 }),
     clockFace: new THREE.MeshStandardMaterial({ color: 0xf6f3ea, roughness: 0.5, metalness: 0 }),
-    rubberMat: new THREE.MeshStandardMaterial({ color: 0x1e1e1e, roughness: 0.9, metalness: 0 }),
+    // Black rubber is a 2–3 % albedo (was #1e1e1e, 1.3 %) — see blackPowder (System 4 rev 2).
+    rubberMat: new THREE.MeshStandardMaterial({ color: 0x282828, roughness: 0.9, metalness: 0 }),
     darkMetal: new THREE.MeshStandardMaterial({ color: 0x3a3836, roughness: 0.5, metalness: 0.6 }),
     alum: new THREE.MeshStandardMaterial({ color: 0x4f4841, roughness: 0.45, metalness: 0.55 }),
     alumBright: new THREE.MeshStandardMaterial({ color: 0xb4b8bc, roughness: 0.38, metalness: 0.7 }),
@@ -434,9 +438,15 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     // leaves a lit diffuse skin over the pane that reads as a milky veil (rev 1 lesson).
     // System 4 rev 2: #e2ebe6 (linear 0.76/0.83/0.79, +9 % green) turned the sky through the
     // panes grey-green in the sys4 frames; face-on, 6 mm clear float is (0.85/0.87/0.86) —
-    // the green lives in the edges. #edf0ee keeps the 12 % loss and 2.5 % of green.
+    // the green lives in the edges. Measured in-page (rev 2, sky through the door pane with
+    // the pane shown / hidden): three r185 renders a DoubleSide transmissive surface's back
+    // face into the transmission buffer first (WebGLRenderer.renderTransmissionPass), so a
+    // single pane applies `color` and the Fresnel term TWICE — #edf0ee passed 0.69, not 0.88.
+    // Two Fresnel losses are right for a pane (two surfaces, (1 − 0.042)² = 0.92); the body
+    // absorption must not be squared, so `color` is its square root: #f9fbfa (0.955/0.968/0.96)²
+    // × 0.92 = 0.86 total, the 6 mm float value, with 1.5 % of green.
     glass: new THREE.MeshPhysicalMaterial({
-      color: 0xedf0ee,
+      color: 0xf9fbfa,
       roughness: 1,
       roughnessMap: ext.glassDust(1024, 3320, false),
       metalness: 0,
@@ -451,7 +461,7 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     }),
     // Door glass: same pane with palm/finger smudges around push-bar height.
     glassDoor: new THREE.MeshPhysicalMaterial({
-      color: 0xedf0ee,
+      color: 0xf9fbfa,
       roughness: 1,
       roughnessMap: ext.glassDust(1024, 3321, true),
       metalness: 0,
