@@ -535,28 +535,46 @@ src/interactions/
                  through a mug handle); keys E / F, or left-click while the pointer is locked
   Prompt.ts      centre-bottom hint "E — Sit" / "E — Stand" / "E — Pour coffee" / "E — Open door";
                  system font, 180 ms fade, `?shoot` makes it instant for deterministic frames
-  Sit.ts         10 benches (5 window booths × 2 sides); 0.9 s eased glide to the seated pose
-                 (eye 1.15 m, centred on the bench, turned 35° to the window, −9° pitch) then a
-                 12 mm head settle over 0.25 s; movement locked, look clamped ±70° / ±40° around
-                 the seated heading; E again glides back to the aisle spot. Any window booth works.
-  Pour.ts        decanter lift 12 cm → over the mug → tilt 45° → 2.5 s hold → return, 6.3 s total;
-                 stream = wobbling tapered cylinder (onBeforeCompile), mug liquid = lathe disc with
-                 meniscus lip + rippled surface (shader, coffee material), decanter coffee clipped
-                 by a plane that drops 9 mm; steam = Steam.ts; clink at pick-up/put-down, pour SFX
-                 for the stream duration. Once full, E gives a 4 mm / 0.22 s bob and no refill.
-  Steam.ts       1 InstancedMesh, 22 billboard quads, procedural noise alpha in the shader, rise +
-                 drift, 30 s then fades. Modest by design (System 8 may extend).
-  DoorSwing.ts   leaf 0 → 85° over 1.1 s with overshoot + settle, 4 s hold, closer-style slow →
-                 latch (7.15 s cycle); one AABB collider that follows the leaf every frame
-                 (disabled for the frame if the player's centre is inside it, so they are never
-                 trapped); `onDoorOpen(progress)` listeners (default one brightens the hemi fill
-                 +12 % at full open); audio `setOutside(progress)` crossfades the heat wall.
-  debug.ts       window.__interact / __interactPose / __interactions (below)
+  Sit.ts         10 benches (5 window booths × 2 sides); 1.8 s sit-down in four beats (rev 2):
+                 0.15 s anticipation (hint fades, 4 mm weight shift) → 0.6 s step & turn to the
+                 cushion edge, eyes on the seat (−32°), only 7 cm lost → 0.7 s lower & slide
+                 (1.55 → 1.15 m ease in-out, 8 cm lean toward the table and back, eyes lift to the
+                 window) → 0.35 s cushion settle (14 mm dip, 4 mm rebound). Seated eye 1.15 m,
+                 centred on the bench, turned 35° to the window, −9° pitch; movement locked, look
+                 clamped ±70° / ±40°; E again stands (1.0 s: lean, rise, slide out). Any window booth.
+  Pour.ts        5.95 s from E (rev 2): 0.25 s reach → lift off the plate → 0.75 s Bézier arc of the
+                 spout lip to 4 cm over the pour point, wrist already tilting from 55 % of the carry →
+                 tilt-on settles the lip → stream 1.78–4.35 s: flow ramps in over 0.35 s (a thread
+                 that thickens), holds, dies over 0.4 s; over-tilt (≤ 6°) ∝ flow, pot dips 1.5 cm as
+                 the mug fills → 0.35 s wrist snap upright (ease-out) cuts the stream, tail falls at g,
+                 two drips at 4.50 / 4.75 → arc back, decelerating set-down. Stream radius ∝ √flow ×
+                 √(v0/v(d)) (continuity thinning), parabola from a 0.3 m/s lip speed, Rayleigh–Plateau
+                 bead-up when the flow is a thread; mug level = landed volume (flow integrated with the
+                 0.17 s fall delay) through the mug's inner-radius profile; decanter coffee = tall body
+                 + world clipping plane (Props' fixed body hidden from boot), level drops 9 mm; steam =
+                 `src/post/Steam.ts` SteamEmitter at the rim (the interactions/Steam.ts duplicate is
+                 gone), strength/rise/size build over 1.5 s from the first splash, fade 18 → 30 s.
+                 SFX on the visual: clink as the glass leaves / lands on the plate, pour from the moment
+                 the leading edge hits the mug for as long as liquid lands (tail + drips included).
+                 Once full, E gives a 4 mm / 0.22 s bob and no refill.
+  DoorSwing.ts   7.25 s closer cycle (rev 2): 0.22 s reach (hint fades; latch click + whoosh as the
+                 leaf starts) → 1.23 s weighted push (velocity profile: ease-in, peak ≈ 40 %, backcheck
+                 cushions the last 15°, a 0.9° bump into the cushion — no spring-back) → 1.4 s hold,
+                 extended while the player stands in the threshold zone → 3.6 s sweep 85° → 12°
+                 (take-up from rest, then decelerating: spring torque falls, damping ∝ speed) → 0.8 s
+                 latch 12° → 0, velocity-continuous, slightly accelerating, `latch()` SFX on the stop.
+                 One AABB collider follows the leaf every frame (disabled for the frame if the
+                 player's centre is inside it); `angleDeg` for captures; `onDoorOpen(progress)`
+                 listeners (default brightens the hemi fill +12 % at full open); `setOutside(progress)`
+                 every frame the leaf moves — the crossfade inherits the closer's ease.
+  debug.ts       window.__interact / __interactPose / __interactions / __player (below)
   util.ts        easings + the Interactable interface
 src/audio/wiring.ts   createDinerAudio() with the warmer at the brewer's lower plate and the mug at
                  `pourMug`; radio / AC / fan / door from System 6's defaultPositions();
                  startAudio() (idempotent) + first click/keydown/pointerdown fallback;
-                 listener follows the camera in update()
+                 listener follows the camera in update(); `doorLatch()` — leaf-on-stop thump
+                 (150–210 Hz, 60 ms) + bolt click (2.6–3.8 kHz) + strike seat (1.4 kHz, 35 ms later)
+                 + a quiet 700 Hz pane shiver, at the strike jamb through the door bus
 ```
 
 Controls: E (F, or click under pointer lock) on the highlighted target. Reach:
@@ -570,7 +588,8 @@ Debug / capture API (`src/interactions/debug.ts`, on `window`):
 | `__interact(name, t)` | seek to `t` seconds into that interaction and freeze the clocks (silent) |
 | `__interact("stand" \| "resume" \| "reset")` | stand up / unfreeze / everything back to rest |
 | `__interactPose("sit-seated" \| "pour-mid" \| "pour-full" \| "door-open")` | state + camera for `tools/shoot.mjs` |
-| `__interactions` | the live object: `.sit.state`, `.pour.state`, `.door.progress`, `.target`, `.audio.state()`, `.startAudio()` |
+| `__interactions` | the live object: `.sit.state`, `.pour.state`, `.door.progress`, `.door.angleDeg`, `.target`, `.audio.state()`, `.startAudio()` |
+| `__player` | the `FirstPerson` controller (harness feel checks: `.position`, `.camera`, `.setPose`) |
 
 Poses (`tools/shoot.mjs --tag=sys7 --poses=sit-seated,pour-mid,pour-full,door-open`,
 `--port=` to run beside another worktree's harness): `sit-seated` = booth 2,
@@ -591,6 +610,86 @@ allocations (scratch vectors are members). Draw calls: +6 at the pour camera
 while pouring (stream, liquid, live decanter clone, steam), 0 otherwise — plus
 both shadow passes on frames where the leaf or the decanter moved. The hint is
 shown in the `sys7-*` frames and hidden by the harness for every scene pose.
+
+### System 7 rev 2 — feel polish (`shots/sys7-seq-*.png`)
+
+**Contact sheets.** `node tools/sequence.mjs` (port 5260, `--port=` to move) builds, serves
+`dist/`, and shoots each interaction as a frozen time series through `__interact(name, t)`:
+sit 0 → 1.8 s @ 0.1 s (first person — the sit *is* the camera path), pour 0 → 6 s @ 0.25 s
+(back-bar camera), door 0 → 7.25 s @ 0.25 s from the vestibule camera and from an exterior
+3/4 camera (`door-ext`, the leaf swings toward the lens so its angle reads). Each frame's
+strip carries the time and the state (leaf angle in degrees, pour/sit state); key frames
+(amber) are also written full-size (`sys7-seq-<seq>-k<i>-<t>s.png`). Post ON by default
+(`--query=post=0` for the plain renderer), `--seqs=`, `--no-build`, `--out=DIR` (before/after
+runs), `--tag=`, and a window override `--t0 --t1 --step --keys=all|none|t,…` to zoom into a
+beat at full size. pngjs only, bitmap labels, GPU asserted like `shoot.mjs`.
+
+**Before → after (read off the sheets, then re-shot).**
+
+| | before | after |
+|---|---|---|
+| Sit | 0.9 s single cubic ease from the aisle straight to the seated pose — the view swings across the booth back, everything is over by 0.6 s and frames 0.5–1.1 s are identical; 12 mm "settle" invisible; no lean, no look-at-seat; hint and motion start on the same frame | 1.8 s in four beats (above): the hint has faded before the step, eyes drop to the seat while stepping in, the drop is the slow part, the head leans 8 cm toward the table and comes back as the hips land, then a 14 mm cushion dip + 4 mm rebound. Every frame of the sheet is different; the window fills the frame from 1.3 s |
+| Pour | decanter teleports 12 cm up in the first 0.25 s, straight lines between key points, tilt starts only after arrival, constant-radius rod of a stream (taper 1.0 → 0.7), no drips, fill linear in time, steam an opaque white cloud twice the mug's size within ~1 s | 0.25 s reach, lift then a Bézier arc with the tilt blended into the arrival; stream is a thread that thickens, thins with √(v0/v) as it falls (≈ 45 % over 10 cm) on a parabola, beads up and detaches at the end, two drips; the level follows the landed volume through the mug's profile (fast at the narrow foot, slow at the rim, 0.17 s behind the lip); steam is the System 8 emitter building over 1.5 s to a translucent wisp |
+| Door | 0 → 53° in the first 0.25 s (≈ 210°/s: a slammed door), 85° by 0.75 s with a spring overshoot, 4.3 s hold, sweep 85 → 8° in 1.8 s (≈ 43°/s), 0.25 s latch, no latch sound | 0.22 s reach, 1.23 s weighted push peaking ≈ 90°/s with a backcheck cushion instead of a spring, hold that waits while you stand in it, 3.6 s decelerating sweep (24 → 15°/s), 0.8 s latch at ≈ 15°/s with the thump + bolt click; measured live: 85° at 1.45 s, 12° at 6.45 s, shut at 7.25 s |
+| SFX | pour SFX at stream start (0.17 s before anything lands), clink on the same frame as the lift, no latch | pour on impact for as long as liquid lands; clink as the glass leaves / meets the plate; latch release as the leaf starts; `doorLatch()` on the stop |
+
+**References used.** Door: 2010 ADA Standards 404.2.8.1 — closers adjusted so that from 90°
+the door takes ≥ 5 s to reach 12° from the latch (<https://www.access-board.gov/ada/chapter/ch04/>).
+LCN 4040XP field adjustment: sweep valve = 90° → 10–15° from the latch, target 5–7 s on ADA
+openings, 4–6 s acceptable on lighter-traffic doors; latch valve = the last 10–15°, "it should
+accelerate slightly in that zone and seat against the strike with a clean, firm click — no
+bounce"; backcheck engages at 70–75° and cushions the rest of the opening
+(<https://www.securityparts.com/how-to-adjust-commercial-door-closer>; exterior 4–6 s and a
+1–2 s latch zone: <https://nationallocksupply.com/blog/commercial-door-closer-adjustment-sizing-guide/>).
+This diner door sweeps 85° → 12° in 3.6 s + 0.8 s latch — the brisk end of a light aluminium
+storefront leaf, as the brief asked (3–4 s sweep + 1 s latch); an ADA-strict 5 s sweep is
+one constant (`TL.sweep`). Pour: a free-falling stream thins by continuity, radius ∝ (v0/v)^½,
+and a thread breaks into drops below ≈ 1 mm (Plateau–Rayleigh,
+<https://en.wikipedia.org/wiki/Plateau%E2%80%93Rayleigh_instability>); the pouring form —
+tilt just past the lip angle, flow set by the extra tilt, cut with a quick wrist snap so the
+stream detaches rather than dribbles — is what a Bunn decanter's pinched lip is shaped for.
+Sit: young adults sit down in 1.33–1.49 s with seat contact at 0.70–0.88 s and a forward
+trunk lean throughout (Sci Rep 2023, <https://www.nature.com/articles/s41598-023-43401-6>);
+the iTUG "sit" phase averages 1.6 ± 0.5 s with a 0.6 s flexion beat
+(<https://pmc.ncbi.nlm.nih.gov/articles/PMC11943381/>); trunk flexion is what controls the
+descent (<https://doi.org/10.3389/fnhum.2024.1399179>). Our 1.8 s = 1.45 s to seat contact
++ 0.35 s cushion settle. Head-bob: ≈ 1.8–2 steps/s at 1.4 m/s; a 1–2 cm camera bob reads as
+"a body" without motion sickness.
+
+**Hook checks.** `onDoorOpen(progress)` fires every frame the leaf moves and once at rest; the
+default listener lifts the hemisphere fill +12 % at full open (nothing in System 4/8 binds it
+yet). `src/post/beams.ts` includes the door *lite* as a static aperture, so the sun-beam dust
+prism does not need an update when the leaf swings — but it stays the size of the closed
+leaf's glass; a rev could add the clear opening × progress. `setOutside()` is already a
+perceptual curve (a^0.6, 0.1 s ramps) and now follows the closer's ease, so the heat wall
+comes in over the 1.2 s push and leaves with the sweep, cut at the latch — not abrupt.
+
+**Player feel (`src/player/FirstPerson.ts`, documented in its header).** Velocity is
+rate-limited: 0 → 1.4 m/s in 0.15 s, stop in 0.12 s (measured 0.62 / 1.09 / 1.40 m/s at
+0.05 / 0.10 / 0.15 s; 0.62 / 0.09 / 0 at 0.05 / 0.10 / 0.15 s after release). Head-bob 1.4 cm
+peak-to-peak at 1.8 Hz with a 5 mm sway at half rate, amplitude eased in over 0.25 s and out
+over 0.2 s; applied to the camera only, `position` never bobs, and a still player is exactly
+at eye height (so every capture pose is unchanged). Eye height stays at the project's 1.62 m
+(the brief said 1.65; every System 1–8 shot is framed at 1.62, so it was left). Mouse look
+has no smoothing. Collision: the axis-separated test refused *both* axes whenever the circle
+touched an AABB corner, so walking diagonally along the counter stopped dead at the first
+stool base; it is now move-then-push-out along the contact normal (≤ 4 rounds, refuse the
+move if squeezed), which slides on faces and rolls round corners — measured: along the stool
+row at 0.56–0.7 m/s with a ±1.5 cm ripple, along the booth fronts at 0.7 m/s (no stepping on
+seats: stops 28 cm short of the cushion front), along the counter front at 1.35 m/s, across
+the door jamb without a catch, and through the open door at full speed.
+
+**Lessons.** (1) `renderer.compile()` links materials *without* their `clippingPlanes`
+(clipping state is set per object during a real render), so the numClippingPlanes=1
+variant of the clipped decanter body only exists once that mesh has been drawn — and the
+boot camera never sees the decanter, so it linked on the first E at the mug (0.7 s freeze).
+Fix: the live body is visible from boot (Props' fixed body hidden) with `frustumCulled =
+false`, and a pending `moved` flag re-renders the shadow maps on frame 1 so the depth
+variant links too — first pour now costs 16 ms. (2) A good interaction has an anticipation
+beat: the hint's 180 ms fade needs to finish before the first thing moves (sit 0.15 s, door
+0.22 s, pour 0.25 s). (3) Author swings as velocity profiles and integrate to a LUT
+(`integrateProfile` in DoorSwing.ts): "fast here, slow there" is how a closer valve and an
+animator both think, and the latch can be made velocity-continuous from the LUT's end slope.
 
 ## System 8 — post-processing & atmosphere (`src/post/`)
 
@@ -644,12 +743,11 @@ System 4 re-lighting scales dust and haze for free. Hook: one call in
   settle / the overlay fade. MSAA target size follows
   `renderer.getDrawingBufferSize()` (pixel ratio ≤ 1.5, `setSize` on resize) and
   is re-allocated lazily on the first frame after a change.
-- **Steam duplication (clean-up owed).** System 7 (now in `main`) carries its own
-  `src/interactions/Steam.ts` for the pour; `src/post/Steam.ts` exports the
-  `SteamEmitter` used for the decanter (and written for the pour — see `steam`
-  below). Both compile and run side by side (the pour's steam at the mug, the
-  ambient wisp at the decanter); they were deliberately not unified in this merge.
-  Pick one emitter in a System 7/8 polish pass.
+- **Steam duplication (resolved in System 7 rev 2).** System 7 rev 1 carried its own
+  `src/interactions/Steam.ts` for the pour beside `src/post/Steam.ts`'s
+  `SteamEmitter` (decanter). Rev 2 deleted the duplicate: the pour's mug steam is a
+  second `SteamEmitter` (`Pour.ts` → `MugSteam`) whose strength / rise / size are
+  driven from the pour clock, so the API here is the only steam API.
 - **Interactions × post.** `interactions.update(dt)` runs before `post.render()`
   in the loop: a swinging door leaf or a lifted decanter calls
   `diner.invalidateShadows()`, and the scene pass inside `post.render()` is what
@@ -756,8 +854,8 @@ lazily, once).
 | 4 | Lighting | pending (placeholder sun/hemi/troffers in `Lighting.ts`) |
 | 5 | Materials and textures | pending (placeholder palette in `materials.ts`) |
 | 6 | Sound design | pending |
-| 7 | The 3 interactions (sit, pour coffee, open door) | **built, rev 1** (merged into `main` over the loader + System 3 rev 2: shadow-once invalidation on door/pour, audio on the loader's enter click, pour programs pre-issued) — `src/interactions/*` + `src/audio/wiring.ts` (System 6 wired: gesture start, positional beds, pour/clink/door SFX, exterior crossfade). Frames `shots/sys7-{sit-seated,pour-mid,pour-full,door-open}.png`; 23/23 live Playwright checks; update ≈ 0.01 ms; +6 draw calls only while pouring |
-| 8 | Post-processing and final polish | **built, rev 1** (`src/post/`, section above), merged with the loader + System 3 rev 2 (spot sun, shadow-once — see "Integration" above) — MSAA 4× scene target, sun-beam dust (5 k shadow-map-lit motes), half-res volumetric haze through the beam prisms, exterior-only heat shimmer, ambient decanter steam (`SteamEmitter`; System 7's pour has its own `interactions/Steam.ts` — duplication noted above), high-threshold bloom, CA 0.5 px, 0.3 EV vignette, corner softness, ACES/AgX/Neutral tone map, luminance-dependent procedural grain; ~1.3 ms post + ~1.3 ms MSAA at 1080p on the 4060; `?post=0` bypasses everything |
+| 7 | The 3 interactions (sit, pour coffee, open door) | **built, rev 2 — feel polish** (`shots/sys7-seq-{sit,pour,door,door-ext}.png` time-series sheets + 18 key frames from `tools/sequence.mjs`; anticipation beats, arced/tilting pour with continuity-thinning stream, drips and volume-true fill, closer-profile door with hold-while-in-doorway and latch SFX, four-beat sit with lean and cushion settle, System 8 `SteamEmitter` reused (duplicate `interactions/Steam.ts` deleted), first-pour 0.7 s link hitch removed; player accel/decel 0.15/0.12 s, 1.4 cm head-bob, push-out collision that slides round stool bases — see "System 7 rev 2" above). Rev 1 was: (merged into `main` over the loader + System 3 rev 2: shadow-once invalidation on door/pour, audio on the loader's enter click, pour programs pre-issued) — `src/interactions/*` + `src/audio/wiring.ts` (System 6 wired: gesture start, positional beds, pour/clink/door SFX, exterior crossfade). Frames `shots/sys7-{sit-seated,pour-mid,pour-full,door-open}.png`; 23/23 live Playwright checks; update ≈ 0.01 ms; +6 draw calls only while pouring |
+| 8 | Post-processing and final polish | **built, rev 1** (`src/post/`, section above), merged with the loader + System 3 rev 2 (spot sun, shadow-once — see "Integration" above) — MSAA 4× scene target, sun-beam dust (5 k shadow-map-lit motes), half-res volumetric haze through the beam prisms, exterior-only heat shimmer, ambient decanter steam (`SteamEmitter`; System 7 rev 2's pour steam is a second instance of the same class), high-threshold bloom, CA 0.5 px, 0.3 EV vignette, corner softness, ACES/AgX/Neutral tone map, luminance-dependent procedural grain; ~1.3 ms post + ~1.3 ms MSAA at 1080p on the 4060; `?post=0` bypasses everything |
 
 Known simplifications after System 3: no heat shimmer (System 8 post), no
 chain fence, the cars have no interiors (dark glass hides it at 10–30 m), the
