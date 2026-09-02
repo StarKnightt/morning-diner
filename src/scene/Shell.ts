@@ -214,8 +214,14 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     b.box(pal.alum, [x0 + jw, DOOR.height - jw - st, zs0], [x1 - jw, DOOR.height - jw, zs1]);
     // 100 × 12 mm aluminium threshold saddle under the leaf; concrete slab fills the opening below it
     // 4" (100 mm) saddle, set 20 mm toward the interior so its top face reads past the leaf from inside
-    b.rbox(pal.alumBright, [x0 + jw, -0.002, zMid - 0.07], [x1 - jw, 0.012, zMid + 0.03], 0.004, 3);
-    b.box(pal.alumGroove, [x0 + jw, 0.011, zMid - 0.0003], [x1 - jw, 0.0125, zMid + 0.0003]);
+    // 4.5" × ½" ribbed aluminium saddle: crowned body with 5 raised ribs (1.5 mm) and a
+    // dark groove between each pair, so it throws a line shadow across the opening.
+    b.rbox(pal.alumBright, [x0 + jw, -0.002, zMid - 0.08], [x1 - jw, 0.0125, zMid + 0.034], 0.004, 3);
+    for (let k = 0; k < 5; k++) {
+      const zr = zMid - 0.058 + k * 0.0175;
+      b.rbox(pal.alumBright, [x0 + jw + 0.002, 0.012, zr - 0.004], [x1 - jw - 0.002, 0.014, zr + 0.004], 0.001);
+      if (k < 4) b.box(pal.alumGroove, [x0 + jw + 0.002, 0.0122, zr + 0.0065], [x1 - jw - 0.002, 0.0128, zr + 0.011]);
+    }
     // Floor tile runs through the opening to the saddle; outside it the concrete step is 120 mm down.
     b.box(pal.concrete, [x0, yLow, zMid], [x1, -0.12, zFront + T], { uvScale: 1 });
     b.box(pal.concrete, [x0, -0.12, zMid], [x1, -0.005, zMid + 0.06], { uvScale: 1 });

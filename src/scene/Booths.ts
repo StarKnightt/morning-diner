@@ -83,20 +83,28 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       const col = new THREE.CylinderGeometry(columnR, columnR, colH, 28);
       col.translate(cx, bossH + colH / 2, pz);
       b.add(col, pal.chrome);
-      // 300 mm steel mounting plate with a four-arm spider under it, brushed so it reads against the underside
-      const plate = new THREE.CylinderGeometry(0.15, 0.145, 0.016, 32);
-      plate.translate(cx, table.top - table.thickness - 0.008, pz);
-      b.add(plate, pal.chromeBrushed);
+      // Table underside: dark-sealed particleboard (never pale laminate) — a 1.5 mm skin
+      // inside the T-mould, plus the 5 mm dark-steel spider plate screwed flush to it.
+      const yU = table.top - table.thickness;
+      b.rbox(pal.darkSeal, [cx - table.width / 2 + 0.012, yU - 0.0015, zT0 + 0.012], [cx + table.width / 2 - 0.012, yU + 0.0005, zOuter - 0.012], 0.001);
+      const plate = new THREE.CylinderGeometry(0.15, 0.15, 0.005, 40);
+      plate.translate(cx, yU - 0.004, pz);
+      b.add(plate, pal.darkMetal);
       for (let k = 0; k < 4; k++) {
-        const arm = new THREE.BoxGeometry(spider / 2 - columnR, 0.03, 0.04);
+        const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
+        const arm = new THREE.BoxGeometry(spider / 2 - columnR, 0.024, 0.04);
         arm.translate((spider / 2 + columnR) / 2, 0, 0);
-        arm.rotateY((k / 4) * Math.PI * 2 + Math.PI / 4);
-        arm.translate(cx, table.top - table.thickness - 0.031, pz);
-        b.add(arm, pal.chromeBrushed);
+        arm.rotateY(a);
+        arm.translate(cx, yU - 0.0185, pz);
+        b.add(arm, pal.darkMetal);
+        // Pan-head screw through the plate at each arm
+        const screw = new THREE.CylinderGeometry(0.006, 0.0065, 0.003, 12);
+        screw.translate(cx + Math.cos(a) * 0.125, yU - 0.008, pz - Math.sin(a) * 0.125);
+        b.add(screw, pal.chromeSoft);
       }
       const hub = new THREE.CylinderGeometry(columnR + 0.012, columnR + 0.012, 0.03, 28);
-      hub.translate(cx, table.top - table.thickness - 0.031, pz);
-      b.add(hub, pal.chromeBrushed);
+      hub.translate(cx, yU - 0.0215, pz);
+      b.add(hub, pal.darkMetal);
       b.collider([cx - table.width / 2, 0, zT0], [cx + table.width / 2, table.top, zOuter]);
     }
 
@@ -131,6 +139,14 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
           true,
         );
         b.add(plainColor(boxing, 1.2), pal.vinylRed);
+        // Top-stitch line 7 mm under the welt: a fine dark thread line along the nose
+        const stitch = piping(
+          roundedRectPoints(lo(seat.front, seatBack) + 0.003, zInner + 0.003, hi(seat.front, seatBack) - 0.003, zOuter - 0.003, seat.top - 0.021, seat.edgeR - 0.004),
+          0.0008,
+          true,
+          60,
+        );
+        b.add(plainColor(stitch, 0.62), pal.vinylRed);
       }
       // Plinth (laminate) and kick (rubber, recessed 30 mm)
       b.rbox(pal.laminatePanel, [lo(seat.front + 0.01, divider.x0), kick, zInner], [hi(seat.front + 0.01, divider.x0), seat.top - seat.thickness, zOuter], 0.003, 2, { metric: true });
@@ -163,12 +179,13 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
         const t = 0.02 + panelH / 2;
         m.setPosition(X(back.frontX) + dirX * t + s * 0.003, yb0 + dirY * t, zMid);
         b.add(panel, pal.vinylRedCrazed, m);
-        // 6 mm welt cord sewn into every valley: its crown sits 2 mm under the channel
-        // crowns (20 mm) so it catches its own highlight instead of hiding in the V.
+        // 6 mm welt cord sewn ON every seam: centre 1 mm above the crown tangent line
+        // (crowns at 20 mm), so it carries its own highlight and throws a line shadow
+        // both sides (baked into the panel's vertex colour). Ends tuck under the seams.
         for (const vx of valleys) {
-          const cord = new THREE.CylinderGeometry(0.003, 0.003, panelH - 0.006, 12);
-          cord.translate(vx, 0, 0.015);
-          b.add(plainColor(cord, 1.12), pal.vinylRed, m);
+          const cord = new THREE.CylinderGeometry(0.003, 0.003, panelH - 0.004, 14);
+          cord.translate(vx, 0, 0.021);
+          b.add(plainColor(cord, 1.08), pal.vinylRed, m);
         }
       }
       // Rolled top cushion (90 mm Ø), tucked against the divider, with a welt where it meets the face.
@@ -179,8 +196,8 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       metricUv(roll);
       b.add(plainColor(roll), pal.vinylRedCrazed);
       const seamZ = (x: number, y: number, r: number) => piping([new THREE.Vector3(x, y, zInner + 0.008), new THREE.Vector3(x, y, zMid), new THREE.Vector3(x, y, zOuter - 0.008)], r, false);
-      // 6 mm welt along the head-roll seam, proud of the roll/panel junction
-      b.add(plainColor(seamZ(X(back.frontX + lean * 0.94) - s * 0.018, back.top - 0.046, 0.0035), 1.2), pal.vinylRed);
+      // 6 mm piped seam where the channels dive under the head roll, proud of the junction
+      b.add(plainColor(seamZ(X(back.frontX + lean * 0.94) - s * 0.021, back.top - 0.046, 0.003), 1.15), pal.vinylRed);
       // Boxing seam welt where the seat cushion meets the back.
       b.add(plainColor(seamZ(X(back.frontX) - s * 0.008, seat.top + 0.004, 0.003), 1.2), pal.vinylRed);
       // Aisle-end panel: from the seat front to the divider, under the cap.

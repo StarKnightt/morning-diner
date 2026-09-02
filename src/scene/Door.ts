@@ -43,12 +43,21 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   }
   // Push bar (interior side, -z) at 1.02 m, on two brackets
   const barY = 1.02;
-  const bar = new THREE.CylinderGeometry(0.016, 0.016, leafW - stile * 2 + 0.06, 20);
+  const bar = new THREE.CylinderGeometry(0.014, 0.014, leafW - stile * 2 + 0.06, 24);
   bar.rotateZ(Math.PI / 2);
   bar.translate(leafW / 2, barY, z0 - 0.07);
   b.add(bar, pal.chrome);
   for (const x of [stile + 0.02, leafW - stile - 0.02]) {
-    b.rbox(pal.chrome, [x - 0.015, barY - 0.015, z0 - 0.07], [x + 0.015, barY + 0.015, z0], 0.004);
+    // Cast standoff: 45 × 60 mm rose on the stile, tapered post out to a saddle under the bar
+    b.rbox(pal.chrome, [x - 0.0225, barY - 0.03, z0 - 0.01], [x + 0.0225, barY + 0.03, z0], 0.004);
+    const post = new THREE.CylinderGeometry(0.012, 0.016, 0.052, 20);
+    post.rotateX(Math.PI / 2);
+    post.translate(x, barY, z0 - 0.036);
+    b.add(post, pal.chrome);
+    const saddle = new THREE.CylinderGeometry(0.019, 0.019, 0.03, 24);
+    saddle.rotateZ(Math.PI / 2);
+    saddle.translate(x, barY, z0 - 0.07);
+    b.add(saddle, pal.chrome);
   }
   // Pull handle (exterior side, +z): vertical chrome bar
   const pull = new THREE.CylinderGeometry(0.014, 0.014, 0.45, 20);

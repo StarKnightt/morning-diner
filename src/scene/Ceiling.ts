@@ -120,7 +120,7 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
     const gap = 0.013; // 13 mm reveal between tee and door frame
     const x0 = cellX(i) + crossFace / 2 + gap, x1 = cellX(i + 2) - crossFace / 2 - gap;
     const z0 = cellZ(j) + mainFace / 2 + gap, z1 = cellZ(j + 1) - mainFace / 2 - gap;
-    const f = 0.02;
+    const f = 0.025; // 1" white door frame
     const yF0 = teeY0 - 0.004, yF1 = teeY0 + 0.01;
     b.rbox(pal.fixtureWhite, [x0, yF0, z0], [x0 + f, yF1, z1], 0.002);
     b.rbox(pal.fixtureWhite, [x1 - f, yF0, z0], [x1, yF1, z1], 0.002);
@@ -132,10 +132,10 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
     b.box(pal.fixtureWhite, [x1 - hw, yF1, z0], [x1, H, z1]);
     b.box(pal.fixtureWhite, [x0, yF1, z0], [x1, H, z0 + hw]);
     b.box(pal.fixtureWhite, [x0, yF1, z1 - hw], [x1, H, z1]);
-    // Lens, recessed 18 mm behind the frame face
+    // Lens, recessed ½" (12.7 mm) behind the frame face
     const g = new THREE.PlaneGeometry(x1 - x0 - 2 * f, z1 - z0 - 2 * f);
     g.rotateX(Math.PI / 2);
-    g.translate((x0 + x1) / 2, yF0 + 0.018, (z0 + z1) / 2);
+    g.translate((x0 + x1) / 2, yF0 + 0.0127, (z0 + z1) / 2);
     b.add(g, pal.fixtureLens);
   }
 
@@ -175,16 +175,35 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
   // 12 mm thick, 55 mm wide, with a wider foot at the blade end.
   const ironR0 = FAN.housingR - 0.01, ironR1 = FAN.housingR + 0.21;
   const bladeR0 = FAN.housingR + 0.08, bladeR1 = FAN.bladeSpan / 2;
-  const ironArm = new RoundedBoxGeometry(ironR1 - ironR0, 0.012, 0.045, 2, 0.004);
-  ironArm.translate((ironR0 + ironR1) / 2, -0.012, 0);
-  const ironFoot = new RoundedBoxGeometry(0.09, 0.008, 0.07, 2, 0.003);
-  ironFoot.translate(ironR1 - 0.05, -0.016, 0);
-  const ironGeo = mergeGeometries([ironArm, ironFoot], false)!;
-  // Blades: constant 130 mm width, 11 mm thick, rounded edges, wood grain along the blade
-  const bladeGeo = new RoundedBoxGeometry(bladeR1 - bladeR0, 0.014, 0.13, 2, 0.006);
-  bladeGeo.translate((bladeR0 + bladeR1) / 2, 0, 0);
-  metricUv(bladeGeo);
+  // Cast iron in plan: 50 mm at the flange, waisting to 30 mm, flaring into a rounded
+  // 75 mm spade foot under the blade root; 10 mm thick with a 2 mm bevel, two screw bosses.
+  const ironShape = new THREE.Shape();
+  ironShape.moveTo(ironR0, -0.025);
+  ironShape.lineTo(ironR0 + 0.03, -0.022);
+  ironShape.quadraticCurveTo(ironR0 + 0.11, -0.014, ironR1 - 0.1, -0.02);
+  ironShape.quadraticCurveTo(ironR1 - 0.06, -0.038, ironR1 - 0.025, -0.036);
+  ironShape.absarc(ironR1 - 0.025, 0, 0.036, -Math.PI / 2, Math.PI / 2, false);
+  ironShape.quadraticCurveTo(ironR1 - 0.06, 0.038, ironR1 - 0.1, 0.02);
+  ironShape.quadraticCurveTo(ironR0 + 0.11, 0.014, ironR0 + 0.03, 0.022);
+  ironShape.lineTo(ironR0, 0.025);
+  ironShape.closePath();
+  const ironBody = new THREE.ExtrudeGeometry(ironShape, { depth: 0.01, bevelEnabled: true, bevelThickness: 0.002, bevelSize: 0.002, bevelSegments: 2, curveSegments: 10 });
+  ironBody.rotateX(Math.PI / 2); // extrude along −y (under the blade)
+  ironBody.translate(0, -0.006, 0);
+  const bosses: THREE.BufferGeometry[] = [ironBody];
+  for (const dx of [-0.03, 0.015]) {
+    const boss = new THREE.CylinderGeometry(0.006, 0.006, 0.004, 12);
+    boss.translate(ironR1 - 0.025 + dx, -0.018, 0);
+    bosses.push(boss.toNonIndexed());
+  }
+  const ironGeo = mergeGeometries(bosses.map((g) => (g.index ? g.toNonIndexed() : g)), false)!;
+  // Blades: constant 130 mm width, 14 mm thick, rounded edges, wood grain along the blade;
+  // each blade gets its own veneer offset so the four don't share a figure.
+  const bladeBase = new RoundedBoxGeometry(bladeR1 - bladeR0, 0.014, 0.13, 2, 0.006);
+  bladeBase.translate((bladeR0 + bladeR1) / 2, 0, 0);
   for (let i = 0; i < 4; i++) {
+    const bladeGeo = bladeBase.clone();
+    metricUv(bladeGeo, { u: 0.37 * i + 0.11, v: 0.61 * i + 0.23, flip: i % 2 === 1 });
     const arm = new THREE.Group();
     arm.rotation.y = (i / 4) * Math.PI * 2;
     arm.rotation.z = THREE.MathUtils.degToRad(-4); // slight droop

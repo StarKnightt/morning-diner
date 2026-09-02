@@ -33,7 +33,7 @@ export class MergedBuilder {
     const g = new THREE.BoxGeometry(w, h, d);
     if (opts.uvScale) scaleBoxUv(g, w, h, d, opts.uvScale);
     g.translate((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
-    if (opts.metric) metricUv(g);
+    if (opts.metric) metricUv(g, this.panelJitter());
     this.add(g, material);
     if (opts.collide) this.collider(min, max);
   }
@@ -47,9 +47,24 @@ export class MergedBuilder {
     const r = Math.min(radius, w / 2 - 1e-4, h / 2 - 1e-4, d / 2 - 1e-4);
     const g = r > 1e-4 ? new RoundedBoxGeometry(w, h, d, segments, r) : new THREE.BoxGeometry(w, h, d);
     g.translate((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
-    if (opts.metric) metricUv(g);
+    if (opts.metric) metricUv(g, this.panelJitter());
     this.add(g, material);
     if (opts.collide) this.collider(min, max);
+  }
+
+  /**
+   * Every metric-UV panel is a different sheet: a random UV offset and a coin-flip
+   * 180° turn so adjacent panels never share a grain feature. Deterministic per builder.
+   */
+  private jitterSeed = 0x9e3779b9;
+  private panelJitter(): { u: number; v: number; flip: boolean } {
+    const next = () => {
+      this.jitterSeed = (this.jitterSeed + 0x6d2b79f5) >>> 0;
+      let t = Math.imul(this.jitterSeed ^ (this.jitterSeed >>> 15), this.jitterSeed | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    return { u: next() * 4, v: next() * 4, flip: next() < 0.5 };
   }
 
   collider(min: V3, max: V3): void {

@@ -39,9 +39,9 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       y0: height - tt,
       thickness: tt,
       bevel: 0.012,
-      bandHeight: 0.032,
-      bandProud: 0.0015,
-      grooves: 3,
+      bandHeight: 0.05, // 2" fluted aluminium T-mould, as on the tables
+      bandProud: 0.002,
+      grooves: 4,
       curveSegments: 8,
     });
     b.add(slab, pal.formicaCounter);
@@ -153,9 +153,9 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     }
     const swivel = new THREE.CylinderGeometry(0.07, 0.05, 0.02, 24);
     swivel.translate(0, seatHeight - st - 0.01, 0);
-    // Seat cushion: vinyl rim band below a 22 mm chrome band (2 mm shadow gap under it), then the
-    // upholstered top with a 6 mm rolled welt at the rim and a 25 mm domed crown.
-    const bandY0 = 0.03, bandY1 = 0.052, crown = 0.025;
+    // Seat cushion (3.5"): vinyl rim band below a 1" chrome band (2 mm shadow gap under it), then
+    // the upholstered top with a 6 mm welt cord around the perimeter and a 25 mm domed crown.
+    const bandY0 = 0.03, bandY1 = 0.0554, crown = 0.025;
     const seatProfile = [
       new THREE.Vector2(0, 0),
       new THREE.Vector2(r - 0.03, 0),
@@ -176,9 +176,13 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     ];
     const cushion = plainColor(new THREE.LatheGeometry(seatProfile, 56));
     cushion.translate(0, seatHeight - st, 0);
-    // 22 mm chrome band around the rim, 2 mm shadow gap below it
+    // 1" chrome band around the rim, 2 mm shadow gap below it
     const seatBand = new THREE.CylinderGeometry(r + 0.0025, r + 0.0025, bandY1 - bandY0, 56, 1, true);
     seatBand.translate(0, seatHeight - st + (bandY0 + bandY1) / 2, 0);
+    // 6 mm welt cord sewn around the seat perimeter right above the chrome band
+    const seatWelt = plainColor(new THREE.TorusGeometry(r - 0.0015, 0.003, 10, 64), 1.1);
+    seatWelt.rotateX(Math.PI / 2);
+    seatWelt.translate(0, seatHeight - st + bandY1 + 0.0055, 0);
     // Vertical boxing seam on the vinyl rim (one per seat) so each stool's swivel reads
     const rimSeam = plainColor(new THREE.CylinderGeometry(0.0018, 0.0018, bandY0 - 0.008, 8), 1.1);
     rimSeam.translate(r - 0.0005, seatHeight - st + 0.004 + (bandY0 - 0.008) / 2, 0);
@@ -195,25 +199,40 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       [swivel, pal.darkMetal],
       [cushion, pal.vinylRed],
       [rimSeam, pal.vinylRed],
+      [seatWelt, pal.vinylRed],
       [seatBand, pal.chrome],
     ];
-    // Per-stool: any swivel angle, ±5 mm height, ±20 mm off the line, two nudged ~50 mm along it.
+    const seatParts = new Set<THREE.BufferGeometry>([cushion, rimSeam, seatWelt, seatBand, swivel]);
+    // Per-stool: any swivel angle, ±10 mm height, ±25 mm off the line, ±10 mm along it with two
+    // nudged 20–30 mm; the seat additionally tilts up to ±1.2° and its cushion is squashed a
+    // little differently on every stool (±5 % crown) so no two read as clones.
     const rng = makeRng(808);
-    const nudged = new Set([2, 6]);
-    const poses = STOOL.centersX.map((x, i) => {
+    const nudge = new Map<number, number>([[2, 0.03], [6, -0.022]]);
+    const bases: THREE.Matrix4[] = [], seats: THREE.Matrix4[] = [];
+    STOOL.centersX.forEach((x, i) => {
       const yaw = rng() * Math.PI * 2;
-      const tilt = THREE.MathUtils.degToRad(0.6 * (rng() - 0.5)), tiltZ = THREE.MathUtils.degToRad(0.6 * (rng() - 0.5));
-      const m = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(tilt, yaw, tiltZ));
-      // ±10 mm off pitch (one or two nudged 50 mm), ±8 mm seat height, ±25 mm off the line
-      const dx = (rng() - 0.5) * 0.02 + (nudged.has(i) ? (rng() < 0.5 ? -0.05 : 0.05) : 0);
-      m.setPosition(x + dx, (rng() - 0.5) * 0.016, STOOL.z + (rng() - 0.5) * 0.05);
-      return m;
+      const dx = (rng() - 0.5) * 0.02 + (nudge.get(i) ?? 0);
+      const dy = (rng() - 0.5) * 0.02, dz = (rng() - 0.5) * 0.05;
+      const base = new THREE.Matrix4().makeRotationY(yaw);
+      base.setPosition(x + dx, dy, STOOL.z + dz);
+      bases.push(base);
+      const tilt = THREE.MathUtils.degToRad(2.4 * (rng() - 0.5)), tiltZ = THREE.MathUtils.degToRad(2.4 * (rng() - 0.5));
+      // Tilt/squash pivot on the column top so the swivel plate always stays seated on it.
+      const yb = seatHeight - st - 0.02;
+      const seat = new THREE.Matrix4()
+        .compose(
+          new THREE.Vector3(x + dx, dy + yb, STOOL.z + dz),
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt, yaw + (rng() - 0.5) * 0.4, tiltZ)),
+          new THREE.Vector3(1 + (rng() - 0.5) * 0.03, 1 + (rng() - 0.5) * 0.06, 1 + (rng() - 0.5) * 0.03),
+        )
+        .multiply(new THREE.Matrix4().makeTranslation(0, -yb, 0));
+      seats.push(seat);
     });
     for (const [geo, mat] of parts) {
       const im = new THREE.InstancedMesh(geo, mat, n);
       im.castShadow = true;
       im.receiveShadow = true;
-      poses.forEach((m, i) => im.setMatrixAt(i, m));
+      (seatParts.has(geo) ? seats : bases).forEach((m, i) => im.setMatrixAt(i, m));
       im.instanceMatrix.needsUpdate = true;
       im.name = "stools";
       parent.add(im);

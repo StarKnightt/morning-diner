@@ -16,7 +16,8 @@ export function plainColor(g: THREE.BufferGeometry, v = 1): THREE.BufferGeometry
 }
 
 /** Replace UVs with a metric projection chosen per vertex from the dominant normal axis. */
-export function metricUv(g: THREE.BufferGeometry, offset = 0): void {
+export function metricUv(g: THREE.BufferGeometry, jitter: number | { u: number; v: number; flip: boolean } = 0): void {
+  const j = typeof jitter === "number" ? { u: jitter, v: jitter, flip: false } : jitter;
   const p = g.attributes.position, nrm = g.attributes.normal;
   const uv = new Float32Array(p.count * 2);
   for (let i = 0; i < p.count; i++) {
@@ -25,8 +26,9 @@ export function metricUv(g: THREE.BufferGeometry, offset = 0): void {
     if (ny >= nx && ny >= nz) { u = p.getX(i); v = p.getZ(i); }
     else if (nz >= nx) { u = p.getX(i); v = p.getY(i); }
     else { u = p.getZ(i); v = p.getY(i); }
-    uv[i * 2] = u + offset;
-    uv[i * 2 + 1] = v + offset;
+    if (j.flip) { u = -u; v = -v; }
+    uv[i * 2] = u + j.u;
+    uv[i * 2 + 1] = v + j.v;
   }
   g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
 }
@@ -148,10 +150,13 @@ export interface ChannelPanel {
 
 /**
  * Channel-tufted (sewn) back panel: PlaneGeometry w × h in xy facing +z.
- * Channels of ~`pitch` (each ±10 %) crown `depth` toward +z and meet in crisp
- * V valleys where the welt cord is sewn. Small tension puckers appear in the
- * top 40 mm where the channels run into the head-roll seam. The crowns fade
- * to zero at the panel's outer edge so it can sit 2–3 mm inside a flat backing.
+ * Channels of ~`pitch` (each ±10 %) crown `depth` toward +z. The valleys are
+ * shallow (6 mm under the crowns, steep-footed) because the 6 mm welt cord is
+ * sewn ON the seam, proud of the surface — see Booths.ts, which lays the cords at
+ * `depth` + 1 mm. Vertex colour darkens 6–7 mm either side of every valley (the
+ * cord's line shadow) and the last ~30 mm of each channel gathers into 6 puckers
+ * of ±3 mm where it dives under the head roll / seat seam. The crowns fade to
+ * zero at the panel's outer edge so it can sit 2–3 mm inside a flat backing.
  */
 export function channelPanel(w: number, h: number, pitch: number, depth: number, seed = 1): ChannelPanel {
   const rng = (() => {
@@ -170,7 +175,8 @@ export function channelPanel(w: number, h: number, pitch: number, depth: number,
   const bounds = [-w / 2];
   for (let k = 0; k < n; k++) bounds.push(bounds[k] + (raw[k] / sum) * w);
   const valleys = bounds.slice(1, -1);
-  const segX = n * 14, segY = 40;
+  const segX = n * 18, segY = 64;
+  const valleyDrop = 0.006;
   const g = new THREE.PlaneGeometry(w, h, segX, segY);
   const p = g.attributes.position as THREE.BufferAttribute;
   const uv = g.attributes.uv as THREE.BufferAttribute;
@@ -179,19 +185,21 @@ export function channelPanel(w: number, h: number, pitch: number, depth: number,
     const x = p.getX(i), y = p.getY(i);
     let k = 0;
     while (k < n - 1 && x > bounds[k + 1]) k++;
-    const u = (x - bounds[k]) / (bounds[k + 1] - bounds[k]); // 0..1 across this channel
-    // Crown: rounded top, sharp V at the valleys (sin^0.55 has a steep foot).
-    const pleat = Math.sin(Math.PI * Math.min(1, Math.max(0, u))) ** 0.55;
+    const cw = bounds[k + 1] - bounds[k];
+    const u = Math.min(1, Math.max(0, (x - bounds[k]) / cw)); // 0..1 across this channel
+    // Crown: broad rounded top with a steep foot so the flanks rise to meet the cord.
+    const pleat = Math.sin(Math.PI * u) ** 0.35;
     const env = smooth(0, 0.06, 0.5 - Math.abs(y) / h) * smooth(0, 0.03, 0.5 - Math.abs(x) / w);
-    // Puckers where the channel is tucked into the roll seam (top) and the seat seam (bottom):
-    // 4 ridges per channel, fading over ~45 mm.
+    // Gathers where the channel is tucked under the roll seam (top) and the seat seam (bottom).
     const top = h / 2 - y, bot = y + h / 2;
-    const tuck = Math.exp(-((top / 0.025) ** 2)) + 0.7 * Math.exp(-((bot / 0.025) ** 2));
-    const pucker = Math.abs(Math.sin(Math.PI * u * 4)) * tuck * 0.3; // ±3–4 mm gathers at the tucks
-    const z = depth * (pleat + pucker * pleat) * env;
+    const tuck = Math.exp(-((top / 0.018) ** 2)) + 0.7 * Math.exp(-((bot / 0.018) ** 2));
+    const pucker = Math.abs(Math.sin(Math.PI * u * 6)) * tuck;
+    const z = (depth - valleyDrop + valleyDrop * pleat + pucker * 0.003 * pleat) * env;
     p.setZ(i, z);
-    // Crowns pick up the light; the valleys are the shadow side of the seam.
-    const shade = (0.78 + 0.22 * pleat) * (1 - 0.2 * pucker);
+    // Crowns pick up the light; the seam's cord throws a line shadow 6–7 mm either side.
+    const dv = Math.min(u, 1 - u) * cw;
+    const seamShade = k === 0 && u < 0.5 ? 0 : k === n - 1 && u > 0.5 ? 0 : Math.exp(-((dv / 0.0065) ** 2)) * 0.32;
+    const shade = (0.86 + 0.14 * pleat) * (1 - seamShade) * (1 - 0.22 * pucker);
     col[i * 3] = shade; col[i * 3 + 1] = shade; col[i * 3 + 2] = shade;
     uv.setXY(i, x + w / 2, y + h / 2);
   }

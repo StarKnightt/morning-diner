@@ -245,10 +245,12 @@ export function vinylSurface(size: number, metres: number, crazed: boolean): Vin
 }
 
 /**
- * Formica 6942 "Skylark" boomerang laminate: plain cream field, sparse (~30 %)
- * smooth bent chevrons — two rounded lobes meeting at a soft elbow, ~60 mm long ×
- * 12 mm wide, drawn as a round-capped, round-joined stroke — in tan, grey-blue and
- * white at low contrast, random rotation, none touching. One canvas = `metres`.
+ * Formica 6942 "Skylark" boomerang laminate on a plain cream field. Each shape is
+ * a genuine boomerang: a circular arc bent 70–110°, 25–50 mm tip to tip (±30 %),
+ * tapered from ~8 mm at the elbow to rounded 3 mm tips (drawn as a chain of
+ * discs along the arc). Three tones at low contrast, random rotation, ~3.5 per
+ * 100 cm² (≈ 10 % cover), none touching. One canvas = `metres` (use ≥ 1.2 m so a
+ * whole table shows no repeat).
  */
 export function formicaBoomerang(size: number, metres: number, seed: number): TextureSet {
   const { c, ctx } = canvas(size, size);
@@ -266,46 +268,54 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
       img.data[o] *= 1 + n; img.data[o + 1] *= 1 + n; img.data[o + 2] *= 1 + n;
     }
   ctx.putImageData(img, 0, 0);
-  // Tones pulled 20 % toward the cream so the contrast stays under ~30 %.
-  const tones = ["#CFC0A8", "#A7ACAF", "#FBF9F4"];
+  const tones = ["#CBBB9F", "#A3A8AC", "#FBF9F4"];
   const areaCm2 = metres * metres * 1e4;
-  const target = Math.round((areaCm2 * 0.3) / 7.2); // ≈ 7.2 cm² per shape
+  const target = Math.round(areaCm2 * 0.035);
   const placed: Array<[number, number]> = [];
-  const minD = 52 * pxPerMm; // centre spacing: no two shapes touch
-  const wraps = [[0, 0], [size, 0], [-size, 0], [0, size], [0, -size], [size, size], [-size, -size], [size, -size], [-size, size]];
+  const minD = 42 * pxPerMm;
   const torusDist = (ax: number, ay: number, bx: number, by: number) => {
     let dx = Math.abs(ax - bx), dy = Math.abs(ay - by);
     dx = Math.min(dx, size - dx); dy = Math.min(dy, size - dy);
     return Math.hypot(dx, dy);
   };
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
+  const wraps = [[0, 0], [size, 0], [-size, 0], [0, size], [0, -size], [size, size], [-size, -size], [size, -size], [-size, size]];
   let attempts = 0;
-  while (placed.length < target && attempts < 40000) {
+  while (placed.length < target && attempts < 60000) {
     attempts++;
     const x = rng() * size, y = rng() * size;
     if (placed.some(([px, py]) => torusDist(x, y, px, py) < minD)) continue;
     placed.push([x, y]);
-    const L = (56 + rng() * 12) * pxPerMm; // tip-to-tip along the arms
-    const w = (11 + rng() * 2) * pxPerMm;
+    const arm = (14 + rng() * 12) * pxPerMm; // elbow to tip, 14–26 mm (28–52 mm tip to tip)
+    const half = THREE.MathUtils.degToRad(50 + rng() * 15); // arm half-angle (100–130° included)
+    const wMax = (3.6 + rng() * 1.2) * pxPerMm; // elbow half-width
     const rot = rng() * Math.PI * 2;
-    const half = THREE.MathUtils.degToRad(52 + rng() * 8); // arm half-angle (104–120° included)
-    const La = L / 2 - w / 2; // stroke caps add w/2 at each tip
-    const cr = Math.cos(rot), sr = Math.sin(rot);
-    const T = (lx: number, ly: number, px: number, py: number): [number, number] => [px + lx * cr - ly * sr, py + lx * sr + ly * cr];
-    ctx.strokeStyle = tones[Math.floor(rng() * tones.length)];
-    ctx.lineWidth = w;
+    ctx.fillStyle = tones[Math.floor(rng() * tones.length)];
+    const steps = 48;
+    // Two straight arms from the elbow (origin) with a rounded knee: the middle 30 % of
+    // the centre line is a quadratic blend through the elbow point.
+    const T1: [number, number] = [arm * Math.cos(half), arm * Math.sin(half)];
+    const T2: [number, number] = [arm * Math.cos(half), -arm * Math.sin(half)];
+    const centre = (t: number): [number, number] => {
+      if (t < 0.35) { const k = t / 0.35; return [T1[0] * (1 - 0.7 * k), T1[1] * (1 - 0.7 * k)]; }
+      if (t > 0.65) { const k = (t - 0.65) / 0.35; return [T2[0] * (0.3 + 0.7 * k), T2[1] * (0.3 + 0.7 * k)]; }
+      const k = (t - 0.35) / 0.3;
+      const a: [number, number] = [T1[0] * 0.3, T1[1] * 0.3], c: [number, number] = [T2[0] * 0.3, T2[1] * 0.3];
+      return [(1 - k) * (1 - k) * a[0] + k * k * c[0], (1 - k) * (1 - k) * a[1] + k * k * c[1]];
+    };
     for (const [ox, oy] of wraps) {
       const px = x + ox, py = y + oy;
-      if (px < -L || px > size + L || py < -L || py > size + L) continue;
-      const t1 = T(La * Math.cos(half), La * Math.sin(half), px, py);
-      const el = T(-w * 0.15, 0, px, py);
-      const t2 = T(La * Math.cos(half), -La * Math.sin(half), px, py);
+      if (px < -arm * 2 || px > size + arm * 2 || py < -arm * 2 || py > size + arm * 2) continue;
       ctx.beginPath();
-      ctx.moveTo(t1[0], t1[1]);
-      ctx.lineTo(el[0], el[1]);
-      ctx.lineTo(t2[0], t2[1]);
-      ctx.stroke();
+      for (let k = 0; k <= steps; k++) {
+        const t = k / steps;
+        const [lx, ly] = centre(t);
+        const w = wMax * (0.42 + 0.58 * (1 - Math.abs(2 * t - 1)) ** 0.5);
+        const gx = px + lx * Math.cos(rot) - ly * Math.sin(rot);
+        const gy = py + lx * Math.sin(rot) + ly * Math.cos(rot);
+        ctx.moveTo(gx + w, gy);
+        ctx.arc(gx, gy, w, 0, Math.PI * 2);
+      }
+      ctx.fill();
     }
   }
   ctx.fillStyle = "#D8C28A";
@@ -333,7 +343,7 @@ export interface WoodOpts {
   /** sRGB base colour, e.g. "#6E4A2E". */
   hex: string;
   seed: number;
-  /** Latewood darkening, 0.07 (maple laminate) … 0.2 (solid oak). */
+  /** Peak luminance drop of the grain lines (0.08 ≈ 8 %). Rings add half that again at most. */
   contrast: number;
   /** Base roughness of the finish. */
   rough: number;
@@ -341,33 +351,41 @@ export interface WoodOpts {
   pore: number;
   /** Grain runs along v when true (upright panels), else along u. */
   vertical: boolean;
-  /** Lattice cells along / across the grain per canvas: across sets the band pitch. */
-  along: number;
-  across: number;
-  /** Domain-warp strength (0–1): varies the grain frequency across the panel. */
+  /** Grain-line pitch in mm (1–3 for veneer). */
+  pitch: number;
+  /** Growth-ring band pitch in mm (8–14). */
+  ring: number;
+  /** Side-to-side drift of the lines along their length, mm (2–5: "mostly straight"). */
   warp: number;
-  /** Cathedral bending (0–1): bands arch along the grain. */
+  /** Depth of the single cathedral arch per canvas, mm (0 = plain straight grain). */
   figure: number;
 }
 
 /**
- * Veneer / plank grain from domain-warped anisotropic value noise — no periodic
- * function anywhere, so the band pitch drifts across the panel. Bands are a soft
- * threshold of the noise; fibre detail rides on top; pores (if any) dent the normal.
+ * Veneer grain at true scale. `metres` is the world span of one canvas edge, so
+ * every feature is authored in millimetres: grain lines every `pitch` mm running
+ * the full length of the panel (a long thin anisotropic lattice, so the lines are
+ * continuous with soft ends), a coarser latewood band every `ring` mm at half the
+ * contrast, a few mm of slow drift so nothing is ruler-straight, and ONE cathedral
+ * arch per canvas: every line bends around a bump centred on the panel (nested
+ * parabolas), zero at the edges so the tile still wraps. Fibre noise at ±contrast/6
+ * breaks the lines up; pores (if any) dent the normal along the grain.
  */
 export function woodVeneer(size: number, metres: number, o: WoodOpts): WoodSet {
   const { c, ctx } = canvas(size, size);
   const { c: rc, ctx: rctx } = canvas(size, size);
   const { c: nc, ctx: nctx } = canvas(size, size);
-  // Parse the sRGB hex directly: THREE.Color would convert it to linear.
   const base = { r: parseInt(o.hex.slice(1, 3), 16) / 255, g: parseInt(o.hex.slice(3, 5), 16) / 255, b: parseInt(o.hex.slice(5, 7), 16) / 255 };
   const rng = makeRng(o.seed);
-  const pxPerMm = size / (metres * 1000);
-  const grain = makeFbm2(o.seed, o.along, o.across, 3);
-  const warpA = makeFbm2(o.seed + 11, 2, 2, 2);
-  const warpC = makeFbm2(o.seed + 23, 2, 3, 2);
-  const arch = makeFbm2(o.seed + 37, 1, 2, 2);
-  const fibre = makeFbm2(o.seed + 3, o.along * 6, o.across * 6, 2);
+  const mm = metres * 1000;
+  const pxPerMm = size / mm;
+  const lineCells = Math.max(8, Math.round(mm / o.pitch));
+  const ringCells = Math.max(4, Math.round(mm / o.ring));
+  // (u = along the grain, v = across). Lines: 3 cells along so each runs ~1/3 of the canvas before fading.
+  const lines = makeFbm2(o.seed, 3, lineCells, 2);
+  const rings = makeFbm2(o.seed + 7, 2, ringCells, 2);
+  const drift = makeFbm2(o.seed + 11, 4, 2, 2); // slow side-to-side wander of the whole line field
+  const fibre = makeFbm2(o.seed + 3, 24, lineCells * 2, 1);
   const smooth = (a: number, b: number, t: number) => {
     const k = Math.min(1, Math.max(0, (t - a) / (b - a)));
     return k * k * (3 - 2 * k);
@@ -375,24 +393,31 @@ export function woodVeneer(size: number, metres: number, o: WoodOpts): WoodSet {
   const img = ctx.createImageData(size, size);
   const rimg = rctx.createImageData(size, size);
   const heights = new Float32Array(size * size);
+  const archW = 0.16; // gaussian half-width of the arch along the grain (fraction of canvas)
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
       const a = o.vertical ? y : x, cc = o.vertical ? x : y;
       const ua = a / size, uc = cc / size;
-      const wa = (warpA(ua, uc) - 0.5) * o.warp * 0.12;
-      const wc = (warpC(ua, uc) - 0.5) * o.warp * 0.18 + (arch(ua, uc) - 0.5) * o.figure * 0.25;
-      const g = grain(ua + wa, uc + wc);
-      const late = smooth(0.5, 0.68, g) * (0.7 + 0.3 * smooth(0.6, 0.8, g));
-      const fine = (fibre(ua, uc) - 0.5) * 0.35;
-      const k = 1 - o.contrast * late + o.contrast * fine;
+      // Cathedral: lines near the arch axis (tile centre) bend by up to `figure` mm around a
+      // bump along the grain; the bend decays across so the rest of the panel stays straight.
+      // Both factors → 0 at the tile edges so the canvas still wraps.
+      const da = ua - 0.5, dc = uc - 0.5;
+      const bump = Math.exp(-(da * da) / (archW * archW)) * Math.exp(-(dc * dc) / 0.03);
+      const shift = ((drift(ua, uc) - 0.5) * o.warp + bump * o.figure) / mm;
+      const v = uc + shift;
+      const l = lines(ua, v);
+      const lineDark = smooth(0.56, 0.68, l); // ~25 % of the width is line
+      const ringDark = smooth(0.52, 0.64, rings(ua, v)) * 0.5;
+      const fine = (fibre(ua, v) - 0.5) / 3;
+      const k = 1 - o.contrast * (lineDark + ringDark - fine);
       const idx = (y * size + x) * 4;
       img.data[idx] = Math.min(255, Math.max(0, base.r * 255 * k));
       img.data[idx + 1] = Math.min(255, Math.max(0, base.g * 255 * k));
       img.data[idx + 2] = Math.min(255, Math.max(0, base.b * 255 * k));
       img.data[idx + 3] = 255;
-      const poreHit = o.pore > 0 && rng() < 0.01 * late ? 1 : 0;
-      heights[y * size + x] = -late * 0.15 - poreHit * 0.7;
-      const rv = Math.min(255, Math.max(0, (o.rough + late * 0.05 + poreHit * 0.2) * 255));
+      const poreHit = o.pore > 0 && rng() < 0.012 * lineDark ? 1 : 0;
+      heights[y * size + x] = -lineDark * 0.25 - poreHit * 0.7;
+      const rv = Math.min(255, Math.max(0, (o.rough + lineDark * 0.06 + poreHit * 0.2) * 255));
       rimg.data[idx] = rv; rimg.data[idx + 1] = rv; rimg.data[idx + 2] = rv; rimg.data[idx + 3] = 255;
     }
   const smeared = new Float32Array(size * size);

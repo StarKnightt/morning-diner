@@ -28,19 +28,21 @@ const MUG_H = 0.089;
  * unglazed foot ring is a separate geometry (see `mugFootGeometry`).
  */
 function mugGeometry(): THREE.BufferGeometry {
+  // Outer wall down the right, inner wall back up: 7–8 mm walls, 13 mm floor, 6.5 mm rim.
   const body = new THREE.LatheGeometry(
     [
-      V2(0, 0.003), V2(0.03, 0.003), V2(0.034, 0.005), V2(0.039, 0.012), V2(0.041, 0.02),
-      V2(0.0395, 0.034), V2(0.038, 0.046), V2(0.0385, 0.058), V2(0.0405, 0.072), V2(0.041, 0.081),
-      V2(0.0405, 0.0865), V2(0.0385, 0.089), V2(0.0365, 0.0885), V2(0.035, 0.085),
-      V2(0.0345, 0.075), V2(0.0325, 0.05), V2(0.034, 0.02), V2(0.03, 0.011), V2(0, 0.011),
+      V2(0, 0.003), V2(0.031, 0.003), V2(0.036, 0.006), V2(0.04, 0.014), V2(0.041, 0.024),
+      V2(0.0395, 0.038), V2(0.0385, 0.05), V2(0.039, 0.062), V2(0.0405, 0.074), V2(0.041, 0.082),
+      V2(0.0405, 0.0875), V2(0.0385, 0.089), V2(0.0355, 0.089), V2(0.034, 0.0875), V2(0.0335, 0.084),
+      V2(0.0325, 0.072), V2(0.0315, 0.05), V2(0.032, 0.03), V2(0.03, 0.016), V2(0.026, 0.013), V2(0, 0.013),
     ],
     48,
   );
-  const handle = new THREE.TorusGeometry(0.023, 0.0078, 12, 28, 1.25 * Math.PI);
-  handle.rotateZ(-0.625 * Math.PI);
-  handle.scale(1, 1.15, 1);
-  handle.translate(0.058, 0.047, 0);
+  // Stubby C-handle: 36 mm outside reach, 15 mm thick, bonded high and low on the waist.
+  const handle = new THREE.TorusGeometry(0.019, 0.0075, 12, 28, 1.2 * Math.PI);
+  handle.rotateZ(-0.6 * Math.PI);
+  handle.scale(1, 1.25, 1);
+  handle.translate(0.052, 0.048, 0);
   return mergeGeometries([body.toNonIndexed(), handle.toNonIndexed()], false)!;
 }
 
@@ -87,7 +89,7 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
       box(steel, -W / 2, H - 0.012, zf0, W / 2, H - 0.004, zf1); // top rail
     }
     // Lid: 4 mm cap with a folded flange dropping 6 mm over the body, plus a dark seam under it
-    const cap = new RoundedBoxGeometry(W + 0.004, 0.004, D + 0.004, 2, 0.001);
+    const cap = new RoundedBoxGeometry(W + 0.004, 0.004, D + 0.004, 3, 0.0018); // 1.8 mm rolled edge
     cap.translate(0, H - 0.002, 0);
     add(cap, steel);
     box(steel, -W / 2 - 0.002, H - 0.01, -D / 2 - 0.002, -W / 2, H - 0.004, D / 2 + 0.002);
@@ -130,44 +132,60 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
       add(fan, pal.napkin);
     }
   };
-  // Sugar pourer: fluted clear glass Ø 78 × 105 (12 flutes), sugar to 65 % as an inner
-  // mesh with a flat top, brushed-chrome lid with a side flap.
+  // Sugar pourer: ONE fluted clear-glass jar Ø 76 (14 ribs, 1.5 mm high) × 105, 2.5 mm
+  // wall; sugar column at 97 % of the bore to 65 %; flat brushed-chrome lid the full
+  // jar diameter, 12 mm tall, with a 25 mm (1") side-hinged half-moon flap.
+  const flutedJar = (rBase: number, ribs: number, amp: number, h: number): THREE.BufferGeometry => {
+    const g = new THREE.CylinderGeometry(rBase, rBase - 0.0015, h, ribs * 10, 8, true);
+    const pos = g.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i), y = pos.getY(i);
+      const r0 = Math.hypot(x, z);
+      const th = Math.atan2(z, x);
+      // Ribs fade out over the top 8 mm (plain shoulder under the lid); each rib is a
+      // rounded ridge with a flat between (cos² profile) so it throws its own highlight.
+      const fade = Math.min(1, Math.max(0, (h / 2 - y) / 0.008));
+      const r = r0 + amp * (0.5 + 0.5 * Math.cos(ribs * th)) ** 2 * fade;
+      pos.setXYZ(i, (x / r0) * r, y, (z / r0) * r);
+    }
+    g.computeVertexNormals();
+    const bottom = new THREE.CircleGeometry(rBase - 0.0015, ribs * 10);
+    bottom.rotateX(Math.PI / 2);
+    bottom.translate(0, -h / 2, 0);
+    return mergeGeometries([g.toNonIndexed(), bottom.toNonIndexed()], false)!;
+  };
   const sugarCaddy = (x: number, z: number, y: number, yaw = 0) => {
     const m = new THREE.Matrix4().makeRotationY(yaw);
     m.setPosition(x, y, z);
     const add = (g: THREE.BufferGeometry, mat: THREE.Material) => b.add(g, mat, m);
-    const core = 0.031, fluteR = 0.0085, jarH = 0.105;
-    const glassParts: THREE.BufferGeometry[] = [new THREE.CylinderGeometry(core, core - 0.002, jarH, 36).translate(0, jarH / 2, 0)];
-    for (let k = 0; k < 12; k++) {
-      const f = new THREE.CylinderGeometry(fluteR, fluteR - 0.001, jarH - 0.01, 12);
-      f.translate(core - 0.0005, jarH / 2 - 0.002, 0);
-      f.rotateY((k / 12) * Math.PI * 2);
-      glassParts.push(f);
-    }
-    add(mergeGeometries(glassParts.map((g) => g.toNonIndexed()), false)!, pal.glassClear);
-    add(new THREE.CylinderGeometry(core - 0.004, core - 0.0055, jarH * 0.65, 28).translate(0, 0.004 + (jarH * 0.65) / 2, 0), pal.sugar);
-    // Lid: 28 mm brushed chrome with a knurled band, side flap on a hinge
-    add(new THREE.CylinderGeometry(0.0395, 0.039, 0.02, 36).translate(0, jarH + 0.01, 0), pal.chromeSoft);
-    add(new THREE.CylinderGeometry(0.036, 0.0395, 0.006, 36).translate(0, jarH + 0.023, 0), pal.chromeSoft);
-    add(new THREE.CylinderGeometry(0.03, 0.036, 0.004, 36).translate(0, jarH + 0.028, 0), pal.chromeSoft);
-    // Side-hinged half-moon flap (Ø 30 mm) lying on the lid, hinge pin along its chord at the rim
+    const R = 0.036, wall = 0.0025, jarH = 0.105, ribAmp = 0.0025;
+    add(flutedJar(R, 14, ribAmp, jarH).translate(0, jarH / 2, 0), pal.glassFluted);
+    const bore = R - wall;
+    const fillH = jarH * 0.65;
+    add(new THREE.CylinderGeometry(bore * 0.97, bore * 0.97, fillH, 40).translate(0, 0.003 + fillH / 2, 0), pal.sugar);
+    // Lid: full-diameter flat cap (12 mm) with a 2 mm knurled band and a domed centre
+    const lidR = R + ribAmp;
+    add(new THREE.CylinderGeometry(lidR, lidR, 0.012, 40).translate(0, jarH + 0.006, 0), pal.chromeSoft);
+    add(new THREE.CylinderGeometry(lidR - 0.006, lidR - 0.0005, 0.003, 40).translate(0, jarH + 0.0135, 0), pal.chromeSoft);
+    // 1" half-moon flap lying flat on the lid, hinged on a pin along its chord at the rim
     const moon = new THREE.Shape();
-    moon.absarc(0, 0, 0.015, 0, Math.PI, false);
+    moon.absarc(0, 0, 0.0125, 0, Math.PI, false);
     moon.closePath();
-    const flap = new THREE.ExtrudeGeometry(moon, { depth: 0.002, bevelEnabled: false, curveSegments: 12 });
-    flap.rotateX(-Math.PI / 2); // semicircle bulging toward −z, chord along x at z = 0
-    flap.translate(0, jarH + 0.03, 0.034);
+    const flap = new THREE.ExtrudeGeometry(moon, { depth: 0.0015, bevelEnabled: false, curveSegments: 12 });
+    flap.rotateX(-Math.PI / 2); // semicircle bulging toward −z, chord along x
+    flap.translate(0, jarH + 0.0155, lidR - 0.004);
     add(flap, pal.chromeSoft);
-    const hinge = new THREE.CylinderGeometry(0.0025, 0.0025, 0.032, 10);
+    const hinge = new THREE.CylinderGeometry(0.002, 0.002, 0.027, 10);
     hinge.rotateZ(Math.PI / 2);
-    hinge.translate(0, jarH + 0.031, 0.035);
+    hinge.translate(0, jarH + 0.0155, lidR - 0.0035);
     add(hinge, pal.chromeSoft);
   };
-  // Salt / pepper: clear glass Ø 30 with a visible glass margin around the fill, 30 mm perforated chrome cap.
+  // Salt / pepper: clear glass Ø 30 (1.5 mm wall) with an opaque fill to 60 % at 97 % of
+  // the bore, 30 mm perforated chrome cap.
   const shaker = (x: number, z: number, y: number, contents: THREE.Material) => {
     const add = (g: THREE.BufferGeometry, mat: THREE.Material) => b.add(g.translate(x, y, z), mat);
-    add(new THREE.CylinderGeometry(0.015, 0.0135, 0.058, 28).translate(0, 0.029, 0), pal.glassClear);
-    add(new THREE.CylinderGeometry(0.0138, 0.0125, 0.04, 24).translate(0, 0.023, 0), contents);
+    add(new THREE.CylinderGeometry(0.015, 0.014, 0.058, 28).translate(0, 0.029, 0), pal.glassClear);
+    add(new THREE.CylinderGeometry(0.0131, 0.0121, 0.035, 24).translate(0, 0.0195, 0), contents);
     add(new THREE.CylinderGeometry(0.015, 0.015, 0.012, 28).translate(0, 0.064, 0), pal.chromeSoft);
     const dome = new THREE.SphereGeometry(0.015, 28, 8, 0, Math.PI * 2, 0, Math.PI / 2);
     dome.scale(1, 0.4, 1);
@@ -189,7 +207,7 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     const d = at(-0.13 + (rng() - 0.5) * 0.01, (rng() - 0.5) * 0.01);
     dispenser(d.x, d.z, y, yaw + Math.PI / 2 + (rng() - 0.5) * 0.1);
     const s1 = at(0.075, 0.01 + (rng() - 0.5) * 0.02), s2 = at(0.115, -0.012 + (rng() - 0.5) * 0.02);
-    shaker(s1.x, s1.z, y, pal.sugar);
+    shaker(s1.x, s1.z, y, pal.salt);
     shaker(s2.x, s2.z, y, pal.pepper);
   };
   for (const cx of WINDOW.centersX) tableSet(cx, BOOTH.zOuter - 0.1, BOOTH.table.top, 0);
@@ -202,18 +220,12 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
   const yBar = BACK_BAR.height;
   const ledge = PROPS.mugLedge;
   {
-    // Stainless drip tray: 12 mm pan with a ribbed grate, dark well underneath the ribs.
-    b.rbox(pal.stainless, [ledge.x0, yBar, ledge.z0], [ledge.x1, yBar + 0.004, ledge.z1], 0.002);
-    const wall = 0.004;
-    b.rbox(pal.stainless, [ledge.x0, yBar, ledge.z0], [ledge.x0 + wall, yBar + 0.014, ledge.z1], 0.001);
-    b.rbox(pal.stainless, [ledge.x1 - wall, yBar, ledge.z0], [ledge.x1, yBar + 0.014, ledge.z1], 0.001);
-    b.rbox(pal.stainless, [ledge.x0, yBar, ledge.z0], [ledge.x1, yBar + 0.014, ledge.z0 + wall], 0.001);
-    b.rbox(pal.stainless, [ledge.x0, yBar, ledge.z1 - wall], [ledge.x1, yBar + 0.014, ledge.z1], 0.001);
-    b.box(pal.rubberMat, [ledge.x0 + wall, yBar + 0.004, ledge.z0 + wall], [ledge.x1 - wall, yBar + 0.006, ledge.z1 - wall]);
+    // Black ribbed rubber bar mat on the back bar: 8 mm base with 4 mm ribs at 12 mm pitch.
+    b.rbox(pal.rubberMat, [ledge.x0, yBar, ledge.z0], [ledge.x1, yBar + 0.008, ledge.z1], 0.003);
     const ribs = Math.round((ledge.x1 - ledge.x0) / 0.012);
     for (let k = 0; k < ribs; k++) {
-      const xr = ledge.x0 + wall + 0.006 + k * ((ledge.x1 - ledge.x0 - 2 * wall - 0.012) / (ribs - 1));
-      b.box(pal.stainless, [xr - 0.0015, yBar + 0.006, ledge.z0 + wall + 0.004], [xr + 0.0015, yBar + 0.014, ledge.z1 - wall - 0.004]);
+      const xr = ledge.x0 + 0.008 + k * ((ledge.x1 - ledge.x0 - 0.016) / (ribs - 1));
+      b.rbox(pal.rubberMat, [xr - 0.002, yBar + 0.008, ledge.z0 + 0.006], [xr + 0.002, yBar + 0.012, ledge.z1 - 0.006], 0.0015);
     }
   }
   const mugPoses: THREE.Matrix4[] = [];
@@ -223,20 +235,17 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     else m.setPosition(x, y, z);
     mugPoses.push(m);
   };
-  // Drip tray: four 140 mm saucers with inverted mugs (random handle angle, ±6 mm scatter)
+  // Six spare mugs inverted straight onto the mat (random handle angle, ±8 mm scatter)
   const saucerGeo = saucerGeometry();
-  const trayCols = 2, trayRows = 2;
-  for (let i = 0; i < trayCols * trayRows; i++) {
-    const col = i % trayCols, row = Math.floor(i / trayCols);
-    const sx = ledge.x0 + 0.1 + col * 0.16 + (rng() - 0.5) * 0.012;
-    const sz = ledge.z0 + 0.075 + row * 0.15 + (rng() - 0.5) * 0.012;
-    const sc = saucerGeo.clone();
-    sc.translate(sx, yBar + 0.014, sz);
-    b.add(sc, pal.ceramic);
-    mugAt(sx + (rng() - 0.5) * 0.006, yBar + 0.014 + 0.009, sz + (rng() - 0.5) * 0.006, rng() * Math.PI * 2, true);
+  const matCols = 4, matRows = 2;
+  for (let i = 0; i < matCols * matRows; i++) {
+    const col = i % matCols, row = Math.floor(i / matCols);
+    const sx = ledge.x0 + 0.075 + col * 0.13 + (rng() - 0.5) * 0.016;
+    const sz = ledge.z0 + 0.07 + row * 0.13 + (rng() - 0.5) * 0.016;
+    mugAt(sx, yBar + 0.012, sz, rng() * Math.PI * 2, true);
   }
-  // Three loose mugs standing upright beside the tray, jittered
-  for (let i = 0; i < 3; i++) {
+  // Two loose mugs standing upright beside the mat, jittered
+  for (let i = 0; i < 2; i++) {
     mugAt(ledge.x1 + 0.07 + i * 0.1 + (rng() - 0.5) * 0.03, yBar, ledge.z0 + 0.09 + (rng() - 0.5) * 0.08, rng() * Math.PI * 2, false);
   }
   // Inverted mugs on saucers at two stools
@@ -273,42 +282,48 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     const zBase = zBack + 0.32; // warmer apron runs forward of the body
     const yTop = yBar + height, yHead = yTop - 0.11;
     const zW = zBack + 0.21; // lower warmer centre, under the funnel
-    // Base with ONE lower warmer; black front panel with pilot light and rocker switches
-    b.rbox(pal.stainless, [x0, yBar, zBack], [x1, yBar + 0.05, zBase], 0.004, 3);
-    b.box(pal.blackPlastic, [x0 + 0.004, yBar + 0.006, zBase - 0.003], [x1 - 0.004, yBar + 0.046, zBase + 0.001]);
-    b.rbox(pal.pilotRed, [x + 0.116, yBar + 0.022, zBase - 0.002], [x + 0.124, yBar + 0.03, zBase + 0.004], 0.002);
-    b.rbox(pal.chromeSoft, [x + 0.14, yBar + 0.018, zBase - 0.002], [x + 0.17, yBar + 0.034, zBase + 0.006], 0.003);
-    b.rbox(pal.chromeSoft, [x - 0.17, yBar + 0.018, zBase - 0.002], [x - 0.14, yBar + 0.034, zBase + 0.006], 0.003);
-    const ring = new THREE.CylinderGeometry(0.09, 0.09, 0.004, 48);
-    ring.translate(x, yBar + 0.052, zW);
-    b.add(ring, pal.stainless);
-    const plate = new THREE.CylinderGeometry(0.084, 0.084, 0.004, 48);
-    plate.translate(x, yBar + 0.056, zW);
-    b.add(plate, pal.darkMetal);
+    // Base: black powder-coated box under a brushed stainless top plate carrying ONE black
+    // 150 mm warmer disc; black front panel with a pilot light and two lit rocker switches.
+    b.rbox(pal.blackPowder, [x0, yBar, zBack], [x1, yBar + 0.046, zBase], 0.004, 3);
+    b.rbox(pal.stainlessCool, [x0 - 0.001, yBar + 0.046, zBack], [x1 + 0.001, yBar + 0.052, zBase + 0.001], 0.002, 2);
+    b.box(pal.blackPlastic, [x0 + 0.004, yBar + 0.006, zBase - 0.003], [x1 - 0.004, yBar + 0.044, zBase + 0.001]);
+    b.rbox(pal.pilotRed, [x + 0.1, yBar + 0.022, zBase - 0.002], [x + 0.108, yBar + 0.03, zBase + 0.004], 0.002);
+    // Rocker switches 25 × 14 mm in a black bezel: upper half lit amber, lower half black, pivot line between.
+    for (const sx of [-1, 1]) {
+      const cx = x + sx * 0.15;
+      b.rbox(pal.blackPlastic, [cx - 0.016, yBar + 0.016, zBase - 0.002], [cx + 0.016, yBar + 0.036, zBase + 0.005], 0.002);
+      b.rbox(pal.rockerLit, [cx - 0.012, yBar + 0.0265, zBase + 0.004], [cx + 0.012, yBar + 0.033, zBase + 0.0085], 0.0015);
+      b.rbox(pal.blackPowder, [cx - 0.012, yBar + 0.019, zBase + 0.004], [cx + 0.012, yBar + 0.0255, zBase + 0.0075], 0.0015);
+    }
+    const ring = new THREE.CylinderGeometry(0.08, 0.08, 0.003, 48);
+    ring.translate(x, yBar + 0.0535, zW);
+    b.add(ring, pal.stainlessCool);
+    const plate = new THREE.CylinderGeometry(0.075, 0.075, 0.004, 48);
+    plate.translate(x, yBar + 0.057, zW);
+    b.add(plate, pal.blackPowder);
     // Body: matte black powder-coated tower, 203 deep, with brushed stainless side panels (VPR)
     b.rbox(pal.blackPowder, [x0 + 0.003, yBar + 0.05, zBack], [x1 - 0.003, yHead, zBody], 0.004, 3);
     b.box(pal.stainlessBrushed, [x0, yBar + 0.05, zBack + 0.004], [x0 + 0.003, yHead - 0.004, zBody - 0.004]);
     b.box(pal.stainlessBrushed, [x1 - 0.003, yBar + 0.05, zBack + 0.004], [x1, yHead - 0.004, zBody - 0.004]);
-    // Head: black, overhangs the warmer; stainless side panels; fill lid at the back; blank badge plate
-    b.rbox(pal.blackPowder, [x0 + 0.003, yHead, zBack], [x1 - 0.003, yTop, zBack + 0.3], 0.005, 3);
-    b.box(pal.stainlessBrushed, [x0, yHead + 0.004, zBack + 0.004], [x0 + 0.003, yTop - 0.004, zBack + 0.296]);
-    b.box(pal.stainlessBrushed, [x1 - 0.003, yHead + 0.004, zBack + 0.004], [x1, yTop - 0.004, zBack + 0.296]);
-    b.box(pal.stainlessBrushed, [x0 + 0.004, yHead + 0.01, zBack + 0.297], [x1 - 0.004, yTop - 0.01, zBack + 0.301]); // stainless front trim on the head
-    b.rbox(pal.stainless, [x0 + 0.006, yTop - 0.001, zBack + 0.006], [x1 - 0.006, yTop + 0.004, zBack + 0.118], 0.002);
+    // Hood: light brushed stainless wrap, overhanging the warmer, with a black front control
+    // band and a black fill lid at the back; the tower under it stays powder-black.
+    b.rbox(pal.stainlessCool, [x0, yHead, zBack], [x1, yTop, zBack + 0.3], 0.005, 3);
+    b.box(pal.blackPowder, [x0 + 0.002, yHead + 0.02, zBack + 0.296], [x1 - 0.002, yHead + 0.07, zBack + 0.302]); // black control band
+    b.rbox(pal.blackPowder, [x0 + 0.006, yTop - 0.001, zBack + 0.006], [x1 - 0.006, yTop + 0.004, zBack + 0.118], 0.002); // fill lid
     b.box(pal.darkMetal, [x0 + 0.004, yTop - 0.0005, zBack + 0.118], [x1 - 0.004, yTop + 0.0015, zBack + 0.1195]);
-    b.rbox(pal.chromeSoft, [x - 0.04, yHead + 0.045, zBack + 0.3], [x + 0.04, yHead + 0.068, zBack + 0.303], 0.0015);
-    // ONE upper warmer plate on the head
-    const upperRing = new THREE.CylinderGeometry(0.088, 0.088, 0.004, 48);
-    upperRing.translate(x, yTop + 0.002, zBack + 0.19);
-    b.add(upperRing, pal.stainless);
-    const upperPlate = new THREE.CylinderGeometry(0.082, 0.082, 0.004, 48);
-    upperPlate.translate(x, yTop + 0.006, zBack + 0.19);
-    b.add(upperPlate, pal.darkMetal);
+    b.rbox(pal.chromeSoft, [x - 0.04, yHead + 0.035, zBack + 0.302], [x + 0.04, yHead + 0.055, zBack + 0.304], 0.0015); // badge
+    // ONE upper warmer: black 150 mm disc on the stainless hood
+    const upperRing = new THREE.CylinderGeometry(0.08, 0.08, 0.003, 48);
+    upperRing.translate(x, yTop + 0.0015, zBack + 0.19);
+    b.add(upperRing, pal.stainlessCool);
+    const upperPlate = new THREE.CylinderGeometry(0.075, 0.075, 0.004, 48);
+    upperPlate.translate(x, yTop + 0.005, zBack + 0.19);
+    b.add(upperPlate, pal.blackPowder);
     // Brew funnel: deep black SplashGard bowl (Ø 200 × 60) with a flat rim flange, sliding in
     // stainless rails under the head; handle bar forward
     for (const s of [-1, 1]) {
-      b.box(pal.stainless, [x + s * 0.108 - 0.004, yHead - 0.03, zBack + 0.06], [x + s * 0.108 + 0.004, yHead, zBack + 0.29]);
-      b.box(pal.stainless, [x + s * 0.108 - 0.014, yHead - 0.03, zBack + 0.06], [x + s * 0.108 + 0.014, yHead - 0.026, zBack + 0.29]);
+      b.box(pal.stainlessCool, [x + s * 0.108 - 0.004, yHead - 0.03, zBack + 0.06], [x + s * 0.108 + 0.004, yHead, zBack + 0.29]);
+      b.box(pal.stainlessCool, [x + s * 0.108 - 0.014, yHead - 0.03, zBack + 0.06], [x + s * 0.108 + 0.014, yHead - 0.026, zBack + 0.29]);
     }
     // Funnel: Ø 190 stainless bowl, 110 mm deep, with a rim flange seated on the
     // rails and a 60 mm handle bar forward
@@ -317,10 +332,10 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
       48,
     );
     funnel.translate(x, yHead - 0.006, zW);
-    b.add(funnel, pal.stainlessBrushed); // VPR ships a stainless funnel; it reads against the black tower
+    b.add(funnel, pal.stainlessCool); // VPR ships a stainless funnel; it reads against the black tower
     const flange = new THREE.LatheGeometry([V2(0.088, -0.006), V2(0.108, -0.006), V2(0.108, -0.002), V2(0.088, -0.002)], 48);
     flange.translate(x, yHead - 0.004, zW);
-    b.add(flange, pal.stainlessBrushed);
+    b.add(flange, pal.stainlessCool);
     b.rbox(pal.blackPlastic, [x - 0.016, yHead - 0.026, zW + 0.09], [x + 0.016, yHead - 0.01, zW + 0.155], 0.004);
     // Decanter on the warmer: 173 Ø × 178, 55 % full, black handle + spout collar, stainless base ring
     const px = x, pz = zW, py = yBar + 0.058;

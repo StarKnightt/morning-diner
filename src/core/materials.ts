@@ -35,12 +35,16 @@ export interface Palette {
   laminateScuffed: THREE.MeshStandardMaterial;
   edgeBand: THREE.MeshStandardMaterial;
   glassClear: THREE.MeshPhysicalMaterial;
+  glassFluted: THREE.MeshPhysicalMaterial;
   coffee: THREE.MeshPhysicalMaterial;
   blackPlastic: THREE.MeshStandardMaterial;
   orangeBand: THREE.MeshStandardMaterial;
   pilotRed: THREE.MeshStandardMaterial;
   napkin: THREE.MeshStandardMaterial;
   sugar: THREE.MeshStandardMaterial;
+  salt: THREE.MeshStandardMaterial;
+  darkSeal: THREE.MeshStandardMaterial;
+  rockerLit: THREE.MeshStandardMaterial;
   pepper: THREE.MeshStandardMaterial;
   trayBrown: THREE.MeshStandardMaterial;
   clockFace: THREE.MeshStandardMaterial;
@@ -64,6 +68,7 @@ export interface Palette {
   stainless: THREE.MeshPhysicalMaterial;
   /** Smooth directional brushed stainless for appliances/dispensers (no mottle). */
   stainlessBrushed: THREE.MeshPhysicalMaterial;
+  stainlessCool: THREE.MeshPhysicalMaterial;
   /** Matte black powder coat (brewer body). */
   blackPowder: THREE.MeshStandardMaterial;
 }
@@ -113,13 +118,13 @@ export function createPalette(maxAnisotropy: number): Palette {
     return new THREE.MeshPhysicalMaterial({
       color: vinylColor,
       normalMap: t.normalMap,
-      normalScale: new THREE.Vector2(1.0, 1.0),
+      normalScale: new THREE.Vector2(1.25, 1.25),
       roughnessMap: t.roughnessMap,
-      roughness: 0.75, // × map (0.35–0.55) → ≈ 0.3–0.4
+      roughness: 0.9, // × map (0.35–0.55) → ≈ 0.32–0.5
       metalness: 0,
       specularIntensity: 0.4,
-      clearcoat: 0.15,
-      clearcoatRoughness: 0.25,
+      clearcoat: 0.1,
+      clearcoatRoughness: 0.3,
       vertexColors: true,
     });
   };
@@ -127,9 +132,10 @@ export function createPalette(maxAnisotropy: number): Palette {
   const vinylRedCrazed = mkVinyl(true);
 
   // Laminates: ExtrudeGeometry UVs are in metres; one canvas = 0.5 m.
-  const boomerang = tex.formicaBoomerang(1024, 0.5, 31);
-  boomerang.map.repeat.set(2, 2);
-  boomerang.roughnessMap!.repeat.set(2, 2);
+  // One 2048 canvas covers 1.2 m: a whole table top without a visible repeat.
+  const boomerang = tex.formicaBoomerang(2048, 1.2, 31);
+  boomerang.map.repeat.set(1 / 1.2, 1 / 1.2);
+  boomerang.roughnessMap!.repeat.set(1 / 1.2, 1 / 1.2);
   const formica = new THREE.MeshPhysicalMaterial({
     map: boomerang.map,
     roughnessMap: boomerang.roughnessMap,
@@ -152,11 +158,13 @@ export function createPalette(maxAnisotropy: number): Palette {
   // Three different grain sources (domain-warped noise, nothing periodic):
   // quarter-sawn oak caps (fine, straight), walnut-look laminate on panels and the
   // counter die (broad, low contrast, vertical), flat-cut maple laminate on cabinets.
-  // Ridge pitch 1–4 mm (base lattice 128 cells / 0.5 m + two finer octaves), cathedral
-  // figure from the low-frequency arch warp (~250–500 mm), contrast ≤ 12 %.
-  const capTex = tex.woodVeneer(1024, 0.5, { hex: "#6E4A2E", seed: 501, contrast: 0.12, rough: 0.3, pore: 0.4, vertical: false, along: 3, across: 128, warp: 0.3, figure: 0.25 });
-  const panelTex = tex.woodVeneer(1024, 0.5, { hex: "#7A5236", seed: 502, contrast: 0.08, rough: 0.5, pore: 0, vertical: true, along: 2, across: 128, warp: 0.6, figure: 0.8 });
-  const cabTex = tex.woodVeneer(1024, 0.5, { hex: "#B98E5E", seed: 503, contrast: 0.06, rough: 0.5, pore: 0, vertical: true, along: 2, across: 128, warp: 0.5, figure: 0.5 });
+  // Authored in mm on a 0.5 m canvas (repeat 2 on metric UVs): grain lines every
+  // 1.5–2.5 mm, latewood bands every 9–13 mm, a few mm of drift, one cathedral arch
+  // per canvas, luminance contrast ≤ 9 %. Every metric panel gets its own UV offset
+  // and a coin-flip 180° turn in MergedBuilder so no two panels share a feature.
+  const capTex = tex.woodVeneer(1024, 0.5, { hex: "#6E4A2E", seed: 501, contrast: 0.09, rough: 0.3, pore: 0.4, vertical: false, pitch: 1.5, ring: 9, warp: 2, figure: 12 });
+  const panelTex = tex.woodVeneer(1024, 0.5, { hex: "#7A5236", seed: 502, contrast: 0.09, rough: 0.5, pore: 0, vertical: true, pitch: 2, ring: 11, warp: 4, figure: 22 });
+  const cabTex = tex.woodVeneer(1024, 0.5, { hex: "#B98E5E", seed: 503, contrast: 0.06, rough: 0.5, pore: 0, vertical: true, pitch: 2.5, ring: 13, warp: 3, figure: 18 });
   for (const t of [capTex, panelTex, cabTex]) for (const m of [t.map, t.roughnessMap, t.normalMap]) m.repeat.set(2, 2);
   const capWood = new THREE.MeshPhysicalMaterial({
     map: capTex.map, roughnessMap: capTex.roughnessMap, normalMap: capTex.normalMap, normalScale: new THREE.Vector2(0.4, 0.4),
@@ -200,17 +208,40 @@ export function createPalette(maxAnisotropy: number): Palette {
     anisotropyRotation: Math.PI / 2, // brushing runs vertically on upright panels
   });
   const blackPowder = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.55, metalness: 0.1 });
+  // Light brushed stainless for the brewer hood, funnel and base plate: albedo ≈ 0.6 with a
+  // hint of blue. Deliberately left on the ROOM probe (not the prop probe under the
+  // cabinets): the prop probe's ceiling is the dark cabinet underside, which turned the
+  // hood top into a bronze gradient in rev 5.
+  const stainlessCool = new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color().setRGB(0.58, 0.6, 0.64, THREE.LinearSRGBColorSpace),
+    roughnessMap: tex.brushedRoughness(512, 0.3, 93),
+    roughness: 1,
+    metalness: 1,
+    anisotropy: 0.6,
+  });
 
   // Glazed ivory china: opaque, tight gloss from a clearcoat layer over a satin base.
   const ceramic = new THREE.MeshPhysicalMaterial({ color: 0xf2eee6, roughness: 0.15, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.12 });
-  const bisque = new THREE.MeshStandardMaterial({ color: 0xe1d7c8, roughness: 0.75, metalness: 0 });
+  // Unglazed foot ring: bare stoneware, noticeably darker than the glaze.
+  const bisque = new THREE.MeshStandardMaterial({ color: 0x8e7e6e, roughness: 0.88, metalness: 0 });
   const glassClear = new THREE.MeshPhysicalMaterial({
     color: 0xf6f8f7,
-    roughness: 0.05,
+    roughness: 0.03,
     metalness: 0,
     transmission: 0.95,
     ior: 1.5,
-    thickness: 0.003,
+    thickness: 0.002,
+    specularIntensity: 1,
+  });
+  // Fluted pressed glass (sugar pourer): same clear glass but with real 10 mm of
+  // refraction thickness so the ribs visibly bend the sugar column behind them.
+  const glassFluted = new THREE.MeshPhysicalMaterial({
+    color: 0xf6f8f7,
+    roughness: 0.03,
+    metalness: 0,
+    transmission: 0.95,
+    ior: 1.52,
+    thickness: 0.012,
     specularIntensity: 1,
   });
   // Coffee is OPAQUE on purpose: three renders transmissive objects in their own
@@ -255,12 +286,16 @@ export function createPalette(maxAnisotropy: number): Palette {
     bisque,
     coffeeStain,
     glassClear,
+    glassFluted,
     coffee,
     blackPlastic: new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.45, metalness: 0 }),
     orangeBand: new THREE.MeshStandardMaterial({ color: 0xb85a1e, roughness: 0.5, metalness: 0 }),
     pilotRed: new THREE.MeshStandardMaterial({ color: 0xff2a1a, roughness: 0.4, metalness: 0, emissive: 0xff2010, emissiveIntensity: 3 }),
     napkin: new THREE.MeshStandardMaterial({ color: 0xf4f2ec, roughness: 0.95, metalness: 0 }),
-    sugar: new THREE.MeshStandardMaterial({ color: 0xf2efe6, roughness: 0.9, metalness: 0 }),
+    sugar: new THREE.MeshStandardMaterial({ color: 0xfaf7f0, roughness: 0.95, metalness: 0 }),
+    salt: new THREE.MeshStandardMaterial({ color: 0xebe7df, roughness: 0.95, metalness: 0 }), // a shade under the glass so the column reads against a pale sill
+    darkSeal: new THREE.MeshStandardMaterial({ color: 0x2a221c, roughness: 0.7, metalness: 0 }),
+    rockerLit: new THREE.MeshStandardMaterial({ color: 0xffb060, emissive: 0xff9a30, emissiveIntensity: 1.6, roughness: 0.4, metalness: 0 }),
     pepper: new THREE.MeshStandardMaterial({ color: 0x3a3430, roughness: 0.9, metalness: 0 }),
     trayBrown: new THREE.MeshStandardMaterial({ color: 0x4a2c1a, roughness: 0.55, metalness: 0 }),
     clockFace: new THREE.MeshStandardMaterial({ color: 0xf6f3ea, roughness: 0.5, metalness: 0 }),
@@ -303,6 +338,7 @@ export function createPalette(maxAnisotropy: number): Palette {
     acUnit: new THREE.MeshStandardMaterial({ color: 0xd8d6cf, roughness: 0.6, metalness: 0.2 }),
     stainless,
     stainlessBrushed,
+    stainlessCool,
     blackPowder,
   };
 
@@ -316,6 +352,7 @@ export function createPalette(maxAnisotropy: number): Palette {
   // Glassware: reflections kept modest so the contents read; the coffee body is
   // near-black and would otherwise turn the glass into a mirror of the probe.
   palette.glassClear.envMapIntensity = 0.45;
+  palette.glassFluted.envMapIntensity = 0.55;
   palette.coffee.envMapIntensity = 0.25;
   palette.glass.envMapIntensity = 0.5;
   palette.alum.envMapIntensity = 0.3;
@@ -330,5 +367,6 @@ export function createPalette(maxAnisotropy: number): Palette {
   palette.laminateCabinet.envMapIntensity = 0.3;
   palette.ceramic.envMapIntensity = 0.45; // ivory china: the room's darks/lights shape the glossy body
   palette.stainlessBrushed.envMapIntensity = 0.55;
+  palette.stainlessCool.envMapIntensity = 0.6;
   return palette;
 }
