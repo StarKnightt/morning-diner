@@ -13,11 +13,11 @@
  * primary monitor; this page must never free-run).
  */
 import * as THREE from "three";
-import { createDinerAudio } from "./audio";
 import { gpuRendererString, installCaptureApi, installReadyPromise, type PerfReport } from "./capture/pose";
-import { hasParallelCompile } from "./core/compile";
+import { hasParallelCompile, issueCompile } from "./core/compile";
 import { BootTimeline, Progress, yieldToPaint } from "./core/scheduler";
 import { TextureBank } from "./core/textureBank";
+import { initInteractions, type Interactions } from "./interactions";
 import { FirstPerson } from "./player/FirstPerson";
 import { Diner } from "./scene/Diner";
 import { Loader } from "./ui/Loader";
@@ -69,8 +69,11 @@ const bank = new TextureBank({
 const diner = new Diner(scene, renderer, bank);
 timeline.mark("palette");
 
-const audio = createDinerAudio();
 let player: FirstPerson | undefined;
+// System 7 (sit / pour / door) + the System 6 audio wiring; owns the audio engine
+// (`interactions.audio`) and its listener update. Built after `diner.build()` resolves:
+// it needs `diner.door`, `diner.coffeePot`, `diner.pourMug` and the palette.
+let interactions: Interactions | undefined;
 
 const perf = (): PerfReport => ({
   marks: timeline.list(),
@@ -105,8 +108,20 @@ async function boot(): Promise<void> {
 
   player = new FirstPerson(camera, renderer.domElement, diner.colliders);
   installCaptureApi(renderer, scene, camera, player, perf);
+  interactions = initInteractions({ renderer, scene, camera, player, diner });
+  // The pour's four materials (clipped decanter coffee, rippled mug surface, stream, steam)
+  // enter the scene here, after Diner.build()'s compile batch. Issue their programs now, in
+  // both output variants (canvas, and render target for the transmission pass behind the
+  // decanter glass), so they link in the driver's background threads instead of on the
+  // first E at the mug — measured 3.7 s of synchronous links on ANGLE/D3D11 otherwise.
+  issueCompile(renderer, scene, camera, null);
+  const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType });
+  issueCompile(renderer, scene, camera, rt);
+  rt.dispose();
   // Pointer lock lives in FirstPerson (canvas click); the AudioContext needs the same gesture.
-  renderer.domElement.addEventListener("click", () => void audio.start(), { once: true });
+  // `startAudio` is idempotent — the loader's "Click to enter" calls it too (onFirstFrames).
+  const startAudio = interactions.startAudio;
+  renderer.domElement.addEventListener("click", () => void startAudio(), { once: true });
   progress.stage("Opening the blinds…");
   renderer.setAnimationLoop(frame);
 }
@@ -137,8 +152,8 @@ function frame(now: number): void {
 
   player!.update(dt);
   diner.update(dt);
+  interactions!.update(dt); // also moves the audio listener with the camera
   renderer.render(scene, camera);
-  audio.update(camera);
 
   frames++;
   if (frames === 2) void onFirstFrames();
@@ -163,9 +178,11 @@ async function onFirstFrames(): Promise<void> {
   }
   markReady();
   await loader.waitForEnter();
+  // The enter click is the user gesture the AudioContext needs (idempotent; the canvas
+  // click below and the wiring's window-gesture fallback call the same thing).
+  void interactions?.startAudio();
   void loader.dismiss();
-  // Forward the gesture to the canvas: FirstPerson requests pointer lock on its click,
-  // and the audio starts on the same click (both need a user gesture).
+  // Forward the gesture to the canvas: FirstPerson requests pointer lock on its click.
   renderer.domElement.click();
 }
 
