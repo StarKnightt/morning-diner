@@ -220,30 +220,38 @@ export const TROFFER_LENS_AREA = (CEILING.tile * 2 - 0.09) * (CEILING.tile - 0.0
 export const TROFFER_LENS_NITS = TROFFER_LUMENS / (Math.PI * TROFFER_LENS_AREA);
 /**
  * Sky dome: the shader's horizon is authored at display scale (SKY_HORIZON_RGB); the scale
- * puts the horizon band at 12,000 nits (zenith 0.48× → 5,800, a real blue). `scaleSky`
- * adds the circumsolar brightening on top (×2.5 at the sun, ×1.67 at 35° from it — the
- * part of the sky the windows look at, ≈ 20,000 nits: white through the slats).
- * Hemisphere average ≈ 8,000 nits → ≈ 25 klux of diffuse skylight on the lot against
- * 51.6 klux of direct sun (90 klux · sin 35°): a 3:1 lit/shadow ratio (1.6 EV), a hazy
- * summer morning (CIE clear-sky types 11–12; a turbid horizon at 30–40° from a 35° sun
- * measures 10–15 k cd/m²). Rev 1's 5,500-nit horizon read as grey-green through the
- * glass; rev 2's first round at 8,000 put the sky through the slats at 5,500 nits after the
- * glass — +2.3 EV, sRGB 219, not clipped — and the sand at 226. At 12,000 the horizon
- * through the glass is ≈ 10,500 nits, over L_sat (9,560), so the sky, the sand and the
- * sunlit slat faces clip and the exterior blows out the way it does from inside a room.
+ * puts the horizon band at 10,000 nits (zenith 0.29× → 2,900). `scaleSky` adds the
+ * circumsolar brightening on top (×2 at the sun, ×1.4 at 35° from it).
+ *
+ * The number that matters is the hemisphere's cosine-weighted integral — the diffuse
+ * skylight on the lot — not the horizon: it sets the lit/shadow ratio of every outdoor
+ * surface, E_sun,h / E_sky = 51.6 klux / E_sky. Integrated numerically over the shader
+ * (harness skyE.mjs: gradient, forward-scatter and haze-band mixes, glow, boost):
+ *   rev 2 round 9  12,000 horizon · zenith 0.48× · pow(h, 1.6) · boost 1.5  →  39 klux,
+ *                  asphalt lit 4,300 / shade 1,700 nits = 2.5:1 (1.3 EV), flat, and the
+ *                  sunlit sand at 11,600 nits (36 % of an exterior frame clipped);
+ *   this          10,000 horizon · zenith 0.29× · linear gradient · boost 1.0  →  23 klux,
+ *                  3.2:1 (1.7 EV); sand ≈ 9,500, at L_sat.
+ * A turbid summer morning measures 15–25 klux diffuse with the sun at 35° (CIE types
+ * 8–10: horizon 10–12 k cd/m², zenith 3–5 k, circumsolar 20 k+), so the earlier comment's
+ * "hemisphere average ≈ 8,000 nits" was wrong by 1.7× — the horizon value held to 30° by
+ * pow(h, 1.6) and the ×2.5 boost were most of the excess. The band the windows see (5–25°,
+ * away from the sun) is now 8–9 k nits, ≈ 7–7.7 k through the glass: sRGB ≈ 225, a pale
+ * blue distinct from the clipped sunlit wall, while the circumsolar quarter still clips.
  */
-const SKY_HORIZON_NITS = 12_000;
+const SKY_HORIZON_NITS = 10_000;
 /**
  * Sky dome colours (display-scale, luminance ≈ 0.85 at the horizon; `scaleSky` sets them on
  * the shader and normalises by the horizon's luminance). Rev 1 kept System 3's near-white
  * horizon (0.90, 0.915, 0.93) and the sky read grey-green through the tinted glass; a
  * clear desert morning at 5–25° elevation — what the windows see — is a pale but
- * unmistakable blue, deepening to the zenith (ratio ≈ 0.48 → ≈ 3,800 nits). The shader's
+ * unmistakable blue, deepening to the zenith (ratio ≈ 0.29 → ≈ 2,900 nits, a turbid summer
+ * zenith). The shader's
  * own forward-scatter and haze-band terms whiten it toward the sun's azimuth and at the
  * horizon line, so the circumsolar quarter still goes white (with `scaleSky`'s ×2.5 boost).
  */
 const SKY_HORIZON_RGB = new THREE.Color(0.78, 0.86, 0.97);
-const SKY_ZENITH_RGB = new THREE.Color(0.25, 0.42, 0.8);
+const SKY_ZENITH_RGB = new THREE.Color(0.15, 0.25, 0.48);
 export const luminance = (c: THREE.Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
 const SKY_SCALE = nits(SKY_HORIZON_NITS) / luminance(SKY_HORIZON_RGB);
 /**
@@ -880,17 +888,16 @@ export function scaleSky(sky: THREE.Mesh, scale: number): void {
     prev?.call(mat, shader, renderer);
     shader.uniforms.skyScale = { value: scale };
     const boost = shader.fragmentShader.includes("float c = clamp( dot( d, sunDir )") || shader.fragmentShader.includes("float c = clamp(dot(d, sunDir)")
-      ? "gl_FragColor.rgb *= skyScale * ( 1.0 + 1.5 * pow( c, 4.0 ) );"
+      ? "gl_FragColor.rgb *= skyScale * ( 1.0 + 1.0 * pow( c, 4.0 ) );"
       : "gl_FragColor.rgb *= skyScale;";
     shader.fragmentShader = shader.fragmentShader
       .replace("varying vec3 vDir;", "varying vec3 vDir;\nuniform float skyScale;")
       // Horizon → zenith gradient shape. Exterior.ts authors mix(horizon, zenith, pow(h, 0.55)),
-      // which is halfway to the zenith by 15° of elevation, so the band the windows and the
-      // door see (5–25°) measured 8,800 nits under a 12,000-nit horizon. A clear or hazy sky's
-      // luminance is flat to slightly *rising* toward the horizon over the first 20° (CIE
-      // types 11–13); pow(h, 1.6) holds ≈ 94 % of the horizon value at 15° and 82 % at 30°,
-      // and leaves the zenith where it was.
-      .replace("pow(h, 0.55)", "pow(h, 1.6)")
+      // halfway to the zenith by 15° of elevation. Linear in sin(elevation): 74 % of the
+      // horizon value at 15°, 50 % at 30° — between CIE types 8 and 10 for a 35° sun, and
+      // the integral above. (Round 9's pow(h, 1.6) held 94 % to 15° and 82 % to 30°, which
+      // put the diffuse sky at 39 klux.)
+      .replace("pow(h, 0.55)", "h")
       .replace("#include <tonemapping_fragment>", boost + "\n#include <tonemapping_fragment>");
   };
   mat.customProgramCacheKey = () => "sky-scaled";
