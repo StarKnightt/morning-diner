@@ -1066,6 +1066,63 @@ export function prismLens(size: number, cells: number): { normalMap: THREE.Textu
   return { normalMap: finish(c, false, 4), map: finish(mc, true, 4) };
 }
 
+/**
+ * Emissive map of a lit 2×4 troffer lens (System 4 rev 2): `tubes` T8 lamps run along u
+ * behind a K12 prismatic lens. Through the lens each lamp is a soft band ~70 mm wide,
+ * roughly 2.2× brighter than the valley between lamps (lamp Ø 25 mm, 60–90 mm behind the
+ * lens; the prisms spread it, they do not hide it), the bands stop ~30 mm short of the
+ * housing ends and the lens darkens a little along its long edges under the housing walls.
+ * A prism-pitch modulation (`cells` across u, 6 mm on a 1.11 m lens) keeps the lens
+ * reading as a prism sheet even where it is near clipping. Normalised so the mean over
+ * the canvas is 1.0: the material's `emissiveIntensity` is then the lens's MEAN nits × K
+ * and the peaks sit at ≈ 1.5× it. sRGB colour space, no repeat (one canvas = one lens).
+ */
+export const TROFFER_LENS_HEADROOM = 1.6;
+export function trofferLens(w: number, h: number, tubes: number, cells: number): { emissiveMap: THREE.Texture } {
+  const { c, ctx } = canvas(w, h);
+  const img = ctx.createImageData(w, h);
+  const vals = new Float32Array(w * h);
+  const sigma = 0.07; // band half-width as a fraction of the lens's short side (0.51 m → ≈ 36 mm)
+  let sum = 0;
+  for (let y = 0; y < h; y++) {
+    const v = (y + 0.5) / h;
+    // Lamp bands: `tubes` gaussians centred at (k + 0.5) / tubes, on a diffuse floor.
+    let band = 0.55;
+    for (let k = 0; k < tubes; k++) {
+      const d = (v - (k + 0.5) / tubes) / sigma;
+      band += 1.05 * Math.exp(-0.5 * d * d);
+    }
+    // Housing walls along the long edges shade the outermost 25 mm of lens.
+    const edge = smoothstep(0.0, 0.05, v) * smoothstep(1.0, 0.95, v);
+    band *= 0.7 + 0.3 * edge;
+    for (let x = 0; x < w; x++) {
+      const u = (x + 0.5) / w;
+      // Lamps end 30 mm short of the housing ends; the lens keeps ~45 % there from scatter.
+      const ends = 0.45 + 0.55 * smoothstep(0.0, 0.035, u) * smoothstep(1.0, 0.965, u);
+      // Prism-pitch modulation: square-pyramid facets, ridges darker, ±12 %.
+      const cu = ((u * cells) % 1) * 2 - 1, cv = ((v * cells * (h / w)) % 1) * 2 - 1;
+      const ridge = Math.max(Math.abs(cu), Math.abs(cv));
+      const prism = 1.0 - 0.24 * Math.pow(ridge, 6);
+      const val = band * ends * prism;
+      vals[y * w + x] = val;
+      sum += val;
+    }
+  }
+  const norm = (w * h) / sum;
+  for (let i = 0; i < w * h; i++) {
+    // Encode linear radiance as sRGB (the map is read back as an sRGB colour texture).
+    const lin = Math.min(1, (vals[i] * norm) / TROFFER_LENS_HEADROOM); // peaks ≈ 1.5× mean → 0.94 of the encodable range
+    const s = lin <= 0.0031308 ? lin * 12.92 : 1.055 * Math.pow(lin, 1 / 2.4) - 0.055;
+    const o = i * 4;
+    img.data[o] = img.data[o + 1] = img.data[o + 2] = Math.round(s * 255);
+    img.data[o + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = finish(c, true, 4);
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  return { emissiveMap: t };
+}
+
 /** Light grey speckle laminate (counter top). */
 export function formicaSpeckle(size: number, seed: number): TextureSet {
   const { c, ctx } = canvas(size, size);

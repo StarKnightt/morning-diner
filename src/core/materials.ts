@@ -7,6 +7,7 @@ import * as THREE from "three";
 import * as texModule from "../procedural/textures";
 import * as extModule from "../procedural/exterior";
 import { WINDOW } from "../scene/layout";
+import { FLUORESCENT, TROFFER_LENS_NITS, nits } from "../scene/Lighting";
 import type { TextureBank } from "./textureBank";
 
 export interface Palette {
@@ -495,23 +496,30 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     kickPanel: new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.6, metalness: 0.3 }),
     tileBacking: new THREE.MeshStandardMaterial({ color: 0x5a5650, roughness: 1, metalness: 0 }),
     fixtureWhite: new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.4, metalness: 0.1 }),
-    // Prismatic lens of a lit 2×4 troffer: 4,500 nits at nadir (REFERENCE §2/§8 — a 10,500 lm
-    // luminaire over 1.11 × 0.51 m emits 5,900 nits Lambertian; the lens map's dark prisms
-    // bring the mean down) = 0.45 scene units at K = 1e-4, in the same 4100 K + green-bias
-    // tint as the RectAreaLight under it (Lighting.ts). The lens luminance (0.83 for this
-    // colour) × 0.54 ≈ 0.45. About 1.5 stops under a sunlit white Formica table (≈ 12,000
-    // nits) — the fixture is on and visibly losing to the window light.
-    fixtureLens: new THREE.MeshStandardMaterial({
-      color: 0xf4f2ee,
-      roughness: 0.35,
-      metalness: 0,
-      emissive: new THREE.Color().setRGB(255 / 255, (224 / 255) * 1.04, 190 / 255, THREE.SRGBColorSpace),
-      emissiveIntensity: 0.54,
-      map: lens.map,
-      emissiveMap: lens.map,
-      normalMap: lens.normalMap,
-      normalScale: new THREE.Vector2(0.8, 0.8),
-    }),
+    // Prismatic lens of a lit 2×4 troffer (System 4 rev 2): mean luminance TROFFER_LENS_NITS
+    // (7,500 lm Lambertian over 1.11 × 0.51 m ≈ 4,200 nits, +2.0 EV over middle grey) in the
+    // lamp's own 4100 K green-biased tint (Lighting.ts FLUORESCENT, shared with the spot under
+    // it). The emissive map (textures.ts trofferLens) carries the four T8 tube images through
+    // the K12 prisms — ≈ 1.5× the mean under each tube (≈ 6,300 nits, +2.6 EV: near the camera
+    // curve's clip, not on it), ≈ 0.65× between, dark 30 mm at the housing ends — normalised
+    // to mean 1 / TROFFER_LENS_HEADROOM in the texture, so the intensity is (nits × K ×
+    // headroom) / the tint's luminance. The colour map keeps the prism pitch in the albedo.
+    fixtureLens: (() => {
+      const tint = FLUORESCENT.clone();
+      const lum = 0.2126 * tint.r + 0.7152 * tint.g + 0.0722 * tint.b;
+      const tubes = tex.trofferLens(1024, 512, 4, 185); // 185 cells across 1.11 m = 6 mm prisms
+      return new THREE.MeshStandardMaterial({
+        color: 0xf4f2ee,
+        roughness: 0.35,
+        metalness: 0,
+        emissive: tint,
+        emissiveIntensity: (nits(TROFFER_LENS_NITS) * texModule.TROFFER_LENS_HEADROOM) / lum,
+        map: lens.map,
+        emissiveMap: tubes.emissiveMap,
+        normalMap: lens.normalMap,
+        normalScale: new THREE.Vector2(0.8, 0.8),
+      });
+    })(),
     fanBlade: new THREE.MeshStandardMaterial({ map: capTex.map, roughnessMap: capTex.roughnessMap, normalMap: capTex.normalMap, color: 0x8a7060, roughness: 1, metalness: 0 }),
     voidBlack: new THREE.MeshBasicMaterial({ color: 0x040404 }),
     // Nothing lights the kitchen box, so a little emissive stands in for its own ambient: dark, not black.
@@ -537,7 +545,7 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // Emissives in nits × K (Lighting.ts: 1 unit = 10,000 nits); the radiance is intensity ×
   // the emissive colour's luminance. Lit rocker switch ≈ 700 nits, red pilot lamp ≈ 700 nits,
   // the unlit kitchen box ≈ 30 nits (grey paint under a 300-lux kitchen fluorescent:
-  // 0.3 × 300 / π). The troffer lens is set at its construction above (≈ 4,500 nits).
+  // 0.3 × 300 / π). The troffer lens is set at its construction above (TROFFER_LENS_NITS).
   palette.rockerLit.emissiveIntensity = 0.15;
   palette.pilotRed.emissiveIntensity = 0.3;
   palette.kitchenDim.emissiveIntensity = 0.07;

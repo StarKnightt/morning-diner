@@ -25,13 +25,25 @@
  * Sky: the procedural sky dome (Exterior.ts) is scaled to physical nits through an
  * injected uniform (`scaleSky`) and the reflection probes captured from it are the
  * diffuse + specular environment — the lot probe for everything outdoors, the room
- * probe for the interior (bounce off the sunlit floor and vinyl onto ceiling and
- * undersides comes from there, not from a uniform ambient). Two probe passes in
- * Diner.build() give a two-bounce approximation.
+ * probe for the interior (the sky seen through the windows, the lit lenses, the second
+ * bounce of everything below). Two probe passes in Diner.build() give a two-bounce
+ * approximation. The interior sun's FIRST bounce is not in the dielectrics' probe (it is
+ * captured with the interior sun off — a single probe point cannot fall off with distance
+ * from a 3 m² patch two metres away); it is the five `bounce` spots below instead.
  *
- * Fluorescents: one RectAreaLight per 2×4 troffer, 4100 K + a 4 % green bias, 7,500 lm
- * (four F32T8 through a prismatic lens, see TROFFER_LUMENS), and the lens emissive
- * calibrated to 4,500 nits — about 1.7 stops under a sunlit white surface, "on but losing".
+ * Rev 2 (see BUILD.md → System 4 rev 2). Every fill is derived here, in the comments next
+ * to its constant, from glazing area × sky luminance, sun patch area × albedo, or lamp
+ * lumens / floor area; anything that could not be derived was removed (rev 1's five
+ * 1,200-nit window RectAreas and five 2,000-nit floor RectAreas double-counted the probe,
+ * and 16 RectAreaLights cost ~27 ms/frame of LTC evaluation at 1080p). Fills are
+ * SpotLights with a Lambertian-shaped cone (angle 89°, penumbra 1 →
+ * smoothstep(0, 1, cos θ) ≈ cos θ), decay 2, intensity Φ/π candela × K: a point-source
+ * stand-in for a Lambertian panel of flux Φ, exact beyond ~2 panel widths.
+ *
+ * Fluorescents: one such spot per 2×4 troffer (six fixtures, 4100 K + a green bias,
+ * 7,500 lm maintained through a K12 lens, TROFFER_LUMENS) and the lens emissive at the
+ * fixture's mean luminance (TROFFER_LENS_NITS, ≈ 4,200) with the four tube images through
+ * the prisms as an emissive map (textures.ts trofferLens).
  *
  * three.js cannot mask a LIGHT per object (layers are tested against the render
  * camera, even in the shadow pass), so `installShadowMasks` wraps
@@ -39,7 +51,6 @@
  * between them — a per-MAP caster list with no wasted depth draws.
  */
 import * as THREE from "three";
-import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 import { BACK_BAR, BOOTH, CEILING, COUNTER, ROOM, STOOL, WINDOW, trofferCenter } from "./layout";
 
 /* ------------------------------------------------------------------------- */
@@ -108,42 +119,75 @@ const SUN_LUX = 90_000;
 /** Spot apex distance from the building centre. Ray directions across the room vary by ±2.3°. */
 const SPOT_DIST = 150;
 
-/** 4100 K cool-white fluorescent (255, 224, 190) with the mercury-line green bias (+4 % G). */
-const FLUORESCENT = new THREE.Color().setRGB(255 / 255, (224 / 255) * 1.04, 190 / 255, THREE.SRGBColorSpace);
 /**
- * Luminaire output of a four-lamp F32T8 2×4: 4 × 2,850 lm initial lamp lumens = 11,400
- * (the "10–12 klm" of the brief), × 0.68 luminaire efficiency through a prismatic lens
- * × 0.88 ballast factor × 0.85 lamp depreciation ≈ 5,800 lm maintained; set at 7,500 so
- * the fixtures still visibly light the counter side (≈ 900 lux over the 68 m² room).
- * At 10,500 (rev 1 trial) the ceiling sat at 0 EV and the fluorescent side read as a
- * lit office, not a room the sun is winning.
+ * 4100 K cool-white fluorescent in a D65 pipeline ≈ (255, 224, 190), plus the 546 nm
+ * mercury line: +6 % G, +4 % B → a tint that reads slightly green-cyan beside the 5,400 K
+ * sun (rev 1's +4 % G was invisible next to the warmer lens albedo). Exported for the lens
+ * emissive (materials.ts), so lamp and lens share one colour.
  */
-const TROFFER_LUMENS = 7_500;
+export const FLUORESCENT = new THREE.Color().setRGB(255 / 255, Math.min(1, (224 / 255) * 1.06), Math.min(1, (190 / 255) * 1.04), THREE.SRGBColorSpace);
 /**
- * Sky + lot seen through the glass and the half-open slats, as one Lambertian rectangle
- * in the glass plane: (½ sky at ≈ 10,000 nits + ½ lot at ≈ 3,000) × 0.88 glass × 0.5
- * slat openness ≈ 2,900 nits; set to 1,200 because the room probe already carries part
- * of the window's contribution (it sees the windows) — REFERENCE §8 explains the split.
+ * Luminaire output of a four-lamp F32T8 2×4: 4 × 2,850 lm initial lamp lumens = 11,400,
+ * × 0.68 luminaire efficiency through a K12 lens × 0.88 ballast factor × 0.85 lamp
+ * depreciation ≈ 5,800 lm maintained; set at 7,500 (a cleaner, younger install).
+ * Six fixtures (layout.ts CEILING.troffers) → 45,000 lm over the 68 m² room = 660 lux if
+ * every lumen reached the floor; with a room cavity utilisation of ≈ 0.6 (light walls,
+ * dark floor, 2.9 m ceiling) the working plane sits at ≈ 400 lux, the "300–500 lux from
+ * the troffers" of the brief. A white surface under that is 0.8 × 400 / π ≈ 100 nits:
+ * 3.4 stops under middle grey (GREY_NITS) at this exposure.
  */
-const WINDOW_SKY = new THREE.Color().setRGB(205 / 255, 215 / 255, 232 / 255, THREE.SRGBColorSpace);
-const WINDOW_SKY_NITS = 1_200;
+export const TROFFER_LUMENS = 7_500;
+/** Lens: 1.11 × 0.51 m opening (two 0.6 m cells less the door frame). */
+export const TROFFER_LENS_AREA = (CEILING.tile * 2 - 0.09) * (CEILING.tile - 0.09);
 /**
- * Sky dome: the shader's horizon (≈ 0.9) is authored at display scale; ×0.6 puts the
- * horizon haze at 5,500 nits (zenith ≈ 2,800). `scaleSky` adds the circumsolar brightening
- * on top (×2.5 at the sun, ×1.67 at 35° from it — the part of the sky the windows look at,
- * ≈ 9,000 nits). Hemisphere average ≈ 4,500 nits → ≈ 15 klux of diffuse skylight on the
- * lot against 51.6 klux of direct sun (90 klux · sin 35°): a 3.4:1 lit/shadow ratio. At
- * 7,000 + ×3 (rev 1 trial) the diffuse term reached 25 klux and the pole and wheel-stop
- * shadows on the asphalt went 1.8 stops instead of 2.3.
+ * Mean lens luminance of a Lambertian emitter of TROFFER_LUMENS over TROFFER_LENS_AREA:
+ * Φ / (π A) ≈ 4,200 nits (+2.0 EV over grey; the tube images in the emissive map peak at
+ * ≈ 1.5× → 6,300 nits, +2.5 EV: "near clip" under the camera curve, not clipped).
  */
-const SKY_HORIZON_NITS = 5_500;
+export const TROFFER_LENS_NITS = TROFFER_LUMENS / (Math.PI * TROFFER_LENS_AREA);
 /**
- * Aisle floor under a window's beam, averaged over lit and shaded stripes: ρ 0.45 × 22.7
- * klux / π = 3,250 nits for a clear patch; ×0.6 because the booth backs and the stools
- * intercept the lower part of every beam before it reaches the aisle.
+ * Sky dome: the shader's horizon (≈ 0.9) is authored at display scale; the scale puts the
+ * horizon band at 8,000 nits (zenith ≈ 0.45 × → 3,600, a real blue). `scaleSky` adds the
+ * circumsolar brightening on top (×2.5 at the sun, ×1.67 at 35° from it — the part of
+ * the sky the windows look at, ≈ 13,000 nits, +3.6 EV over grey: white through the slats).
+ * Hemisphere average ≈ 5,500 nits → ≈ 17 klux of diffuse skylight on the lot against
+ * 51.6 klux of direct sun (90 klux · sin 35°): a 4:1 lit/shadow ratio (2 EV), the typical
+ * clear-morning value. Rev 1's 5,500-nit horizon read as grey-green through the glass.
  */
-const BOUNCE_NITS = 2_000;
+const SKY_HORIZON_NITS = 8_000;
 const SKY_SCALE = nits(SKY_HORIZON_NITS) / 0.91;
+/**
+ * Sun inside the room, on the horizontal, averaged over the slat duty cycle: 90 klux ×
+ * 0.88 glass × sin 35° × 0.5 (half-open 1" slats pass ~50 % of the beam) ≈ 22,700 lux on
+ * a sunlit patch; on a vertical face toward +x (the bench fronts; the sun vector's x is
+ * sin 38° · cos 35° = 0.504) 90 klux × 0.88 × 0.504 × 0.5 ≈ 20,000 lux.
+ */
+const PATCH_LUX_H = SUN_LUX * 0.88 * Math.sin(THREE.MathUtils.degToRad(35)) * 0.5;
+const PATCH_LUX_X = SUN_LUX * 0.88 * 0.504 * 0.5;
+/**
+ * First bounce of one window's beam, per booth. The beam lands on (ray-traced from the
+ * window rectangle along the sun vector, see BUILD.md rev 2):
+ *   · the aisle floor past the booth back — 1.35 m wide × ≈ 1.3 m deep ≈ 1.75 m² of checker
+ *     (albedo 0.47/0.45/0.42, warm grey);
+ *   · the sun side of the table top — ≈ 0.3 m² of cream laminate (0.90/0.85/0.75);
+ *   · the −x bench's seat and back front, both facing the sun — ≈ 0.8 m² of red vinyl,
+ *     linear albedo (0.40/0.010/0.007) from #AA1A15.
+ * Reflected flux per channel = Σ E × A × ρ:
+ *   floor 22.7k × 1.75 × (0.47, 0.45, 0.42) = (18.7k, 17.9k, 16.7k)
+ *   table 22.7k × 0.30 × (0.90, 0.85, 0.75) = ( 6.1k,  5.8k,  5.1k)
+ *   vinyl 20.0k × 0.80 × (0.40, 0.01, 0.007)= ( 6.4k,  0.16k, 0.11k)
+ *   total ≈ (31k, 24k, 22k) lm-equivalent; the red vinyl is 20 % of the red channel,
+ * which is the colour bleed (a warm pink, not the sun's white-yellow) that reaches the
+ * ceiling, the table underside and the wall behind the far bench. One upward Lambertian
+ * spot per booth, Φ/π cd, at the flux-weighted centroid of those three surfaces.
+ */
+const BOUNCE_FLUX = new THREE.Vector3(
+  PATCH_LUX_H * 1.75 * 0.47 + PATCH_LUX_H * 0.3 * 0.9 + PATCH_LUX_X * 0.8 * 0.4,
+  PATCH_LUX_H * 1.75 * 0.45 + PATCH_LUX_H * 0.3 * 0.85 + PATCH_LUX_X * 0.8 * 0.01,
+  PATCH_LUX_H * 1.75 * 0.42 + PATCH_LUX_H * 0.3 * 0.75 + PATCH_LUX_X * 0.8 * 0.007,
+);
+/** Spot cone that approximates a Lambertian emitter: smoothstep(cos 89°, 1, cos θ) ≈ cos θ. */
+const LAMBERT_ANGLE = THREE.MathUtils.degToRad(89);
 
 export interface LightingResult {
   sun: THREE.SpotLight;
@@ -159,8 +203,10 @@ export interface LightingResult {
   sunLot: THREE.DirectionalLight;
   /** Caster-only cone on the spot's cone; masks `sunLot` out of the building. */
   cone: THREE.Mesh;
-  troffers: THREE.RectAreaLight[];
-  windowFills: THREE.RectAreaLight[];
+  /** One Lambertian spot per 2×4 fixture (`?nofluor` → none). */
+  troffers: THREE.SpotLight[];
+  /** One upward Lambertian spot per booth: the first bounce of that window's sun (`?nobounce` → none). */
+  bounces: THREE.SpotLight[];
   /** Horizon colour in scene units, for the fog and the background. */
   horizon: THREE.Color;
 }
@@ -509,73 +555,71 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   const q = new URLSearchParams(location.search);
   if (q.has("nospot")) sun.intensity = 0;
   if (q.has("nolot")) sunLot.intensity = 0;
-  if (q.has("nofill")) return { sun, sunBeam, sunLot, cone: cone3, troffers: [], windowFills: [], horizon };
+  if (q.has("nofill")) return { sun, sunBeam, sunLot, cone: cone3, troffers: [], bounces: [], horizon };
 
-  RectAreaLightUniformsLib.init();
+  /**
+   * A Lambertian panel of flux Φ as a point: SpotLight, angle 89°, penumbra 1 (the
+   * smoothstep cone ≈ cos θ), decay 2, intensity Φ/π cd → E = (Φ/π) cos θ cos θ_r / d²,
+   * which is the far-field irradiance of the panel. No shadow map: these are fills.
+   */
+  const lambertSpot = (color: THREE.Color, lumens: number, name: string) => {
+    const l = new THREE.SpotLight(color, nits(lumens / Math.PI), 0, LAMBERT_ANGLE, 1, 2);
+    l.castShadow = false;
+    l.name = name;
+    return l;
+  };
 
   /* ---------------- fluorescent troffers ---------------- */
-  // RectAreaLight `power` is lumens → intensity = power / (w·h·π) in nits (× K here):
-  // 7,500 lm over 1.11 × 0.51 m ≈ 4,200 nits of Lambertian emission per troffer.
-  const troffers: THREE.RectAreaLight[] = [];
+  // One spot per fixture, 12 mm under the lens plane, aimed straight down. Under a
+  // fixture at 2 m (the counter top): (7,500/π) / 4 ≈ 600 lux — the pools; the aisle
+  // floor between two fixtures (≈ 1.5 m off-axis, 2.9 m down, cos θ ≈ 0.89): ≈ 130 lux
+  // from each. The lens itself is emissive (materials.ts fixtureLens, TROFFER_LENS_NITS)
+  // and reaches the probe, so its reflection is in the counter laminate.
+  const troffers: THREE.SpotLight[] = [];
   if (!q.has("nofluor")) {
     for (const cell of CEILING.troffers) {
       const [x, z] = trofferCenter(cell);
-      const l = new THREE.RectAreaLight(FLUORESCENT, 1, CEILING.tile * 2 - 0.09, CEILING.tile - 0.09);
-      l.power = nits(TROFFER_LUMENS);
-      l.position.set(x, ROOM.height - CEILING.teeDepth + 0.012, z);
-      l.lookAt(x, 0, z);
-      l.name = "troffer";
-      scene.add(l);
+      const l = lambertSpot(FLUORESCENT, TROFFER_LUMENS, "troffer");
+      l.position.set(x, ROOM.height - CEILING.teeDepth - 0.012, z);
+      l.target.position.set(x, 0, z);
+      scene.add(l, l.target);
       troffers.push(l);
     }
   }
 
-  /* ---------------- sky through the windows ---------------- */
-  // One RectAreaLight the size of each glazed opening, in the glass plane, facing in: the
-  // bluish-white sky/lot patch the room sees through the half-open slats. Gives the near-
-  // window falloff the probe (a single point) cannot; the probe carries the rest.
-  const windowFills: THREE.RectAreaLight[] = [];
-  {
-    const h = WINDOW.head - WINDOW.sill;
-    for (const x of WINDOW.centersX) {
-      const l = new THREE.RectAreaLight(WINDOW_SKY, nits(WINDOW_SKY_NITS), WINDOW.width, h);
-      l.position.set(x, WINDOW.sill + h / 2, ROOM.zFront - 0.02);
-      l.lookAt(x, WINDOW.sill + h / 2, ROOM.zFront - 5);
-      l.name = "window-sky";
-      scene.add(l);
-      windowFills.push(l);
-    }
-  }
-
-  /* ---------------- bounce off the aisle sun patches ---------------- */
-  // Each window's beam lands on the aisle floor between the booth fronts and the counter's
-  // toe (window heights 1.1–2.6 m × cot 35° along the sun's plan direction), shifted
-  // toward −x by tan 38° per metre of depth. Those patches are the room's brightest
-  // surfaces after the windows and the main source of warm light on the ceiling, the
-  // table undersides and the counter die — the probe now sits away from them (Diner.ts),
-  // so each patch is an upward-facing RectAreaLight: sun colour × checker floor
-  // (average albedo ≈ 0.45, slightly warm), luminance ρ·E/π with E = 90 klux · sin 35° ·
-  // 0.88 glass · 0.5 slat duty ≈ 22.7 klux → 3,250 nits over the lit stripes; 2,000 as the
-  // rectangle's average because booth backs and stool bases block ~40 % of it. The
-  // dielectrics' probe is captured with the interior sun off (Diner.ts), so this is the
-  // only sun bounce they get.
-  const bounces: THREE.RectAreaLight[] = [];
+  /* ---------------- first bounce of each window's beam (per booth) ---------------- */
+  // BOUNCE_FLUX (derivation at the constant): ≈ 25,000 lm-equivalent per booth, colour
+  // (1.0, 0.77, 0.70) — the checker floor's warm grey pulled toward red by the sunlit
+  // bench. Placed at the flux-weighted centroid of the lit floor patch (aisle, z ≈ 1.0,
+  // shifted −x by the sun's plan angle), the table and the −x bench: about 1.2 m into the
+  // room from the booth's centre, low, so it lights the table underside and the bench
+  // undersides from below, the ceiling above the booths (≈ 950 lux directly above at
+  // 2.6 m → a 240-nit tile, −2.2 EV, fading to ≈ 60 lux at the back wall — the ceiling
+  // gradient the critics asked for) and the divider/wall faces next to the lit vinyl.
+  // The dielectrics' probe is captured with the interior sun off (Diner.ts), so these
+  // are the only sun bounce they see; metals use the sun-on probe and get it from there.
+  const bounces: THREE.SpotLight[] = [];
   if (!q.has("nobounce")) {
     const planShift = Math.tan(THREE.MathUtils.degToRad(38));
-    const z0 = COUNTER.topFrontZ + 0.15, z1 = BOOTH.zInner - 0.4; // aisle floor the beam reaches past the booth backs
-    const zc = (z0 + z1) / 2, depth = ROOM.zFront - zc;
-    const bounceColor = SUN_COLOR.clone().multiply(new THREE.Color().setRGB(0.47, 0.45, 0.42, THREE.LinearSRGBColorSpace));
+    const zFloor = (COUNTER.topFrontZ + 0.15 + BOOTH.zInner - 0.4) / 2; // aisle patch centre, ≈ 0.95
+    const zBooth = BOOTH.zInner + 0.5; // table / bench sun zone
+    const wFloor = 0.73, wBooth = 0.27; // flux shares from the table above
+    const zc = zFloor * wFloor + zBooth * wBooth;
+    const flux = BOUNCE_FLUX;
+    const lum = 0.2126 * flux.x + 0.7152 * flux.y + 0.0722 * flux.z;
+    const color = new THREE.Color(flux.x / lum, flux.y / lum, flux.z / lum); // luminance 1 → intensity carries the lumens
     for (const cx of WINDOW.centersX) {
-      const l = new THREE.RectAreaLight(bounceColor, nits(BOUNCE_NITS) / 0.39, WINDOW.width, z1 - z0); // 0.39 = Y of bounceColor
-      l.position.set(cx - depth * planShift, 0.02, zc);
-      l.lookAt(l.position.x, 5, zc);
-      l.name = "floor-bounce";
-      scene.add(l);
+      const l = lambertSpot(color, lum, "sun-bounce");
+      // The first window's beam meets the −x end wall before the aisle: keep its spot indoors.
+      const xc = Math.max(-ROOM.halfX + 0.4, cx - (ROOM.zFront - zFloor) * planShift * wFloor - 0.5 * wBooth);
+      l.position.set(xc, 0.12, zc);
+      l.target.position.set(xc, 3, zc);
+      scene.add(l, l.target);
       bounces.push(l);
     }
   }
 
-  return { sun, sunBeam, sunLot, cone: cone3, troffers, windowFills: [...windowFills, ...bounces], horizon };
+  return { sun, sunBeam, sunLot, cone: cone3, troffers, bounces, horizon };
 }
 
 /**
