@@ -55,6 +55,9 @@ const SHAPES: Record<string, Record<string, Shape>> = {
     tideLineAlpha: "direct",
     baseboardScuff: ["map", "roughnessMap"],
     doorDecals: "direct",
+    // System 5 rev 3
+    vinylCrazeAtlas: ["map"],
+    kickPlateWear: ["map", "roughnessMap"],
   },
   ext: {
     lotSurface: ["map", "roughnessMap"],
@@ -107,6 +110,8 @@ const LABELS: Record<string, string> = {
   tideLineAlpha: "coffee tide line",
   baseboardScuff: "cove base",
   doorDecals: "door signage",
+  vinylCrazeAtlas: "cracked vinyl",
+  kickPlateWear: "kick plate",
   presenceAtlas: "the apron and the paper",
 };
 
@@ -124,7 +129,9 @@ function estimateCost(fn: string, args: unknown[]): number {
     case "lotSurface":
       return n(0) * n(0) * 0.5 * 3;
     case "vinylSurface":
-      return n(0) * n(0) * (args[2] ? 5.5 : 3);
+      return n(0) * n(0) * 3;
+    case "vinylCrazeAtlas":
+      return n(0) * n(0) * 2;
     case "woodVeneer":
       return n(0) * n(0) * 3;
     case "formicaBoomerang":

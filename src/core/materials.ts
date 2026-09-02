@@ -7,6 +7,7 @@ import * as THREE from "three";
 import * as texModule from "../procedural/textures";
 import * as extModule from "../procedural/exterior";
 import { WINDOW } from "../scene/layout";
+import { VINYL_CRAZE_METRES, boothVinylCrazeLayout } from "./upholstery";
 import { FLUORESCENT, TROFFER_LENS_NITS, luminance, nits } from "../scene/Lighting";
 import type { TextureBank } from "./textureBank";
 
@@ -200,17 +201,19 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // and AgX then rendered its sunlit stripes pink. Warmed to a cherry red (G ≥ B) so the
   // sunlit crowns roll off toward orange-white and the shade stays a deep red (System 4).
   // Vinyl red #AA1A15 (reads ≈ #AF1C17 after the crown vertex tint) — baked into the map below.
-  const mkVinyl = (crazed: boolean) => {
-    // System 5: authored at the displayed scale — repeat 4 on metric UVs shows one canvas per
-    // 0.25 m, so `metres` is 0.25 and the 0.55 mm pebble grain / 3.5 mm crazing cells are true size.
-    const t = tex.vinylSurface(1024, 0.25, crazed);
+  // System 5: authored at the displayed scale — repeat 4 on metric UVs shows one canvas per
+  // 0.25 m, so `metres` is 0.25 and the 0.55 mm pebble grain is true size. One grain set
+  // serves both materials (rev 3: the crazing is no longer in the tiling maps).
+  const vinylGrain = tex.vinylSurface(1024, 0.25);
+  const mkVinyl = (map: THREE.Texture) => {
+    const t = vinylGrain;
     t.normalMap.repeat.set(4, 4);
     t.roughnessMap.repeat.set(4, 4);
     t.map.repeat.set(4, 4);
     return new THREE.MeshPhysicalMaterial({
-      // Rev 2: the red moved into the map (burnished blotches darker, scrim in the cracks).
+      // Rev 2: the red moved into the map.
       color: 0xffffff,
-      map: t.map,
+      map,
       normalMap: t.normalMap,
       // 0.8 (was 1.25): at 1.25 the 0.1 mm/texel grain under a 0.3-rough clearcoat sparkled —
       // pixel-scale highlights that changed with every camera step read as flicker (rev 7).
@@ -224,8 +227,15 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
       vertexColors: true,
     });
   };
-  const vinylRed = mkVinyl(false);
-  const vinylRedCrazed = mkVinyl(true);
+  const vinylRed = mkVinyl(vinylGrain.map);
+  // Rev 3: the crazed booth samples a non-repeating 2048² atlas (0.68 mm/texel over 1.4 m)
+  // on UV channel 1 — dark hairline fractures grown from the flex lines, flaked scrim
+  // islands, the stitch lines — while the 0.5 mm grain keeps tiling on channel 0.
+  // Booths.ts lays the head roll, both channel panels and the welt cords out in it.
+  const crazeMap = tex.vinylCrazeAtlas(2048, VINYL_CRAZE_METRES, boothVinylCrazeLayout()).map;
+  crazeMap.channel = 1;
+  crazeMap.repeat.set(1 / VINYL_CRAZE_METRES, 1 / VINYL_CRAZE_METRES);
+  const vinylRedCrazed = mkVinyl(crazeMap);
 
   // Laminates: ExtrudeGeometry UVs are in metres; one canvas = 0.5 m.
   // One 2048 canvas covers 1.2 m: a whole table top without a visible repeat.
@@ -613,14 +623,8 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   const chromeScuffed = withRough(palette.chrome.clone(), tex.scuffRoughness(512, palette.chrome.roughness, 61));
   // Hands on chrome: the push bar and pull handle (v along the bar).
   const chromeBar = withRough(palette.chrome.clone(), tex.handWear(512, palette.chrome.roughness, 62));
-  const vinylRedWeltCracked = palette.vinylRedCrazed.clone();
-  {
-    const t = tex.vinylSurface(1024, 0.25, true, true);
-    for (const m of [t.normalMap, t.roughnessMap, t.map]) { m.wrapS = m.wrapT = THREE.RepeatWrapping; m.repeat.set(4, 4); }
-    vinylRedWeltCracked.normalMap = t.normalMap;
-    vinylRedWeltCracked.roughnessMap = t.roughnessMap;
-    vinylRedWeltCracked.map = t.map;
-  }
+  // Rev 3: the welt-cracked panels and the crazed roll are one atlas, one material (−1 draw call).
+  const vinylRedWeltCracked = palette.vinylRedCrazed;
   // Kick plate: satin brushed stainless — a looser finish than the brewer trim (0.45) so it
   // scatters the room into a light grey instead of mirroring the dark floor (rev 1 read as
   // a flat mauve-brown rectangle), horizontal brushing along the plate.

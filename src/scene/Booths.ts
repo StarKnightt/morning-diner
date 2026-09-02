@@ -10,7 +10,7 @@ import * as THREE from "three";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { prismXY, rectXZ, slabGeometry, type XZ } from "../core/shapes";
-import { channelPanel, cushionGeometry, metricUv, piping, plainColor, roundedRectPoints } from "../core/upholstery";
+import { CRAZED_BOOTH, boothVinylCrazeLayout, channelPanel, channelSeed, cushionGeometry, cylinderArcUv, metricUv, piping, plainColor, roundedRectPoints } from "../core/upholstery";
 import { BOOTH, ROOM, WINDOW } from "./layout";
 
 export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: MergedBuilder["colliders"] } {
@@ -18,6 +18,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
   const { zInner, zOuter, table, seat, back, divider, cap, kick, endPanel } = BOOTH;
   const zEnd0 = zInner - endPanel;
   const capHalf = cap.width / 2;
+  const crazeLayout = boothVinylCrazeLayout();
   // Cap crossbar (over the end panels) z-range: centred on the end panel, 70 mm wide.
   const czMid = (zEnd0 + zInner) / 2;
   const cz0 = czMid - capHalf, cz1 = czMid + capHalf;
@@ -144,6 +145,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
           bellyAmount: 0.008,
           wear: 0.35,
           sags: [{ z: -0.3, depth: 0.007 }, { z: 0.3, depth: 0.007 }],
+          burnish: 0.16,
         });
         cush.translate((lo(seat.front, seatBack) + hi(seat.front, seatBack)) / 2, seat.top - seat.thickness / 2, zMid);
         b.add(cush, pal.vinylRed);
@@ -192,45 +194,65 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       {
         const faceLen = Math.hypot(lean, back.top - yb0);
         const panelH = faceLen - 0.1;
-        const { geometry: panel, valleys } = channelPanel(cd - 0.03, panelH, 0.12, 0.02, 11 + Math.round(cx * 10) + s);
+        const { geometry: panel, valleys } = channelPanel(cd - 0.03, panelH, 0.12, 0.02, channelSeed(ti, s));
         const ex = new THREE.Vector3(0, 0, s), ey = new THREE.Vector3(0, 1, 0), ez = new THREE.Vector3(-s, 0, 0);
         const m = new THREE.Matrix4().makeBasis(ex, ey, ez);
         m.premultiply(new THREE.Matrix4().makeRotationZ(-s * recl));
         const dirX = (s * lean) / faceLen, dirY = (back.top - yb0) / faceLen;
         const t = 0.02 + panelH / 2;
         m.setPosition(X(back.frontX) + dirX * t + s * 0.003, yb0 + dirY * t, zMid);
-        if (ti === 1) {
-          // The second booth's backs have cracked along the welts (System 5): the material's
-          // crack band lives at u ≈ 0, so u becomes the distance from the nearest cord (the
-          // 0.5 mm pebble grain does not mind being mirrored at the channel crowns).
-          const pp = panel.attributes.position as THREE.BufferAttribute, puv = panel.attributes.uv as THREE.BufferAttribute;
-          for (let i = 0; i < pp.count; i++) {
-            const x = pp.getX(i);
-            let dmin = 1;
-            for (const vx of valleys) dmin = Math.min(dmin, Math.abs(x - vx));
-            puv.setX(i, dmin);
-          }
-          b.add(panel, pal.vinylRedWeltCracked, m);
-        } else b.add(panel, pal.vinylRed, m); // rev 2: crazing is booth 2's alone
+        // Rev 3: the crazed booth's panels and cords sample the non-repeating crazing atlas on
+        // UV channel 1 (materials.ts); the panel's own metric UVs (channel 0) keep the grain.
+        const crazed = ti === CRAZED_BOOTH;
+        const region = crazeLayout.panels[s < 0 ? 0 : 1];
+        if (crazed) {
+          const puv = panel.attributes.uv as THREE.BufferAttribute;
+          const uv1 = new Float32Array(puv.count * 2);
+          for (let i = 0; i < puv.count; i++) { uv1[i * 2] = puv.getX(i); uv1[i * 2 + 1] = region.v0 + puv.getY(i); }
+          panel.setAttribute("uv1", new THREE.BufferAttribute(uv1, 2));
+        }
+        b.add(panel, crazed ? pal.vinylRedCrazed : pal.vinylRed, m);
         // 6 mm welt cord sewn ON every seam: centre 1 mm above the crown tangent line
         // (crowns at 20 mm), so it carries its own highlight and throws a line shadow
         // both sides (baked into the panel's vertex colour). Ends tuck under the seams.
-        for (const vx of valleys) {
+        valleys.forEach((vx, vi) => {
           const cord = new THREE.CylinderGeometry(0.003, 0.003, panelH - 0.004, 14);
+          const cuv = cord.attributes.uv as THREE.BufferAttribute;
+          const uv0 = new Float32Array(cuv.count * 2), uv1 = new Float32Array(cuv.count * 2);
+          const track = crazeLayout.cords.v0 + (s < 0 ? vi : crazeLayout.panels[0].valleys.length + vi) * crazeLayout.cords.pitch;
+          for (let i = 0; i < cuv.count; i++) {
+            // grain: metric along (v) and round (u) the bead; atlas strip: this cord's track
+            uv0[i * 2] = cuv.getY(i) * (panelH - 0.004); uv0[i * 2 + 1] = cuv.getX(i) * 0.019;
+            uv1[i * 2] = cuv.getY(i) * (panelH - 0.004); uv1[i * 2 + 1] = track + cuv.getX(i) * crazeLayout.cords.pitch;
+          }
+          cord.setAttribute("uv", new THREE.BufferAttribute(uv0, 2));
+          if (crazed) cord.setAttribute("uv1", new THREE.BufferAttribute(uv1, 2));
           cord.translate(vx, 0, 0.021);
-          b.add(plainColor(cord, 1.08), pal.vinylRed, m);
-        }
+          b.add(plainColor(cord, 1.08), crazed ? pal.vinylRedCrazed : pal.vinylRed, m);
+        });
       }
       // Rolled top cushion (90 mm Ø), tucked against the divider, with a welt where it meets the face.
       const rollX = X(back.rearX - back.rollR + 0.02);
       const roll = new THREE.CylinderGeometry(back.rollR, back.rollR, cd - 0.01, 28);
       roll.rotateX(Math.PI / 2);
+      // Rev 3: metric UVs run round the roll from the sewn seam (bottom-front, where the channels
+      // dive under it) with the only join at the back against the divider — `metricUv` mirrored
+      // the grain at the crest and the flip read as a horizontal seam along the roll.
+      const seamPt = [X(back.frontX + lean * 0.94) - s * 0.021, back.top - 0.046];
+      const seamAng = Math.atan2(seamPt[1] - back.top, seamPt[0] - rollX);
+      roll.rotateZ(seamAng - Math.PI / 2);
       roll.translate(rollX, back.top, zMid);
-      metricUv(roll);
-      b.add(plainColor(roll), ti === 1 ? pal.vinylRedCrazed : pal.vinylRed); // rev 2: only booth 2's roll top has crazed
+      const arc = cylinderArcUv(roll, back.rollR, 0.25 / (2 * Math.PI * back.rollR));
+      if (ti === CRAZED_BOOTH) {
+        const rp = roll.attributes.position;
+        const uv1 = new Float32Array(rp.count * 2);
+        for (let i = 0; i < rp.count; i++) { uv1[i * 2] = rp.getZ(i) - (zInner + 0.005); uv1[i * 2 + 1] = crazeLayout.roll.v0 + crazeLayout.roll.arcHalf + arc[i]; }
+        roll.setAttribute("uv1", new THREE.BufferAttribute(uv1, 2));
+        b.add(plainColor(roll), pal.vinylRedCrazed);
+      } else b.add(plainColor(roll), pal.vinylRed);
       const seamZ = (x: number, y: number, r: number) => piping([new THREE.Vector3(x, y, zInner + 0.008), new THREE.Vector3(x, y, zMid), new THREE.Vector3(x, y, zOuter - 0.008)], r, false);
       // 6 mm piped seam where the channels dive under the head roll, proud of the junction
-      b.add(plainColor(seamZ(X(back.frontX + lean * 0.94) - s * 0.021, back.top - 0.046, 0.003), 1.15), pal.vinylRed);
+      b.add(plainColor(seamZ(seamPt[0], seamPt[1], 0.003), 1.15), pal.vinylRed);
       // Boxing seam welt where the seat cushion meets the back.
       b.add(plainColor(seamZ(X(back.frontX) - s * 0.008, seat.top + 0.004, 0.003), 1.2), pal.vinylRed);
       // Aisle-end panel: from the seat front to the divider, under the cap.
