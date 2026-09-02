@@ -347,6 +347,15 @@ function loftBody(stations: Station[], L: number, glassOf: GlassOf = () => null)
     if (n.dot(P(i, j).sub(c)) < 0) n.negate();
     return n;
   };
+  /** Mean height of a station's inset (moved) ring points — the pocket floor; falls back to the neighbour. */
+  const pocketFloorY = (i: number): number => {
+    for (const k of [i, i + 1]) {
+      let s = 0, n = 0;
+      rings[k].forEach((p, j) => { if (moved[k][j]) { s += p[1]; n++; } });
+      if (n) return s / n;
+    }
+    return stations[i].yTop;
+  };
   const tri = (dst: { pos: number[]; nor: number[]; uv: number[] }, a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, na: THREE.Vector3, nb: THREE.Vector3, nc: THREE.Vector3, ua: number[], ub: number[], uc: number[]) => {
     const fn = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
     if (fn.lengthSq() < 1e-16) return; // degenerate (coincident groove stations)
@@ -366,8 +375,23 @@ function loftBody(stations: Station[], L: number, glassOf: GlassOf = () => null)
       const a = P(i, j), b = P(i, j1), c = P(i + 1, j1), d = P(i + 1, j);
       const va = j / N, vb = (j + 1) / N;
       const groove = moved[i][j] || moved[i][j1] || moved[i + 1][j] || moved[i + 1][j1];
+      const paintPocket = groove && (stations[i].insetPaint || stations[i + 1].insetPaint);
+      if (paintPocket && stations[i + 1].z - stations[i].z > 1e-6) {
+        // Open pocket in the skin (pickup bed): the radial "outward" test in normalAt points the
+        // floor DOWN and the inner walls INTO the metal (they lie below / outside the station
+        // centre), which culled them and showed the dark lining instead. Use a flat face normal
+        // aimed at the cavity — 15 cm above the pocket floor on the centre line.
+        const fc = a.clone().add(b).add(c).add(d).multiplyScalar(0.25);
+        const fn = new THREE.Vector3().subVectors(c, a).cross(new THREE.Vector3().subVectors(d, b)).normalize();
+        if (fn.lengthSq() < 0.5) continue; // fully degenerate (collapsed groove points)
+        const cav = new THREE.Vector3(0, pocketFloorY(i) + 0.15, fc.z);
+        if (fn.dot(cav.sub(fc)) < 0) fn.negate();
+        tri(out.body, a, b, c, fn, fn, fn, [uA, va], [uA, vb], [uB, vb]);
+        tri(out.body, a, c, d, fn, fn, fn, [uA, va], [uB, vb], [uB, va]);
+        continue;
+      }
       const glass = groove ? null : glassOf(i, j);
-      const dst = groove ? (stations[i].insetPaint || stations[i + 1].insetPaint ? out.body : out.grooves) : glass === "full" ? out.glass : out.body;
+      const dst = groove ? (paintPocket ? out.body : out.grooves) : glass === "full" ? out.glass : out.body;
       if (glass && glass !== "full") {
         // Split the quad by the line joining parameter tA on edge a→b (station i) to tB on edge
         // d→c (station i+1); the t-low side is glass when `low`, else the t-high side.
