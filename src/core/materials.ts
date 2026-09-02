@@ -430,8 +430,11 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     // toward the lower edge and corners (roughness map 0.008–0.045, REFERENCE §4).
     // transmission stays 1 and the 12 % loss lives in `color`: any transmission < 1
     // leaves a lit diffuse skin over the pane that reads as a milky veil (rev 1 lesson).
+    // System 4 rev 2: #e2ebe6 (linear 0.76/0.83/0.79, +9 % green) turned the sky through the
+    // panes grey-green in the sys4 frames; face-on, 6 mm clear float is (0.85/0.87/0.86) —
+    // the green lives in the edges. #edf0ee keeps the 12 % loss and 2.5 % of green.
     glass: new THREE.MeshPhysicalMaterial({
-      color: 0xe2ebe6,
+      color: 0xedf0ee,
       roughness: 1,
       roughnessMap: ext.glassDust(1024, 3320, false),
       metalness: 0,
@@ -446,7 +449,7 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     }),
     // Door glass: same pane with palm/finger smudges around push-bar height.
     glassDoor: new THREE.MeshPhysicalMaterial({
-      color: 0xe2ebe6,
+      color: 0xedf0ee,
       roughness: 1,
       roughnessMap: ext.glassDust(1024, 3321, true),
       metalness: 0,

@@ -12,7 +12,7 @@
  */
 import * as THREE from "three";
 import type { FirstPerson } from "../player/FirstPerson";
-import { GREY_NITS, K } from "../scene/Lighting";
+import { CAMERA_WHITE_EV, GREY_NITS, K } from "../scene/Lighting";
 
 export interface Pose {
   x: number;
@@ -40,7 +40,7 @@ declare global {
     /** The bundled three module, for in-page HDR probes (a Float render target + readback). */
     __THREE?: typeof THREE;
     /** Photometric scale of the scene (System 4): scene units per nit and the nits of middle grey. */
-    __lighting?: { K: number; greyNits: number };
+    __lighting?: { K: number; greyNits: number; whiteEv: number };
   }
 }
 
@@ -70,7 +70,7 @@ export function installCaptureApi(
 ): void {
   window.__APP = { renderer, scene, camera };
   window.__THREE = THREE;
-  window.__lighting = { K, greyNits: GREY_NITS };
+  window.__lighting = { K, greyNits: GREY_NITS, whiteEv: CAMERA_WHITE_EV };
   window.__setPose = (p: Pose) => player.setPose(p.x, p.y, p.z, p.yaw, p.pitch);
   window.__stats = () => ({
     calls: renderer.info.render.calls,

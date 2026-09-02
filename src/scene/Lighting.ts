@@ -86,8 +86,60 @@ export const L_SAT_NITS = 1.2 * Math.pow(2, EV100);
 export const EXPOSURE = 1 / (L_SAT_NITS * K);
 /** Scene luminance that lands on middle grey (0.18 of L_sat). */
 export const GREY_NITS = 0.18 * L_SAT_NITS;
-/** Tone curve. AgX keeps the clipped red channel of sunlit vinyl red (ACES pulls it to orange). */
-export const TONE_MAPPING: THREE.ToneMapping = THREE.AgXToneMapping;
+/**
+ * Tone curve (rev 2): a camera-like curve, `CustomToneMapping` filled in by
+ * `installCameraToneMapping`. AgX (rev 1) maps 0.18 → 0.18 but does not reach display white
+ * until ≈ +6.5 EV over grey, so nothing in the frame clipped: the 12,000-nit sunlit table
+ * sat at sRGB 235, the 10,000-nit sky at 220, and the shaded room, at −1 EV, within a
+ * stop of grey — a 12-stop HDR render, not a photograph. A camera JPEG clips ≈ 3–3.5
+ * stops above middle grey (the sensor saturates at +2.5, the JPEG engine rolls the last
+ * stop off); CAMERA_WHITE_EV puts display white there. `?tm=agx|aces|neutral` still select
+ * the others for A/B captures, `?ev=±n` shifts the exposure.
+ */
+export const TONE_MAPPING: THREE.ToneMapping = THREE.CustomToneMapping;
+/** Scene value (in stops over middle grey) that reaches display white under the camera curve. */
+export const CAMERA_WHITE_EV = 3.5;
+/**
+ * Hable ("Uncharted 2") filmic curve, per channel, normalised so x_white → 1 with
+ * x_white = 0.18 · 2^CAMERA_WHITE_EV · CAMERA_CURVE_GAIN. The gain scales the input so
+ * middle grey lands at 0.197 display-linear (sRGB 123; a camera JPEG puts a grey card at
+ * 118–128) instead of Hable's default 0.149. Display-linear values on this curve, by stops
+ * over grey: −4 → 0.009 (sRGB 24), −3 → 0.019 (38), −2 → 0.042 (58), −1 → 0.093 (86),
+ * 0 → 0.197 (123), +1 → 0.377 (165), +2 → 0.623 (207), +3 → 0.884 (242), +3.5 → 1.0.
+ * Per-channel: a clipped sunlit red goes salmon → white the way film and sensors do
+ * (AgX kept it red by design; the photographs the frame is judged against do not).
+ */
+const CAMERA_CURVE_GAIN = 1.5;
+
+/**
+ * Replace three's identity `CustomToneMapping` in the shared tonemapping chunk with the
+ * camera curve. Must run before any material or post pass compiles (configureRenderer,
+ * i.e. right after the renderer is created — main.ts). The post pipeline's finish pass
+ * includes the same chunk (post/shaders.ts) and picks the curve by `uToneMap == 4`.
+ */
+export function installCameraToneMapping(): void {
+  const chunk = THREE.ShaderChunk.tonemapping_pars_fragment;
+  const stub = "vec3 CustomToneMapping( vec3 color ) { return color; }";
+  if (!chunk.includes(stub)) {
+    if (chunk.includes("cameraToneMap")) return; // already installed
+    console.warn("[lighting] CustomToneMapping stub not found in three's tonemapping chunk; camera curve not installed");
+    return;
+  }
+  const W = 0.18 * Math.pow(2, CAMERA_WHITE_EV) * CAMERA_CURVE_GAIN;
+  const glsl = /* glsl */ `
+    // Camera-like tone curve (System 4 rev 2, scene/Lighting.ts): Hable filmic, per channel,
+    // display white at +${CAMERA_WHITE_EV} EV over middle grey. See CAMERA_CURVE_GAIN there.
+    vec3 cameraToneMapHable( vec3 x ) {
+      const float A = 0.22, B = 0.30, C = 0.10, D = 0.20, E = 0.01, F = 0.30;
+      return ( x * ( A * x + C * B ) + D * E ) / ( x * ( A * x + B ) + D * F ) - E / F;
+    }
+    vec3 CustomToneMapping( vec3 color ) {
+      color *= toneMappingExposure * ${CAMERA_CURVE_GAIN.toFixed(4)};
+      vec3 white = cameraToneMapHable( vec3( ${W.toFixed(6)} ) );
+      return saturate( cameraToneMapHable( max( color, vec3( 0.0 ) ) ) / white );
+    }`;
+  THREE.ShaderChunk.tonemapping_pars_fragment = chunk.replace(stub, glsl);
+}
 /** PCSS needs raw depths, so the maps are plain depth textures (`installPcss` supplies the filter). */
 export const SHADOW_MAP_TYPE: THREE.ShadowMapType = THREE.BasicShadowMap;
 
@@ -155,7 +207,19 @@ export const TROFFER_LENS_NITS = TROFFER_LUMENS / (Math.PI * TROFFER_LENS_AREA);
  * clear-morning value. Rev 1's 5,500-nit horizon read as grey-green through the glass.
  */
 const SKY_HORIZON_NITS = 8_000;
-const SKY_SCALE = nits(SKY_HORIZON_NITS) / 0.91;
+/**
+ * Sky dome colours (display-scale, luminance ≈ 0.85 at the horizon; `scaleSky` sets them on
+ * the shader and normalises by the horizon's luminance). Rev 1 kept System 3's near-white
+ * horizon (0.90, 0.915, 0.93) and the sky read grey-green through the tinted glass; a
+ * clear desert morning at 5–25° elevation — what the windows see — is a pale but
+ * unmistakable blue, deepening to the zenith (ratio ≈ 0.48 → ≈ 3,800 nits). The shader's
+ * own forward-scatter and haze-band terms whiten it toward the sun's azimuth and at the
+ * horizon line, so the circumsolar quarter still goes white (with `scaleSky`'s ×2.5 boost).
+ */
+const SKY_HORIZON_RGB = new THREE.Color(0.78, 0.86, 0.97);
+const SKY_ZENITH_RGB = new THREE.Color(0.25, 0.42, 0.8);
+const luminance = (c: THREE.Color) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+const SKY_SCALE = nits(SKY_HORIZON_NITS) / luminance(SKY_HORIZON_RGB);
 /**
  * Sun inside the room, on the horizontal, averaged over the slat duty cycle: 90 klux ×
  * 0.88 glass × sin 35° × 0.5 (half-open 1" slats pass ~50 % of the beam) ≈ 22,700 lux on
@@ -217,6 +281,7 @@ export interface LightingResult {
 
 /** Tone mapping, exposure and shadow filtering. main.ts owns the renderer; this keeps the numbers in one place. */
 export function configureRenderer(renderer: THREE.WebGLRenderer): void {
+  installCameraToneMapping();
   renderer.toneMapping = TONE_MAPPING;
   renderer.toneMappingExposure = EXPOSURE;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -545,7 +610,7 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   }
 
   /* ---------------- sky dome → physical nits ---------------- */
-  const horizon = new THREE.Color(0.9, 0.915, 0.93).multiplyScalar(SKY_SCALE);
+  const horizon = SKY_HORIZON_RGB.clone().multiplyScalar(SKY_SCALE);
   const sky = scene.getObjectByName("sky") as THREE.Mesh | undefined;
   if (sky) scaleSky(sky, SKY_SCALE);
 
@@ -634,6 +699,9 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
  */
 export function scaleSky(sky: THREE.Mesh, scale: number): void {
   const mat = sky.material as THREE.ShaderMaterial;
+  // Rev 2: the dome's authored colours are the lighting's (SKY_HORIZON_RGB / SKY_ZENITH_RGB).
+  (mat.uniforms.horizon.value as THREE.Color).copy(SKY_HORIZON_RGB);
+  (mat.uniforms.zenith.value as THREE.Color).copy(SKY_ZENITH_RGB);
   const prev = mat.onBeforeCompile;
   mat.onBeforeCompile = (shader, renderer) => {
     prev?.call(mat, shader, renderer);

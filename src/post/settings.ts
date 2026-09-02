@@ -6,7 +6,7 @@
  *   ?dust=0&haze=0                               // a module off
  *   ?dust.count=3000&finish.grain=0.01           // any leaf by dotted path
  *   ?aa=msaa8 | msaa4 | smaa | msaa4+smaa | none
- *   ?tonemap=aces | agx | neutral | none
+ *   ?tonemap=camera | aces | agx | neutral | none  (camera = System 4's curve, Lighting.ts)
  *   ?exposure=0.3                                // overrides renderer.toneMappingExposure
  *
  * Every number here is a placeholder-lighting default (System 4 has not run):
@@ -16,7 +16,7 @@
  */
 
 export type AAMode = "none" | "msaa4" | "msaa8" | "smaa" | "msaa4+smaa";
-export type ToneMap = "aces" | "agx" | "neutral" | "none";
+export type ToneMap = "aces" | "agx" | "neutral" | "camera" | "none";
 
 export interface PostSettings {
   /** Master switch. false → renderer.render straight to the canvas, nothing else runs. */
