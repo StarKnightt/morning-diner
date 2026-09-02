@@ -8,6 +8,7 @@
 import * as THREE from "three";
 import { gpuRendererString, installCaptureApi, markSceneReady } from "./capture/pose";
 import { FirstPerson } from "./player/FirstPerson";
+import { createPostPipeline } from "./post/PostPipeline";
 import { Diner } from "./scene/Diner";
 
 const params = new URLSearchParams(location.search);
@@ -35,6 +36,8 @@ const camera = new THREE.PerspectiveCamera(37, window.innerWidth / window.innerH
 const diner = new Diner(scene, renderer);
 const player = new FirstPerson(camera, renderer.domElement, diner.colliders);
 installCaptureApi(renderer, scene, camera, player);
+// System 8: dust, haze, shimmer, steam, photographic finish. `?post=0` → plain renderer.render.
+const post = createPostPipeline(renderer, scene, camera);
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -62,7 +65,7 @@ renderer.setAnimationLoop((now: number) => {
 
   player.update(dt);
   diner.update(dt);
-  renderer.render(scene, camera);
+  post.render();
 
   frames++;
   if (frames === 2) markSceneReady();

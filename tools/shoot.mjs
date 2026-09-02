@@ -21,7 +21,8 @@ import { assertSceneGpu, launchOptions, readLaunchRenderer, isSoftwareRenderer }
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const WIDTH = 1920;
 const HEIGHT = 1080;
-const PORT = 5210;
+// SHOOT_PORT lets parallel worktrees shoot at the same time (each preview server needs its own port).
+const PORT = Number(process.env.SHOOT_PORT ?? 5210);
 const READY_TIMEOUT_MS = 90_000;
 const SETTLE_MS = 600;
 

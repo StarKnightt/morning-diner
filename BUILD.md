@@ -70,8 +70,19 @@ src/
                           Diner.ts then PMREMs a 256 px capture of the real interior from counter
                           height and that becomes `scene.environment`
   capture/pose.ts         window.__setPose / __SCENE_READY / __stats for the harness
+  post/                   System 8 (see "System 8 — post-processing & atmosphere" below)
+    PostPipeline.ts       createPostPipeline(): MSAA scene target → haze → composite (shimmer)
+                          → bloom → finish (CA, vignette, tone map, grain) [→ SMAA]; GPU timers
+    settings.ts           every knob + default, `?post=0`, URL overrides, window.__post.settings
+    beams.ts              sun-beam prisms from the window/door apertures; GLSL inBeam/sunVisible
+    Dust.ts               SunDust: 5 k motes as Points, shadow-map-lit, Mie phase, twinkle
+    Steam.ts              SteamEmitter (reusable: decanter here, mug pour in System 7)
+    shaders.ts            haze / composite / bloom / finish / grain fragment shaders
+    GpuTimer.ts           EXT_disjoint_timer_query_webgl2 per-pass timings
 tools/
-  shoot.mjs               headless capture harness (build → serve :5210 → shoot poses)
+  shoot.mjs               headless capture harness (build → serve :5210 → shoot poses;
+                          SHOOT_PORT=… for a parallel worktree)
+  post-bench.mjs          System 8 bench: per-pass GPU ms + frames for a list of ?configs
   gpu.mjs                 Chromium GPU flags and software-rasteriser assertion
 ```
 
@@ -316,6 +327,97 @@ at a booth seat and table under the slat shadows.
   final balance, but the asphalt still needs its aggregate speckle (±0.2 albedo
   contrast) to read as asphalt and not as concrete at that exposure.
 
+## System 8 — post-processing & atmosphere (`src/post/`)
+
+Everything is procedural, scene-linear until the finish pass, and expressed
+relative to the sun light where it can be (`sun.color × sun.intensity`), so
+System 4 re-lighting scales dust and haze for free. Hook: one call in
+`main.ts` (`createPostPipeline(renderer, scene, camera)` → `post.render()`);
+`?post=0` makes `render()` a plain `renderer.render`, nothing allocated.
+
+### Pipeline order (1920 × 1080, all HalfFloat, no per-frame allocations)
+
+| # | pass | target | what | GPU ms (4060) |
+|---|---|---|---|---|
+| 1 | scene | `sceneRT` MSAA 4× + resolved Float depth | the diner, plus dust `Points` and steam billboards (depth-tested, MSAA-resolved with the scene) | MSAA 4× adds ≈ 0.6–1.3 over no-AA (scene itself ≈ 6–11) |
+| 2 | haze | `hazeRT` ½ res | 24-step march through the union AABB of the beam prisms; per step `inBeam × sunVisibleSoft` (3-tap PCF, slat-pitch averaged) × HG phase; sun radiance × strength per metre | 0.95 |
+| 3 | composite | `compRT` full | scene fetch with the exterior heat-shimmer offset + depth-aware haze upsample | 0.08–0.12 |
+| 4 | bloom | ½ → ¼ res | soft-knee luminance threshold, 9-tap separable blur at ½, box-down, blur at ¼ | 0.08–0.15 |
+| 5 | finish | screen (or `ldrA`) | CA + corner softness → bloom add → vignette → tone map → sRGB → grain | 0.13 |
+| 6 | smaa | screen | only with `aa=smaa` / `msaa4+smaa`: SMAA 1× on the display-encoded frame, then grain as its own pass | 0.31–0.34 |
+
+Post total (2–6, MSAA excluded) **≈ 1.25–1.4 ms**; with MSAA 4× ≈ 2.6 ms —
+inside the 3.5 ms budget. Measured with `EXT_disjoint_timer_query_webgl2`
+(`window.__post.timings()`, EMA over 300 frames; `node tools/post-bench.mjs
+--configs="…" --poses=…`). The exterior is the hottest region and bloom prefilter
+cost scales with how much of it is in frame (`window` pose is the worst).
+
+### Anti-aliasing decision: **MSAA 4× on the scene target**
+
+| mode | scene Δ vs none (length / window) | post Δ | slat / cord / T-mould edges |
+|---|---|---|---|
+| none | — | — | staircases on every cabinet edge, cords shimmer sub-pixel |
+| **msaa4** | **+1.2–1.5 / +0.5–1.6 ms** | 0 | clean geometric edges, cords resolve to grey lines, stripe-shadow edges unaffected (those are shadow-map edges — System 4's PCF radius owns them) |
+| msaa8 | +3.0–3.3 / +1.8 ms | 0 | marginal gain over 4× at the 22 mm slat pitch, over budget |
+| smaa | 0 | +0.34 ms | edges softened but residual stairs on the high-contrast cabinet/frame edges; cannot recover 1-px cords (it only sees the resolved frame) |
+| msaa4+smaa | as msaa4 | +0.34 ms | the smoothest still; kept as an option for the paused-frame capture |
+
+TAA was not built: the target is a paused frame shot by a static harness, the
+camera is user-driven (no motion vectors for the hinged door/fan), and MSAA 4×
+already meets the ≤ 2 ms bar with geometric — not temporal — edge quality.
+`?aa=none|msaa4|msaa8|smaa|msaa4+smaa` switches at runtime (targets rebuilt
+lazily, once).
+
+### Knobs (all live: `window.__post.settings.<group>.<knob>`; URL `?<group>.<knob>=v`, `?<group>=0`)
+
+`dust` (Dust.ts — `THREE.Points`, additive, motion + lighting in the vertex shader)
+- `count` **5000** motes (REFERENCE §5: 2–6 k in the lit volume). Positions are sampled *inside the beam prisms* (`beams.ts`: each window/door aperture swept along the sun direction until it hits the floor / back wall), so nothing is spawned outside a beam. `respawn()` after changing it.
+- `intensity` **0.4** — mote radiance / sun radiance when viewed 25° off the sun axis.
+- `sizeMin` / `sizeMax` **1.0 / 2.8** px at DPR 1 (a 30 µm mote is the lens PSF, 1–3 px); `bokeh` **3.0** extra px growth for motes inside 0.8 m.
+- `drift` **0.06** m amplitude, `driftPeriod` **14** s (Brownian sum-of-sines), `rise` **0.012** m/s convective rise (wrapped inside the prism height).
+- `g` **0.55** Henyey-Greenstein of the visible lobe, normalised to 1 at 25° off-axis: 90° ≈ 0.12×, 135° ≈ 0.05× — vivid looking toward a window, gone with the sun behind (REFERENCE §5).
+- `twinkle` **0.55** depth of the per-mote flake-rotation modulation; `brightFraction` **0.18** share of the sparkly 30–50 µm class (top of the size range, 1.0× vs 0.45× brightness).
+- Lighting: every mote does one hardware-PCF fetch of the sun's shadow map (`sampler2DShadow`, `sun.shadow.matrix/bias`), so motes in the slat shadow bands and behind booth backs vanish. `debug.view=5` skips the shadow test, `6` lights every mote (spawn-volume check).
+
+`haze` (single-scatter march, shaders.ts `hazeFragment`)
+- `strength` **0.012** in-scatter per metre of lit beam as a fraction of sun radiance (REFERENCE §5 says ≤ 0.02 for an 8 AM diner without smoke); `g` **0.55** (same normalisation as dust); `steps` **24** (4–64); `halfRes` **true**.
+- `debug.view=2` shows the haze buffer, `3` the beam/aperture test.
+
+`shimmer` (composite pass; touches only pixels whose reconstructed world position is *beyond the front wall plane* and deeper than `minDepth`)
+- `amplitude` **1.2** px at 1080p (1–3 px is what a 30 °C asphalt gradient gives at 10–30 m), `frequency` **11** cycles across the width, `speed` **0.9** Hz turbulence, `scroll` **0.45** screen heights/s upward, `minDepth` **8** m, `heightFade` **2.2** m above the lot where the near-ground boost has faded (strongest at the asphalt horizon).
+- Interior pixels are never displaced: the mask is world-space (`z > wall face` ∧ depth, or "on a glass pane inside an aperture rectangle", since the glass writes depth and the exterior distance is then taken from the view ray's hit on the lot surface), and the displaced fetch is only accepted when the *source* pixel is also glass/exterior — a slat or frame never smears into the lot. `debug.view=1` shows the mask.
+
+`steam` (Steam.ts — `SteamEmitter`, one instanced draw, premultiplied alpha, evolving 2-octave noise alpha, spiral curl, spread)
+- Ambient decanter emitter: `strength` **0.8**, `count` **28**, `rise` **0.4** m, `life` **3.6** s, `offset` **[0, 0.02, 0.05]** m from the decanter mouth (5 cm toward the front of the machine so the wisp clears the brew basket).
+- System 7 pour: `new SteamEmitter({ count: 20, radius: 0.03, rise: 0.3, life: 2.8, strength: 1.2 })`, `scene.add(e.object)`, position the object at the mug rim, `e.update(t)` per frame, `e.strength = 0` to fade. All `SteamParams` are public and re-read every update; `color`/`intensity` are scene-linear scattered light for System 4 to set to the fill the counter actually receives.
+
+`bloom`
+- `threshold` **2.2** scene-linear luminance (only the hot exterior and specular pings; the placeholder interior peaks ≈ 1), `knee` **0.6**, `strength` **0.045**, `radius` **1.0**. No halos: 9-tap Gaussian at ½ then ¼ res, added before tone mapping.
+
+`finish`
+- `tonemap` **null → follows `renderer.toneMapping`** (ACES today); `?tonemap=aces|agx|neutral|none`. ACES: filmic contrast, pushes clipped reds toward orange; AgX: gentler shoulder, keeps hue in the hot exterior — the better choice once System 4 sets real exposure. `exposure` **null → `renderer.toneMappingExposure`**; `?exposure=` overrides.
+- `vignetteEV` **0.3** stops at the corner, `vignettePower` **2.4** (cos⁴-like, no hard ring).
+- `ca` **0.5** px lateral chromatic aberration at the corner (∝ r², red out / blue in).
+- `cornerSoft` **0.7** px blur radius from `cornerSoftStart` **0.55** of the normalised radius to the corner.
+- `grain` **0.015** at mid grey (fraction of display code value), strongest in the low-mids, → 0 in the highlights and shadows; `grainChroma` **0.3**; `grainSize` **1.0** px. Per-frame integer hash (PCG) — no texture, no repeat.
+- `highlightDesat` **0.0** (0.3–0.5 is a fix for ACES orange skies; off until System 4).
+
+`aa` **"msaa4"** — see above. `debug.view` **0**.
+
+### Verification (rev 1, `shots/sys8-*.png` vs `shots/sys8-*-off.png`)
+- Motes: only inside the beam prisms, gone in the slat shadow bands and behind booth backs (checked with `debug.view=5/6` against the default); brightest looking toward the windows (`beam`, `beam-low` bench poses), nearly invisible looking away (`stripes`).
+- Haze: beam prisms read in the `debug.view=2` buffer with booth-back shadows and soft stripe averaging (the 3-tap slat-pitch average removed the moiré a 24-step march produced against 22 mm stripes); at 0.012 it is a hint, as intended.
+- Shimmer: only the exterior through the door/window glass wobbles (car edge, pole, lot lines in `door-glass`); frame, slats and interior identical to the off frame.
+- Steam: a faint grey wisp above the decanter in `warmer` / `macro-warmer`.
+- Finish: fine grain visible in corner crops, ~0.3 EV corner fall-off, no CA fringes at 0.5 px, no bloom halos on the window frames, no banding (HalfFloat chain, grain dithers the 8-bit output).
+
+### Lessons
+- **A backtick inside a GLSL comment inside a TS template literal ends the string** — `tsc` reports "',' expected" in the shader file. Keep GLSL comments backtick-free.
+- **`+` in a query string decodes to a space** — `?aa=msaa4+smaa` arrives as `"msaa4 smaa"`; the parser normalises whitespace back to `+`.
+- **Phase-function normalisation matters more than g.** Normalising HG to its exact-forward peak made motes 3 % bright at 45° off-sun (the closest the slats ever let you look) — invisible. Normalise at the nearest viewable angle (25°) and let the far side fall off.
+- **Sparse ray marches alias against slat stripes.** 24 steps over a 22 mm-pitch shadow pattern → moiré. Average the shadow over one pitch per step instead of adding steps.
+- **Scene cost is the elephant.** The scene pass is 6–11 ms at 1080p before any post; MSAA and the whole post chain together add ≈ 2.6 ms. System 4/5 should look at the shadow-map pass and draw-call count before worrying about post.
+
 ## System status
 
 | # | System | Status |
@@ -327,7 +429,7 @@ at a booth seat and table under the slat shadows.
 | 5 | Materials and textures | pending (placeholder palette in `materials.ts`) |
 | 6 | Sound design | pending |
 | 7 | The 3 interactions (sit, pour coffee, open door) | pending — door is already a hinged Group; door leaf has no collider yet |
-| 8 | Post-processing and final polish | pending |
+| 8 | Post-processing and final polish | **built, rev 1** (`src/post/`, section above) — MSAA 4× scene target, sun-beam dust (5 k shadow-map-lit motes), half-res volumetric haze through the beam prisms, exterior-only heat shimmer, ambient decanter steam (`SteamEmitter` shared with System 7), high-threshold bloom, CA 0.5 px, 0.3 EV vignette, corner softness, ACES/AgX/Neutral tone map, luminance-dependent procedural grain; ~1.3 ms post + ~1.3 ms MSAA at 1080p on the 4060; `?post=0` bypasses everything |
 
 Known simplifications after System 3: no heat shimmer (System 8 post), no
 chain fence, the cars have no interiors (dark glass hides it at 10–30 m), the
