@@ -16,7 +16,7 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   const el = THREE.MathUtils.degToRad(35);
   const az = THREE.MathUtils.degToRad(38);
   const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
-  const sun = new THREE.DirectionalLight(0xfff1dc, 3.6);
+  const sun = new THREE.DirectionalLight(0xfff1dc, 5.0);
   sun.position.copy(dir).multiplyScalar(30).add(new THREE.Vector3(0, 1.2, 0));
   sun.target.position.set(0, 1.2, 0);
   sun.castShadow = true;
@@ -33,16 +33,22 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   sun.shadow.radius = 2;
   scene.add(sun, sun.target);
 
+  // `?nofill` renders the sun alone — a diagnostic for checking where direct
+  // light actually lands, used by the capture harness during review.
+  if (new URLSearchParams(location.search).has("nofill")) return { sun };
+
   // Sky / ground fill. Deliberately low: a real interior at 8 AM sits several
   // stops under the sunlit patches, and that contrast is the picture.
-  const hemi = new THREE.HemisphereLight(0xcfe0f5, 0x8f8272, 0.22);
+  // The warm ground colour stands in for bounce off the sunlit floor and
+  // tables until System 4 does it properly.
+  const hemi = new THREE.HemisphereLight(0xcfe0f5, 0xa8977f, 1.0);
   scene.add(hemi);
-  scene.add(new THREE.AmbientLight(0xfff2e2, 0.05));
+  scene.add(new THREE.AmbientLight(0xfff2e2, 0.1));
 
   // Fluorescent troffers: low-intensity rect area lights under each lens.
   RectAreaLightUniformsLib.init();
   for (const [x, z] of CEILING.troffers) {
-    const l = new THREE.RectAreaLight(0xfff0d8, 1.8, CEILING.troffer.w - 0.09, CEILING.troffer.d - 0.09);
+    const l = new THREE.RectAreaLight(0xfff0d8, 2.8, CEILING.troffer.w - 0.09, CEILING.troffer.d - 0.09);
     l.position.set(x, ROOM.height - 0.01, z);
     l.lookAt(x, 0, z);
     scene.add(l);

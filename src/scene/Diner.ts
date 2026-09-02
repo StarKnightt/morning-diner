@@ -38,10 +38,11 @@ export class Diner {
     this.sun = buildLighting(scene).sun;
 
     // Neutral procedural environment so chrome and glass have something to
-    // reflect. Kept dim: the sun must stay the dominant source.
+    // reflect. RoomEnvironment is BRIGHT: at 0.25 it out-lit the sun and
+    // flattened every frame (measured with ?nofill). Reflection-only level here.
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environmentIntensity = 0.25;
+    scene.environmentIntensity = 0.05;
     pmrem.dispose();
 
     scene.background = new THREE.Color(0x9cc0ea);

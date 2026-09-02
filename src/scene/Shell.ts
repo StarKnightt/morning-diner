@@ -126,9 +126,13 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     const x0 = -halfX - 0.45, x1 = -halfX + 0.15;
     const z0 = acOpening.a0, z1 = acOpening.a1, y0 = acOpening.y0, y1 = acOpening.y1;
     b.box(pal.acUnit, [x0, y0, z0], [x1, y1, z1]);
-    // Interior face: dark louvre grille inset a few mm.
-    b.box(pal.darkMetal, [x1 - 0.004, y0 + 0.03, z0 + 0.03], [x1 + 0.004, y1 - 0.12, z1 - 0.03]);
-    b.box(pal.darkMetal, [x1 - 0.004, y0 + 0.03, z0 + 0.03], [x1 + 0.004, y0 + 0.06, z1 - 0.03]);
+    // Interior face: recessed grey louvre grille with horizontal slats, and a
+    // control strip along the bottom.
+    b.box(pal.kickPanel, [x1 - 0.004, y0 + 0.09, z0 + 0.03], [x1 + 0.002, y1 - 0.03, z1 - 0.03]);
+    for (let y = y0 + 0.11; y < y1 - 0.04; y += 0.03) {
+      b.box(pal.acUnit, [x1 + 0.002, y, z0 + 0.03], [x1 + 0.012, y + 0.012, z1 - 0.03]);
+    }
+    b.box(pal.darkMetal, [x1 - 0.002, y0 + 0.03, z0 + 0.03], [x1 + 0.004, y0 + 0.07, z1 - 0.03]);
   }
 
   /* ---------------- window frames, glass, sills, casing ---------------- */
