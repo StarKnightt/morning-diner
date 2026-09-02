@@ -139,19 +139,30 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
   ctx.fillRect(0, 0, w, h);
   const isBlack = new Uint8Array(tilesX * tilesY);
   const tone = new Float32Array(tilesX * tilesY);
+  const gloss = new Float32Array(tilesX * tilesY); // per-tile roughness offset (batch/glaze drift)
+  // One replaced tile (a later batch: whiter, cooler, glossier), in the aisle short of the door.
+  const replaced = wear ? [Math.floor((DOOR.centerX - 1.35 - wear.originX) / wear.metresPerTile), Math.floor((1.24 - wear.originZ) / wear.metresPerTile)] : [-1, -1];
+  if (wear && (replaced[0] + replaced[1]) % 2 === 0) replaced[0] += 1; // must land on a white
   for (let ty = 0; ty < tilesY; ty++)
     for (let tx = 0; tx < tilesX; tx++) {
       const black = (tx + ty) % 2 === 0;
-      const v = (rng() - 0.5) * 2;
+      const v = (rng() - 0.5) * 2; // −1..1 tone
+      const hue = (rng() - 0.5) * 2; // −1 cool .. +1 warm
       isBlack[ty * tilesX + tx] = black ? 1 : 0;
       tone[ty * tilesX + tx] = v;
+      gloss[ty * tilesX + tx] = (rng() - 0.5) * 0.12;
       let r: number, g: number, b: number;
       if (black) {
-        const base = 26 * (1 + v * 0.03);
-        r = base * 0.96; g = base * 0.98; b = base * 1.05; // blue-black glaze
+        // Blue-black glaze, ±8 % between tiles, some pulled brownish, some bluer
+        const base = 26 * (1 + v * 0.08);
+        r = base * (0.96 + hue * 0.06); g = base * 0.98; b = base * (1.05 - hue * 0.06);
+      } else if (tx === replaced[0] && ty === replaced[1]) {
+        r = 236; g = 236; b = 234;
+        gloss[ty * tilesX + tx] = -0.1;
       } else {
-        const base = 220 * (1 + v * 0.015);
-        r = base; g = base * 0.985; b = base * 0.95; // warm off-white
+        // Warm off-white, ±3.5 % between tiles, and a warm/cool split (cream vs. grey-white)
+        const base = 220 * (1 + v * 0.035);
+        r = base * (1 + hue * 0.012); g = base * 0.985; b = base * (0.95 - hue * 0.025);
       }
       ctx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
       ctx.fillRect(tx * tilePx + grout, ty * tilePx + grout, tilePx - grout * 2, tilePx - grout * 2);
@@ -199,7 +210,7 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
       const fine = sample(gFine, x, y);
       // Roughness (× material 1.0): glazed whites ~0.37, blacks ~0.47 (dark glaze shows every
       // haze), grout 0.9. Whole-floor mottle ±0.06.
-      let r = inGrout ? 0.9 : (black ? 0.47 : 0.37) + tone[ty * tilesX + tx] * 0.03 + n * 0.12 + fine * 0.04;
+      let r = inGrout ? 0.9 : (black ? 0.47 : 0.37) + gloss[ty * tilesX + tx] + n * 0.12 + fine * 0.04;
       let k = 1 + n * 0.04; // faint large-scale mottle in the glaze/dirt film
       let greyMix = 0; // pull toward the dirt-grey of a walked lane
       if (wear) {
@@ -210,20 +221,23 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
           if (wx > x0 && wx < x1 && wz > z0 && wz < z1) shelter = 1;
         const dust = sample(gDust, x, y);
         if (inGrout) {
-          // Dust and mop residue fill the joint near the walls: pale, matte.
+          // Dust and mop residue fill the joint near the walls: pale, matte. In the lanes the
+          // joint goes darker (ground-in grime).
           const dr = 194, dg = 186, db = 172;
           const a = dust * 0.8;
           d[o] = d[o] * (1 - a) + dr * a; d[o + 1] = d[o + 1] * (1 - a) + dg * a; d[o + 2] = d[o + 2] * (1 - a) + db * a;
+          k *= 1 - lane * 0.2;
           r = 0.9 + dust * 0.08;
         } else {
-          // Traffic: the glaze dulls (roughness up), whites grey off, blacks scuff lighter.
-          r += lane * 0.28 - shelter * 0.09;
-          greyMix = lane * (black ? 0.16 : 0.1);
+          // Traffic: the glaze dulls (roughness up), whites grey off by a clear step (rev 2:
+          // 0.1 → 0.24 — rev 1's 4 % was lost under tone mapping), blacks scuff to a grey haze.
+          r += lane * 0.3 - shelter * 0.12;
+          greyMix = lane * (black ? 0.22 : 0.24);
           k *= 1 + dust * 0.03 * (black ? 2 : 1); // a dust film reads lighter on the blacks
         }
       }
       if (greyMix > 0) {
-        const gr = 128, gg = 124, gb = 118;
+        const gr = 138, gg = 134, gb = 128;
         d[o] = d[o] * (1 - greyMix) + gr * greyMix; d[o + 1] = d[o + 1] * (1 - greyMix) + gg * greyMix; d[o + 2] = d[o + 2] * (1 - greyMix) + gb * greyMix;
       }
       d[o] = Math.min(255, d[o] * k); d[o + 1] = Math.min(255, d[o + 1] * k); d[o + 2] = Math.min(255, d[o + 2] * k);
@@ -233,48 +247,66 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
   ctx.putImageData(img, 0, 0);
 
   if (wear) {
-    // Heel and chair-leg scuffs: short rubber arcs, dark on the whites and grey on the blacks,
-    // two thirds of them inside the lanes.
+    // Rubber transfer (rev 2): hard-edged black marks left by shoe soles — no blur, each one
+    // its own width (4–14 mm), length (20–180 mm), curvature (straight drags to tight hooks)
+    // and weight. They land where feet go: 85 % are drawn from the lanes, weighted by lane
+    // strength, so the aisle and the door fan carry most, the counter standing zone some,
+    // and the sheltered floor under the booths almost none. On the black glaze rubber does
+    // not show; there the sole leaves a grey abrasion haze instead.
     const toPx = (wx: number, wz: number): [number, number] => [(wx - wear.originX) / mPerPx, (wz - wear.originZ) / mPerPx];
-    ctx.lineCap = "round";
-    for (let s = 0; s < 220; s++) {
+    const laneW = wear.lanes.map((L) => L.k * L.k);
+    const laneTot = laneW.reduce((a, b) => a + b, 0);
+    ctx.lineCap = "butt";
+    for (let s = 0; s < 340; s++) {
       let wx: number, wz: number;
-      if (s % 3 !== 0 && wear.lanes.length) {
-        const L = wear.lanes[Math.floor(rng() * wear.lanes.length)];
+      if (rng() < 0.85 && wear.lanes.length) {
+        let pick = rng() * laneTot, li = 0;
+        while (li < laneW.length - 1 && pick > laneW[li]) { pick -= laneW[li]; li++; }
+        const L = wear.lanes[li];
         const seg = Math.floor(rng() * (L.pts.length - 1));
         const t = rng();
-        wx = L.pts[seg][0] + (L.pts[seg + 1][0] - L.pts[seg][0]) * t + (rng() - 0.5) * L.half * 2.2;
-        wz = L.pts[seg][1] + (L.pts[seg + 1][1] - L.pts[seg][1]) * t + (rng() - 0.5) * L.half * 2.2;
+        // Gaussian-ish across the lane: most marks near the centre line
+        const across = (rng() + rng() - 1) * L.half * 1.6;
+        const dx = L.pts[seg + 1][0] - L.pts[seg][0], dz = L.pts[seg + 1][1] - L.pts[seg][1], ln = Math.hypot(dx, dz) || 1;
+        wx = L.pts[seg][0] + dx * t - (dz / ln) * across;
+        wz = L.pts[seg][1] + dz * t + (dx / ln) * across;
       } else {
         wx = wear.originX + rng() * w * mPerPx;
         wz = wear.originZ + rng() * h * mPerPx;
+        let shelter = false;
+        for (const [x0, z0, x1, z1] of wear.sheltered) if (wx > x0 && wx < x1 && wz > z0 && wz < z1) shelter = true;
+        if (shelter && rng() < 0.9) continue;
       }
       const [px, py] = toPx(wx, wz);
       if (px < 2 || py < 2 || px > w - 2 || py > h - 2) continue;
       const black = isBlack[Math.floor(py / tilePx) * tilesX + Math.floor(px / tilePx)] === 1;
-      const len = (0.03 + rng() * 0.12) / mPerPx, ang = rng() * Math.PI * 2, bend = (rng() - 0.5) * 1.2;
-      ctx.strokeStyle = black ? `rgba(150,146,140,${0.14 + rng() * 0.18})` : `rgba(40,34,28,${0.16 + rng() * 0.22})`;
-      ctx.lineWidth = 1 + rng() * 1.6; // 6–15 mm
-      ctx.shadowColor = ctx.strokeStyle;
-      ctx.shadowBlur = 1.5;
+      const kind = rng();
+      const len = (kind < 0.15 ? 0.12 + rng() * 0.16 : 0.02 + rng() * 0.09) / mPerPx; // a few long skids
+      const ang = rng() * Math.PI * 2;
+      const bend = kind < 0.4 ? (rng() - 0.5) * 0.3 : (rng() - 0.5) * 2.6; // straight drags vs hooks
+      const wMm = kind < 0.15 ? 3 + rng() * 5 : 4 + rng() * 10;
+      ctx.lineWidth = Math.max(0.8, wMm / (mPerPx * 1000));
+      ctx.strokeStyle = black ? `rgba(160,156,150,${0.12 + rng() * 0.2})` : `rgba(24,20,17,${0.45 + rng() * 0.5})`;
       ctx.beginPath();
       ctx.moveTo(px, py);
       ctx.quadraticCurveTo(px + Math.cos(ang + bend) * len * 0.5, py + Math.sin(ang + bend) * len * 0.5, px + Math.cos(ang) * len, py + Math.sin(ang) * len);
       ctx.stroke();
     }
-    ctx.shadowBlur = 0;
-    // Hairline crack: a jittered polyline, dark with a light catch along one edge.
+    // Hairline crack: a jittered polyline through several tiles, dark line with a light
+    // glaze-chip catch along one side and a faint wider shadow so it still reads from 2 m.
     const { x: cx, z: cz, len, deg } = wear.crack;
     const [sx, sy] = toPx(cx, cz);
     const a = THREE.MathUtils.degToRad(deg);
-    const steps = 14;
+    const steps = 22;
     const path: Array<[number, number]> = [];
     for (let k = 0; k <= steps; k++) {
       const t = k / steps;
-      const wob = Math.sin(t * 9.1) * 0.006 + (rng() - 0.5) * 0.006;
+      const wob = Math.sin(t * 9.1) * 0.008 + Math.sin(t * 23.7 + 1.3) * 0.004 + (rng() - 0.5) * 0.005;
       path.push([sx + (Math.cos(a) * len * t - Math.sin(a) * wob) / mPerPx, sy + (Math.sin(a) * len * t + Math.cos(a) * wob) / mPerPx]);
     }
-    for (const [col, off, lw] of [["rgba(255,255,255,0.22)", 0.7, 0.8], ["rgba(28,24,20,0.7)", 0, 0.75]] as Array<[string, number, number]>) {
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (const [col, off, lw] of [["rgba(40,34,28,0.18)", 0, 3.2], ["rgba(255,255,255,0.35)", 0.9, 0.9], ["rgba(22,18,14,0.9)", 0, 1.2]] as Array<[string, number, number]>) {
       ctx.strokeStyle = col;
       ctx.lineWidth = lw;
       ctx.beginPath();
@@ -282,9 +314,15 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
       ctx.stroke();
     }
     // The crack also breaks the glaze: matte along it.
-    for (const [px, py] of path) {
-      const i = Math.round(py) * w + Math.round(px);
-      if (i >= 0 && i < rough.length) rough[i] = Math.max(rough[i], 0.7);
+    for (let k = 0; k + 1 < path.length; k++) {
+      const n = 6;
+      for (let s = 0; s <= n; s++) {
+        const px = path[k][0] + (path[k + 1][0] - path[k][0]) * (s / n), py = path[k][1] + (path[k + 1][1] - path[k][1]) * (s / n);
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const i = (Math.round(py) + dy) * w + Math.round(px) + dx;
+          if (i >= 0 && i < rough.length) rough[i] = Math.max(rough[i], 0.7);
+        }
+      }
     }
   }
   return { map: finish(c, true, anisotropy), roughnessMap: greyFromField(rough, w, h, anisotropy), normalMap: floorGrout(1024, wear?.seed ?? 1234) };
@@ -312,6 +350,9 @@ export function dinerFloorWear(): FloorWear {
     lanes: [
       { pts: [[-halfX + 0.4, aisleZ], [COUNTER.xMax + 0.3, aisleZ], [doorX - 0.3, aisleZ + 0.15]], half: 0.42, k: 1 },
       { pts: [[doorX, zFront - 0.05], [doorX - 0.1, zFront - 0.7], [doorX - 0.35, aisleZ + 0.15]], half: 0.32, k: 1 },
+      // The door fan: everyone steps in and turns toward the counter, spreading the wear.
+      { pts: [[doorX, zFront - 0.1], [doorX - 0.75, zFront - 0.75]], half: 0.3, k: 0.8 },
+      { pts: [[doorX - 0.05, zFront - 0.15], [doorX - 0.5, zFront - 1.0], [COUNTER.xMax + 0.2, stoolZ + 0.35]], half: 0.28, k: 0.7 },
       { pts: [[COUNTER.xMin + 0.5, stoolZ + 0.32], [COUNTER.xMax - 0.2, stoolZ + 0.32]], half: 0.24, k: 0.55 },
       { pts: [[kitchenX, zBack + 0.05], [kitchenX + 0.2, staffZ], [BACK_BAR.xMax - 0.3, staffZ]], half: 0.34, k: 0.6 },
       // Short spurs from the aisle into each booth (people slide in and out).
@@ -332,7 +373,8 @@ export function dinerFloorWear(): FloorWear {
       [COUNTER.xMin, COUNTER.topFrontZ - COUNTER.overhang - COUNTER.dieDepth, COUNTER.xMax, COUNTER.topFrontZ - COUNTER.overhang],
       [BACK_BAR.xMin, zBack, BACK_BAR.xMax, BACK_BAR.zFront],
     ],
-    crack: { x: doorX - 0.62, z: zFront - 0.95, len: 0.62, deg: 118 },
+    // Where the slab moved at the counter's end, across the aisle (in floor-macro and length).
+    crack: { x: COUNTER.xMax + 0.45, z: stoolZ + 0.45, len: 0.85, deg: 112 },
     seed: 1234,
   };
 }
@@ -442,53 +484,54 @@ export function paintedWall(hex: string, size: number, seed: number, strength = 
   }
   ctx.putImageData(img, 0, 0);
   if (opts?.scuff) {
-    // Rub marks where chair backs and booth caps meet the wall: soft grey-brown smudges,
-    // mostly horizontal, 20–150 mm long × 8–25 mm tall (a chair-back rail drags, it does not
-    // scratch), plus a few small dark knocks. Burnished paint under a smudge is glossier.
+    // Rev 2. What a wall behind seating actually carries is one thing, not a stack of
+    // streaks: a diffuse grey band where shoulders, jackets and chair backs polish and dirty
+    // the paint (v0–v1, ≈ 0.95–1.12 m, densest in the middle, patchy along the wall), with a
+    // darker paint-transfer line at contact height — the booth cap's arris, ~65 % up the
+    // band — 6–9 mm tall, broken into runs, wandering ±3 mm. A few small dark knocks sit in
+    // the band. Nothing above or below it. Burnished paint under the band is glossier.
     const { v0, v1, perMetre } = opts.scuff;
-    const n = Math.round(perMetre * metres);
-    ctx.lineCap = "round";
-    const marks: Array<[number, number, number, number, number]> = [];
-    ctx.lineCap = "butt";
-    for (let s = 0; s < n; s++) {
-      const x = rng() * size, y = (1 - (v0 + rng() * (v1 - v0))) * size;
-      const dark = rng() < 0.25;
-      const len = (dark ? 0.005 + rng() * 0.02 : 0.03 + rng() * 0.12) * pxPerM, ang = (rng() - 0.5) * 0.25;
-      const lw = (dark ? 0.004 : 0.008 + rng() * 0.017) * pxPerM;
-      if (dark) {
-        // A knock: small, dark, slightly ragged
-        ctx.fillStyle = `rgba(40,34,28,${0.25 + rng() * 0.25})`;
-        ctx.beginPath();
-        ctx.ellipse(x, y, len * 0.5, lw * 0.5, ang, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        // A rub: a bundle of 6–10 thin, uneven, low-alpha passes with ragged ends, so the mark is
-        // densest in the middle and feathers out — not a capsule.
-        const passes = 6 + Math.floor(rng() * 5);
-        for (let k = 0; k < passes; k++) {
-          const oy = (rng() - 0.5) * lw, t0 = rng() * 0.3, t1 = 0.7 + rng() * 0.3;
-          ctx.strokeStyle = `rgba(96,86,74,${0.025 + rng() * 0.04})`;
-          ctx.lineWidth = lw * (0.15 + rng() * 0.3);
-          ctx.shadowColor = ctx.strokeStyle;
-          ctx.shadowBlur = lw * 0.3;
-          ctx.beginPath();
-          ctx.moveTo(x + Math.cos(ang) * len * t0, y + oy + Math.sin(ang) * len * t0);
-          ctx.lineTo(x + Math.cos(ang) * len * t1, y + oy + Math.sin(ang) * len * t1 + (rng() - 0.5) * lw * 0.3);
-          ctx.stroke();
-        }
+    const yTop = (1 - v1) * size, yBot = (1 - v0) * size, yMid = (yTop + yBot) / 2, half = (yBot - yTop) / 2;
+    const yLine = yBot - (yBot - yTop) * 0.65;
+    const along = makeFbm(seed + 41, 5, 3);
+    const gate = makeFbm(seed + 43, 18, 2);
+    const img2 = ctx.getImageData(0, Math.max(0, Math.floor(yTop - half)), size, Math.min(size, Math.ceil(yBot + half)) - Math.max(0, Math.floor(yTop - half)));
+    const y0 = Math.max(0, Math.floor(yTop - half));
+    const d2 = img2.data;
+    for (let yy = 0; yy < img2.height; yy++) {
+      const y = y0 + yy;
+      // Band profile: raised cosine across v0..v1, tail a little beyond
+      const t = Math.abs(y - yMid) / (half * 1.15);
+      const prof = t >= 1 ? 0 : 0.5 + 0.5 * Math.cos(Math.PI * t);
+      // Contact line: 6–9 mm tall, wobbling ±3 mm
+      for (let x = 0; x < size; x++) {
+        const u = x / size;
+        const patch = 0.35 + 0.65 * along(u, 0.3); // where people sit more
+        const aBand = prof * prof * 0.13 * patch;
+        const wob = (gate(u, 0.8) - 0.5) * 0.006 * pxPerM;
+        const lh = (0.006 + 0.003 * along(u, 0.1)) * pxPerM / 2;
+        const dl = Math.abs(y - (yLine + wob)) / lh;
+        const open = smoothstep(0.42, 0.55, gate(u, 0.5)); // broken into runs
+        const aLine = dl >= 1 ? 0 : (1 - dl * dl) * 0.3 * open * patch;
+        const i = (yy * size + x) * 4;
+        // Band: grey-brown grime; line: darker transfer (wood finish + grime)
+        let r = d2[i], g = d2[i + 1], b = d2[i + 2];
+        r = r * (1 - aBand) + 120 * aBand; g = g * (1 - aBand) + 112 * aBand; b = b * (1 - aBand) + 100 * aBand;
+        r = r * (1 - aLine) + 72 * aLine; g = g * (1 - aLine) + 60 * aLine; b = b * (1 - aLine) + 48 * aLine;
+        d2[i] = r; d2[i + 1] = g; d2[i + 2] = b;
+        rough[y * size + x] -= aBand * 1.1 + aLine * 0.3; // burnished under the band
       }
-      marks.push([x, y, len, ang, lw]);
     }
-    ctx.shadowBlur = 0;
-    for (const [x, y, len, ang, lw] of marks) {
-      const R = Math.ceil(lw * 0.8);
-      for (let t = 0; t < len; t += 1) {
-        const px = Math.round(x + Math.cos(ang) * t) % size, py = Math.round(y + Math.sin(ang) * t) % size;
-        for (let dy = -R; dy <= R; dy++) {
-          const i = ((py + dy + size) % size) * size + ((px + size) % size);
-          rough[i] = Math.min(rough[i], 0.86 + (Math.abs(dy) / (R + 1)) * 0.1);
-        }
-      }
+    ctx.putImageData(img2, 0, y0);
+    // Knocks: small dark ragged ellipses in the band
+    const n = Math.round(perMetre * metres);
+    for (let s = 0; s < n; s++) {
+      const x = rng() * size, y = yTop + rng() * (yBot - yTop);
+      const len = (0.005 + rng() * 0.02) * pxPerM, lw = 0.004 * pxPerM, ang = (rng() - 0.5) * 0.4;
+      ctx.fillStyle = `rgba(40,34,28,${0.25 + rng() * 0.25})`;
+      ctx.beginPath();
+      ctx.ellipse(x, y, len * 0.5, lw * 0.5, ang, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
   return { map: finish(c, true, 4), roughnessMap: greyFromField(rough, size, size, 4) };
@@ -496,13 +539,15 @@ export function paintedWall(hex: string, size: number, seed: number, strength = 
 
 /**
  * Roller stipple: a 3/8" nap leaves 1–3 mm domes of paint at ~60 % coverage,
- * 0.1–0.2 mm high (why flat walls still glint at grazing light). Detail canvas
- * covering 0.6 m; tiled with repeat = metres / 0.6 on the wall UVs. Cells on a
- * jittered 2.2 mm grid, each a dome of random height, 15 % skipped, on a 0.05 mm
- * fbm swell so the field never reads as a regular dot screen.
+ * 0.1–0.3 mm high (why flat walls still glint at grazing light). Detail canvas
+ * covering 0.3 m (rev 2: was 0.6 m — at 0.59 mm/texel a 1 mm dome was two texels
+ * and the relief blurred away); tiled with repeat = metres / 0.3 on the wall UVs.
+ * Cells on a jittered 2.2 mm grid, each a dome of random height, 15 % skipped,
+ * on a 0.05 mm fbm swell so the field never reads as a regular dot screen.
  */
+export const WALL_STIPPLE_M = 0.3;
 export function wallStipple(size: number, seed: number): THREE.Texture {
-  const mmPerPx = 600 / size;
+  const mmPerPx = (WALL_STIPPLE_M * 1000) / size;
   const rng = makeRng(seed);
   const swell = makeFbm(seed + 5, 12, 3);
   const cell = 2.2 / mmPerPx;
@@ -514,8 +559,8 @@ export function wallStipple(size: number, seed: number): THREE.Texture {
       const k = j * grid + i;
       cx[k] = (i + 0.1 + rng() * 0.8) * step;
       cy[k] = (j + 0.1 + rng() * 0.8) * step;
-      cr[k] = (0.6 + rng() * 0.9) / mmPerPx; // dome radius 0.6–1.5 mm
-      ch[k] = rng() < 0.15 ? 0 : 0.06 + rng() * 0.14; // height mm
+      cr[k] = (0.7 + rng() * 1.0) / mmPerPx; // dome radius 0.7–1.7 mm
+      ch[k] = rng() < 0.15 ? 0 : 0.1 + rng() * 0.2; // height mm
     }
   const hf = new Float32Array(size * size);
   for (let y = 0; y < size; y++) {

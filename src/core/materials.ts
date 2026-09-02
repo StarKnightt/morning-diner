@@ -126,7 +126,7 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // System 5: the floor canvas is the whole room (40 × 20 tiles ≥ 38.7 × 19.5), so wear is
   // authored in world metres (textures.ts dinerFloorWear); grout relief is a 2 × 2-tile
   // detail normal whose repeat Shell.ts sets alongside the map's.
-  const floorTex = tex.checkerFloor(40, 20, 51, aniso, texModule.dinerFloorWear());
+  const floorTex = tex.checkerFloor(40, 20, 80, aniso, texModule.dinerFloorWear());
   // Walls: canvas = 2.4 m (two 1.2 m drywall joints per tile; horizontal joint at 1.2 m),
   // world-anchored UVs (merge.ts worldBoxUv) so seams and the 0.95–1.12 m scuff band run
   // through every pier and spandrel. Stipple relief is a 0.6 m detail normal (repeat 4).
@@ -143,9 +143,9 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   });
   const extWallTex = tex.paintedWall("#d9cfbd", 1024, 12, 0.08);
   const stipple = tex.wallStipple(1024, 14);
-  stipple.repeat.set(WALL_M / 0.6, WALL_M / 0.6);
+  stipple.repeat.set(WALL_M / texModule.WALL_STIPPLE_M, WALL_M / texModule.WALL_STIPPLE_M);
   const stippleWin = tex.wallStipple(1024, 15);
-  stippleWin.repeat.set(WIN_M / 0.6, WIN_M / 0.6);
+  stippleWin.repeat.set(WIN_M / texModule.WALL_STIPPLE_M, WIN_M / texModule.WALL_STIPPLE_M);
   const tileTex = tex.acousticTile(1024);
   const tileStainTex = tex.acousticTile(1024, 556, true);
   const concreteTex = tex.concrete(1024);
@@ -160,8 +160,8 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   });
 
   // Wall boxes get world-anchored metric UVs (1 UV unit = WALL_M / WIN_M), so repeat stays 1.
-  const wallPaint = new THREE.MeshStandardMaterial({ map: wallTex.map, roughnessMap: wallTex.roughnessMap, normalMap: stipple, normalScale: new THREE.Vector2(0.35, 0.35), roughness: 0.82, metalness: 0 });
-  const wallPaintWindow = new THREE.MeshStandardMaterial({ map: winWallTex.map, roughnessMap: winWallTex.roughnessMap, normalMap: stippleWin, normalScale: new THREE.Vector2(0.35, 0.35), roughness: 0.82, metalness: 0 });
+  const wallPaint = new THREE.MeshStandardMaterial({ map: wallTex.map, roughnessMap: wallTex.roughnessMap, normalMap: stipple, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.82, metalness: 0 });
+  const wallPaintWindow = new THREE.MeshStandardMaterial({ map: winWallTex.map, roughnessMap: winWallTex.roughnessMap, normalMap: stippleWin, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.82, metalness: 0 });
   const wallPaintExt = new THREE.MeshStandardMaterial({ map: extWallTex.map, roughness: 0.92, metalness: 0 });
 
   const ceilingTile = new THREE.MeshStandardMaterial({
