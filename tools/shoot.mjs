@@ -76,6 +76,13 @@ const POSES = {
   "lot-wide": { x: -1.35, z: 0.9, yaw: 180, pitch: -2 },
   // Second booth's table where the slat stripes land.
   stripes: { x: -3.35, y: 1.3, z: 1.85, yaw: 158, pitch: -32 },
+  // System 7 — interactions. These call window.__interactPose(name) (src/interactions/debug.ts),
+  // which resets every interaction, seeks the named one to a fixed time, freezes the animation
+  // clocks and places the camera itself (the seated pose IS the camera).
+  "sit-seated": { interact: "sit-seated" },
+  "pour-mid": { interact: "pour-mid" },
+  "pour-full": { interact: "pour-full" },
+  "door-open": { interact: "door-open" },
 };
 const NAMES = ONLY.length ? Object.keys(POSES).filter((p) => ONLY.includes(p)) : Object.keys(POSES);
 
@@ -195,7 +202,20 @@ async function main() {
   for (const name of NAMES) {
     const pose = POSES[name];
     const t0 = Date.now();
-    await page.evaluate((p) => window.__setPose(p), pose);
+    await page.evaluate((p) => {
+      // Interactions back to rest before every frame so an open door or a full mug never leaks into the next pose.
+      window.__interact?.("reset");
+      // The "E — Sit" hint is part of the System 7 frames; the scene poses (several stand within
+      // reach of a bench) are for the realism critics and must not carry UI.
+      const prompt = document.querySelector(".mdn-prompt");
+      if (prompt) prompt.style.display = p.interact ? "" : "none";
+      if (p.interact) {
+        if (!window.__interactPose) throw new Error(`pose needs window.__interactPose (System 7) for "${p.interact}"`);
+        window.__interactPose(p.interact);
+      } else {
+        window.__setPose(p);
+      }
+    }, pose);
     await page.waitForTimeout(SETTLE_MS);
     // A few extra frames so shadows and any lazily compiled program have drawn.
     await page.evaluate(
