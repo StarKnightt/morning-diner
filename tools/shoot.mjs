@@ -76,6 +76,15 @@ const POSES = {
   "lot-wide": { x: -1.35, z: 0.9, yaw: 180, pitch: -2 },
   // Second booth's table where the slat stripes land.
   stripes: { x: -3.35, y: 1.3, z: 1.85, yaw: 158, pitch: -32 },
+  // System 5 — surface close-ups. Door glass from 1.2 m (signage, kick plate, push bar wear);
+  // the aisle floor from standing height looking down (lane wear, grout, scuffs); the door-end
+  // wall at arm's length (stipple, seam, scuff band, cove base).
+  "door-dressing": { x: 4.95, y: 1.45, z: 2.0, yaw: 180, pitch: -6 },
+  "floor-macro": { x: 1.6, y: 1.35, z: 1.05, yaw: 250, pitch: -48 },
+  "wall-macro": { x: 4.85, y: 1.25, z: 0.7, yaw: 270, pitch: -10 },
+  // 0.5 m from the second booth's aisle-side back panel (welt cracking); the stained tile over booth 3.
+  "welt-macro": { x: -3.0, y: 1.05, z: 2.55, yaw: 90, pitch: -8 },
+  "ceiling-stain": { x: -1.9, y: 1.6, z: 0.35, yaw: 180, pitch: 36 },
   // System 7 — interactions. These call window.__interactPose(name) (src/interactions/debug.ts),
   // which resets every interaction, seeks the named one to a fixed time, freezes the animation
   // clocks and places the camera itself (the seated pose IS the camera).

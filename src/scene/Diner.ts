@@ -116,7 +116,7 @@ export class Diner {
     {
       const pmrem = new THREE.PMREMGenerator(renderer);
       // The red band is muted for the probes only: small chrome fittings otherwise read as copper.
-      const vinyls = [this.palette.vinylRed, this.palette.vinylRedCrazed];
+      const vinyls = [this.palette.vinylRed, this.palette.vinylRedCrazed, this.palette.vinylRedWeltCracked];
       const saved = vinyls.map((v) => v.color.clone());
       for (const v of vinyls) v.color.set("#6a1c20");
       const cubeRT = new THREE.WebGLCubeRenderTarget(512, { type: THREE.HalfFloatType, generateMipmaps: false });
@@ -201,7 +201,7 @@ export class Diner {
       vinyls.forEach((v, i) => v.color.copy(saved[i]));
       scene.environment.dispose();
       scene.environment = roomEnv;
-      for (const m of [this.palette.glassClear, this.palette.glassFluted, this.palette.coffee, this.palette.coffeeStain, this.palette.ceramic, this.palette.bisque, this.palette.chromeSoft, this.palette.sugar, this.palette.salt]) {
+      for (const m of [this.palette.glassClear, this.palette.glassCarafe, this.palette.glassFluted, this.palette.coffee, this.palette.coffeeStain, this.palette.ceramic, this.palette.bisque, this.palette.chromeSoft, this.palette.sugar, this.palette.salt]) {
         m.envMap = propEnv;
         m.needsUpdate = true;
       }

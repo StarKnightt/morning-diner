@@ -28,11 +28,17 @@ export class MergedBuilder {
   }
 
   /** Sharp axis-aligned box from min to max corners, in world space. */
-  box(material: THREE.Material, min: V3, max: V3, opts: { collide?: boolean; uvScale?: number; metric?: boolean } = {}): void {
+  box(
+    material: THREE.Material,
+    min: V3,
+    max: V3,
+    opts: { collide?: boolean; uvScale?: number; metric?: boolean; worldUv?: number; uvOffset?: [number, number] } = {},
+  ): void {
     const w = max[0] - min[0], h = max[1] - min[1], d = max[2] - min[2];
     const g = new THREE.BoxGeometry(w, h, d);
     if (opts.uvScale) scaleBoxUv(g, w, h, d, opts.uvScale);
     g.translate((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
+    if (opts.worldUv) worldBoxUv(g, opts.worldUv, opts.uvOffset);
     if (opts.metric) metricUv(g, this.panelJitter());
     this.add(g, material);
     if (opts.collide) this.collider(min, max);
@@ -96,6 +102,25 @@ export class MergedBuilder {
     this.buckets.clear();
     return out;
   }
+}
+
+/**
+ * World-anchored metric UVs (1 UV unit = `metresPerUv` m, taken from the vertex's
+ * world position, so the texture is continuous across every box that shares a plane):
+ * ±z faces map (x, y), ±x faces (z, y), ±y faces (x, z). A punched wall is a dozen
+ * boxes — with per-box UVs each piece restarted the pattern, so drywall seams and
+ * scuff bands could not line up between a pier and the head above it.
+ */
+export function worldBoxUv(g: THREE.BoxGeometry, metresPerUv: number, offset: [number, number] = [0, 0]): void {
+  const uv = g.attributes.uv as THREE.BufferAttribute, p = g.attributes.position as THREE.BufferAttribute;
+  for (let f = 0; f < 6; f++)
+    for (let v = 0; v < 4; v++) {
+      const i = f * 4 + v;
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      const [u, w] = f < 2 ? [z, y] : f < 4 ? [x, z] : [x, y];
+      uv.setXY(i, u / metresPerUv + offset[0], w / metresPerUv + offset[1]);
+    }
+  uv.needsUpdate = true;
 }
 
 /** Make box UVs metric (1 UV unit = `metresPerUv` m) so tiling textures stay consistent across box sizes. */

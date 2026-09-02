@@ -142,6 +142,26 @@ export function slabGeometry(pts: XZ[], o: SlabOptions): [THREE.BufferGeometry, 
   return [slab, band, grooves];
 }
 
+/**
+ * Decal atlas regions (textures.ts doorDecals), as [u0, v0, u1, v1] with v up
+ * (canvas row 0 is v = 1). Shared by Door.ts and Shell.ts.
+ */
+export const DECAL = {
+  open: [0, 0.5, 0.5, 1] as const,
+  hours: [0.5, 0.5, 1, 1] as const,
+  push: [0, 0.25, 0.5, 0.5] as const,
+  cards: [0.5, 0.25, 0.75, 0.5] as const,
+  film: [0.75, 0, 1, 0.5] as const,
+};
+
+/** `w` × `h` quad in the xy plane whose UVs cover one atlas region. */
+export function atlasQuad(w: number, h: number, r: readonly [number, number, number, number]): THREE.PlaneGeometry {
+  const g = new THREE.PlaneGeometry(w, h);
+  const uv = g.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, r[0] + uv.getX(i) * (r[2] - r[0]), r[1] + uv.getY(i) * (r[3] - r[1]));
+  return g;
+}
+
 /** Axis-aligned rectangle as plan points, from min/max corners. */
 export function rectXZ(x0: number, z0: number, x1: number, z1: number): XZ[] {
   return [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];

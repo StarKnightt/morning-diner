@@ -26,13 +26,22 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
   // Vertex colours darken/polish the wood 8 % within 0.2 m of the aisle-end grip points.
   const capSlab = (pts: XZ[], grips: XZ[]) => {
     const [slab] = slabGeometry(pts, { radius: 0.008, y0: cap.y0, thickness: cap.y1 - cap.y0, bevel: cap.bullnose, curveSegments: 3 });
-    const p = slab.attributes.position;
+    const p = slab.attributes.position, nrm = slab.attributes.normal;
     const col = new Float32Array(p.count * 3);
     for (let i = 0; i < p.count; i++) {
       let d = 1e9;
       for (const [gx, gz] of grips) d = Math.min(d, Math.hypot(p.getX(i) - gx, p.getZ(i) - gz));
-      const k = 1 - 0.08 * (1 - THREE.MathUtils.smoothstep(d, 0.05, 0.22));
-      col[i * 3] = k; col[i * 3 + 1] = k; col[i * 3 + 2] = k;
+      let k = 1 - 0.08 * (1 - THREE.MathUtils.smoothstep(d, 0.05, 0.22));
+      // Edge wear (System 5): the bullnose arrises — vertices whose normal is neither flat
+      // nor upright — have had the stain rubbed back toward bare wood: up to 9 % lighter,
+      // patchy along the run (hash of position) and heaviest at the aisle end where sleeves drag.
+      const ny = Math.abs(nrm.getY(i));
+      const arris = ny > 0.2 && ny < 0.94 ? 1 : 0;
+      if (arris) {
+        const h = Math.sin(p.getX(i) * 37.1 + p.getZ(i) * 53.7) * 0.5 + 0.5;
+        k *= 1 + 0.09 * (0.45 + 0.55 * h) * (0.5 + 0.5 * (1 - THREE.MathUtils.smoothstep(d, 0.05, 0.5)));
+      }
+      col[i * 3] = k; col[i * 3 + 1] = k * (arris ? 0.995 : 1); col[i * 3 + 2] = k * (arris ? 0.985 : 1);
     }
     slab.setAttribute("color", new THREE.BufferAttribute(col, 3));
     b.add(slab, pal.capWood);
@@ -42,7 +51,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
     b.box(pal.laminateScuffed, [x0, y0, z0], [x1, y0 + 0.13, z1]);
   };
 
-  for (const cx of WINDOW.centersX) {
+  WINDOW.centersX.forEach((cx, ti) => {
     /* ---- table ---- */
     {
       const zT0 = zInner + table.inset;
@@ -56,8 +65,13 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
         bandProud: 0.0015,
         grooves: 3,
       });
+      // Extrude UVs are world metres: with the 1.8 m booth pitch and 1.2 m laminate canvas,
+      // tables 1/3/5 sampled the same boomerangs. Offset each top so every table is a
+      // different sheet (and a different set of scratches / cup rings).
+      const tuv = slab.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < tuv.count; i++) tuv.setXY(i, tuv.getX(i) + ti * 0.37, tuv.getY(i) + ti * 0.53);
       b.add(slab, pal.formica);
-      if (band) b.add(band, pal.formicaEdge);
+      if (band) b.add(band, pal.formicaEdgeBrushed);
       if (grooves) b.add(grooves, pal.alumGroove);
       // Pedestal on the table centroid: cast bell base Ø 470 (40 mm rim rising to a Ø 150 boss),
       // chrome column, 360 mm spider plate under the top.
@@ -177,7 +191,19 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
         const dirX = (s * lean) / faceLen, dirY = (back.top - yb0) / faceLen;
         const t = 0.02 + panelH / 2;
         m.setPosition(X(back.frontX) + dirX * t + s * 0.003, yb0 + dirY * t, zMid);
-        b.add(panel, pal.vinylRedCrazed, m);
+        if (ti === 1) {
+          // The second booth's backs have cracked along the welts (System 5): the material's
+          // crack band lives at u ≈ 0, so u becomes the distance from the nearest cord (the
+          // 0.5 mm pebble grain does not mind being mirrored at the channel crowns).
+          const pp = panel.attributes.position as THREE.BufferAttribute, puv = panel.attributes.uv as THREE.BufferAttribute;
+          for (let i = 0; i < pp.count; i++) {
+            const x = pp.getX(i);
+            let dmin = 1;
+            for (const vx of valleys) dmin = Math.min(dmin, Math.abs(x - vx));
+            puv.setX(i, dmin);
+          }
+          b.add(panel, pal.vinylRedWeltCracked, m);
+        } else b.add(panel, pal.vinylRedCrazed, m);
         // 6 mm welt cord sewn ON every seam: centre 1 mm above the crown tangent line
         // (crowns at 20 mm), so it carries its own highlight and throws a line shadow
         // both sides (baked into the panel's vertex colour). Ends tuck under the seams.
@@ -207,7 +233,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       b.box(pal.edgeBand, [X(seat.front - 0.02) - 0.0011, kick, zEnd0 - 0.0003], [X(seat.front - 0.02) + 0.0011, cap.y0, zInner]);
       b.collider([lo(seat.front - 0.05, divider.x0), 0, cz0], [hi(seat.front - 0.05, divider.x0), cap.y1, zOuter]);
     }
-  }
+  });
 
   /* ---- dividers between back-to-back benches, with one T-shaped cap each ---- */
   const dividerBody = (x0: number, x1: number) => {

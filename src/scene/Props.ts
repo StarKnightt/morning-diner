@@ -77,7 +77,7 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
       g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
       add(g, mat);
     };
-    const steel = pal.stainlessBrushed;
+    const steel = pal.stainlessTouched; // brushed stainless with fingerprints (System 5)
     // Shell: end panels, bottom, and the long faces as open frames (top rail + two stiles)
     box(steel, -W / 2, 0.003, -D / 2, -W / 2 + t, H - 0.004, D / 2);
     box(steel, W / 2 - t, 0.003, -D / 2, W / 2, H - 0.004, D / 2);
@@ -121,6 +121,12 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
       slot.absarc(-sw + sh, yc, sh, Math.PI / 2, (3 * Math.PI) / 2, false);
       plate.holes.push(slot);
       const pg = new THREE.ExtrudeGeometry(plate, { depth: 0.001, bevelEnabled: false, curveSegments: 10 });
+      {
+        // Extrude UVs are in metres (a 0.1 × 0.18 m corner of the map): normalise so the
+        // faceplate shows one full fingerprint canvas like the box faces do.
+        const uv = pg.attributes.uv as THREE.BufferAttribute;
+        for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) + hw) / (2 * hw), (uv.getY(i) - y0) / (y1 - y0));
+      }
       if (s < 0) pg.rotateY(Math.PI);
       pg.translate(0, 0, s > 0 ? zf - 0.001 : zf + 0.001);
       add(pg, steel);
@@ -336,8 +342,8 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     b.add(plate, pal.blackPowder);
     // Body: matte black powder-coated tower, 203 deep, with brushed stainless side panels (VPR)
     b.rbox(pal.blackPowder, [x0 + 0.003, yBar + 0.05, zBack], [x1 - 0.003, yHead, zBody], 0.004, 3);
-    b.box(pal.stainlessBrushed, [x0, yBar + 0.05, zBack + 0.004], [x0 + 0.003, yHead - 0.004, zBody - 0.004]);
-    b.box(pal.stainlessBrushed, [x1 - 0.003, yBar + 0.05, zBack + 0.004], [x1, yHead - 0.004, zBody - 0.004]);
+    b.box(pal.stainlessTouched, [x0, yBar + 0.05, zBack + 0.004], [x0 + 0.003, yHead - 0.004, zBody - 0.004]);
+    b.box(pal.stainlessTouched, [x1 - 0.003, yBar + 0.05, zBack + 0.004], [x1, yHead - 0.004, zBody - 0.004]);
     // Hood: light brushed stainless wrap, overhanging the warmer, with a black front control
     // band and a black fill lid at the back; the tower under it stays powder-black.
     b.rbox(pal.stainlessCool, [x0, yHead, zBack], [x1, yTop, zBack + 0.3], 0.005, 3);
@@ -383,7 +389,7 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
       ],
       64,
     );
-    const glassMesh = new THREE.Mesh(glass, pal.glassClear);
+    const glassMesh = new THREE.Mesh(glass, pal.glassCarafe); // scratched, dishwasher-etched (System 5)
     glassMesh.name = "coffeePot:glass";
     // Coffee to 55 % as an opaque dark body: fills the inner profile with a meniscus curling up at the wall
     const fillY = 0.098;
