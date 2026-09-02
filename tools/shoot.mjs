@@ -87,6 +87,18 @@ const POSES = {
   // 0.5 m from the second booth's aisle-side back panel (welt cracking); the stained tile over booth 3.
   "welt-macro": { x: -3.0, y: 1.05, z: 2.55, yaw: 90, pitch: -8 },
   "ceiling-stain": { x: -1.9, y: 1.6, z: 0.35, yaw: 180, pitch: 36 },
+  // System 3 debug poses — OUTSIDE the building, for judging the lot dressing at critic distance
+  // (never player-reachable; the window wall is between the player and the lot). Shoot with --tag=sys3.
+  "dbg-pickup-front34": { x: 3.8, y: 1.6, z: 4.4, yaw: 111, pitch: -8 },
+  "dbg-pickup-side": { x: -7.2, y: 1.6, z: 8.5, yaw: 270, pitch: -6 },
+  "dbg-pickup-rear34": { x: 3.3, y: 1.6, z: 15, yaw: 35, pitch: -6 },
+  "dbg-sedan-front34": { x: -1.0, y: 1.6, z: 4.4, yaw: 249, pitch: -8 },
+  "dbg-sedan-rear34": { x: -0.5, y: 1.6, z: 15, yaw: 325, pitch: -6 },
+  // Macro: 1.2 m from the sedan's front-left wheel; the stop bar in front of the sedan with its nose overhang.
+  "dbg-wheel": { x: 2.2, y: 0.8, z: 6.95, yaw: 290, pitch: -34 },
+  "dbg-wheelstop": { x: 1.7, y: 0.75, z: 5.2, yaw: 248, pitch: -24 },
+  // Standing on the lot in the empty stall between the two cars: CMU wall, scrub edge, road, ranges.
+  "dbg-wall-road": { x: 1.35, y: 1.87, z: 6.5, yaw: 180, pitch: -1 },
   // System 7 — interactions. These call window.__interactPose(name) (src/interactions/debug.ts),
   // which resets every interaction, seeks the named one to a fixed time, freezes the animation
   // clocks and places the camera itself (the seated pose IS the camera).
