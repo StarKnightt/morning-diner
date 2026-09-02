@@ -45,12 +45,13 @@ const DO_BUILD = !argv.includes("--no-build");
  * partition z=-2.6.
  */
 const POSES = {
-  door: { x: 4.4, z: -0.4, yaw: 183, pitch: -8 },
-  length: { x: 4.95, z: 2.5, yaw: 80, pitch: -6 },
+  door: { x: 4.7, z: -0.4, yaw: 184, pitch: -8 },
+  length: { x: 5.2, z: 2.5, yaw: 82, pitch: -5 },
   aisle: { x: -2.0, z: 0.55, yaw: 210, pitch: -12 },
-  counter: { x: 3.15, z: 0.8, yaw: 62, pitch: -8 },
-  booth: { x: -4.0, z: 1.2, yaw: 222, pitch: -20 },
-  ceiling: { x: 0.35, z: 0.25, yaw: 128, pitch: 38 },
+  counter: { x: 3.6, z: 0.5, yaw: 78, pitch: -13 },
+  booth: { x: -4.3, z: 1.2, yaw: 225, pitch: -20 },
+  undertable: { x: 3.0, y: 1.0, z: 0.65, yaw: 166, pitch: -14 },
+  ceiling: { x: 0.85, z: 0.75, yaw: 104, pitch: 28 },
 };
 const NAMES = ONLY.length ? Object.keys(POSES).filter((p) => ONLY.includes(p)) : Object.keys(POSES);
 

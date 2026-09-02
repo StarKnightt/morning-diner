@@ -7,7 +7,8 @@
 import * as THREE from "three";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
-import { CEILING, FAN, ROOM, cellX, cellZ } from "./layout";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { BACK_BAR, CABINETS, CEILING, FAN, ROOM, cellX, cellZ } from "./layout";
 
 export interface CeilingResult {
   fanRotor: THREE.Group;
@@ -67,53 +68,70 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
 
   /* ---- T-bar grid ---- */
   {
-    // Tees running along z at each x line (1.2 m cross tees, 15 mm face)
+    // Cross-tee end clip: a slightly deeper, wider stub where a cross tee meets a main.
+    const joint = (x0: number, z0: number, x1: number, z1: number) => b.box(pal.tbar, [x0, teeY0 - 0.002, z0], [x1, teeY0, z1]);
+    // Tees running along z at each x line (1.2 m cross tees, 15 mm face), with a joint at each end
     for (let i = 1; i < nx; i++) {
       const x = cellX(i);
       for (let j = 0; j < nz; j++) {
         const a = own(i - 1, j), c = own(i, j);
         if (a !== undefined && a === c) continue; // inside a troffer
-        b.box(pal.tbar, [x - crossFace / 2, teeY0, cellZ(j)], [x + crossFace / 2, H, cellZ1(j)]);
+        const z0 = cellZ(j), z1 = cellZ1(j);
+        b.box(pal.tbar, [x - crossFace / 2, teeY0, z0], [x + crossFace / 2, H, z1]);
+        joint(x - crossFace / 2 - 0.001, z0, x + crossFace / 2 + 0.001, z0 + 0.012);
+        joint(x - crossFace / 2 - 0.001, z1 - 0.012, x + crossFace / 2 + 0.001, z1);
       }
     }
-    // Tees running along x at each z line: main tees (24 mm) every 1.2 m, 0.6 m cross tees (15 mm) between
+    // Tees running along x at each z line: main tees (24 mm) every 1.2 m run through; 0.6 m cross tees (15 mm) between, with joints
     for (let j = 1; j < nz; j++) {
       const z = cellZ(j);
-      const face = j % 2 === 0 ? mainFace : crossFace;
+      const main = j % 2 === 0;
+      const face = main ? mainFace : crossFace;
       for (let i = 0; i < nx; i++) {
         const a = own(i, j - 1), c = own(i, j);
         if (a !== undefined && a === c) continue;
-        b.box(pal.tbar, [cellX(i), teeY0, z - face / 2], [cellX1(i), H, z + face / 2]);
+        const x0 = cellX(i), x1 = cellX1(i);
+        b.box(pal.tbar, [x0, teeY0, z - face / 2], [x1, H, z + face / 2]);
+        if (!main) {
+          joint(x0, z - face / 2 - 0.001, x0 + 0.012, z + face / 2 + 0.001);
+          joint(x1 - 0.012, z - face / 2 - 0.001, x1, z + face / 2 + 0.001);
+        }
       }
     }
-    // Wall angle around the perimeter (22 mm face)
+    // Wall angle around the perimeter (22 mm face), and along the cabinet soffit
     const wa = 0.022;
     b.box(pal.tbar, [-halfX, teeY0, zBack], [-halfX + wa, H, zFront]);
     b.box(pal.tbar, [halfX - wa, teeY0, zBack], [halfX, H, zFront]);
     b.box(pal.tbar, [-halfX, teeY0, zBack], [halfX, H, zBack + wa]);
     b.box(pal.tbar, [-halfX, teeY0, zFront - wa], [halfX, H, zFront]);
+    const zs = zBack + CABINETS.soffitDepth;
+    b.box(pal.tbar, [BACK_BAR.xMin, teeY0, zs], [BACK_BAR.xMax, H, zs + wa]);
+    b.box(pal.tbar, [BACK_BAR.xMin - wa, teeY0, zBack], [BACK_BAR.xMin, H, zs]);
+    b.box(pal.tbar, [BACK_BAR.xMax, teeY0, zBack], [BACK_BAR.xMax + wa, H, zs]);
   }
 
   /* ---- troffers: whole cells, 20 mm door frame, recessed lens ---- */
   for (const [i, j] of CEILING.troffers) {
-    const x0 = cellX(i) + crossFace / 2, x1 = cellX(i + 2) - crossFace / 2;
-    const z0 = cellZ(j) + mainFace / 2, z1 = cellZ(j + 1) - mainFace / 2;
+    // Door frame lip sits 8 mm inside the tees and 4 mm below their face, leaving a shadow gap.
+    const gap = 0.008;
+    const x0 = cellX(i) + crossFace / 2 + gap, x1 = cellX(i + 2) - crossFace / 2 - gap;
+    const z0 = cellZ(j) + mainFace / 2 + gap, z1 = cellZ(j + 1) - mainFace / 2 - gap;
     const f = 0.02;
-    const yF0 = teeY0, yF1 = teeY0 + 0.012;
+    const yF0 = teeY0 - 0.004, yF1 = teeY0 + 0.01;
     b.rbox(pal.fixtureWhite, [x0, yF0, z0], [x0 + f, yF1, z1], 0.002);
     b.rbox(pal.fixtureWhite, [x1 - f, yF0, z0], [x1, yF1, z1], 0.002);
     b.rbox(pal.fixtureWhite, [x0 + f, yF0, z0], [x1 - f, yF1, z0 + f], 0.002);
     b.rbox(pal.fixtureWhite, [x0 + f, yF0, z1 - f], [x1 - f, yF1, z1], 0.002);
-    // Housing walls up to the backing plane
+    // Housing walls from the frame's outer edge up to the backing plane (the shadow gap sees these)
     const hw = 0.006;
-    b.box(pal.fixtureWhite, [x0 + f - hw, yF1, z0 + f - hw], [x0 + f, H, z1 - f + hw]);
-    b.box(pal.fixtureWhite, [x1 - f, yF1, z0 + f - hw], [x1 - f + hw, H, z1 - f + hw]);
-    b.box(pal.fixtureWhite, [x0 + f, yF1, z0 + f - hw], [x1 - f, H, z0 + f]);
-    b.box(pal.fixtureWhite, [x0 + f, yF1, z1 - f], [x1 - f, H, z1 - f + hw]);
-    // Lens, recessed 20 mm behind the frame face
+    b.box(pal.fixtureWhite, [x0, yF1, z0], [x0 + hw, H, z1]);
+    b.box(pal.fixtureWhite, [x1 - hw, yF1, z0], [x1, H, z1]);
+    b.box(pal.fixtureWhite, [x0, yF1, z0], [x1, H, z0 + hw]);
+    b.box(pal.fixtureWhite, [x0, yF1, z1 - hw], [x1, H, z1]);
+    // Lens, recessed 18 mm behind the frame face
     const g = new THREE.PlaneGeometry(x1 - x0 - 2 * f, z1 - z0 - 2 * f);
     g.rotateX(Math.PI / 2);
-    g.translate((x0 + x1) / 2, teeY0 + 0.02, (z0 + z1) / 2);
+    g.translate((x0 + x1) / 2, yF0 + 0.018, (z0 + z1) / 2);
     b.add(g, pal.fixtureLens);
   }
 
@@ -124,8 +142,12 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
   fan.name = "ceiling-fan";
   fan.position.set(FAN.x, teeY0 - tegularDrop, FAN.z);
   const canopyH = 0.04;
+  // Escutcheon plate against the tile, then the canopy bell
+  const escutcheon = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.006, 32), pal.darkMetal);
+  escutcheon.position.y = -0.003;
+  fan.add(escutcheon);
   const canopy = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, canopyH, 28), pal.darkMetal);
-  canopy.position.y = -canopyH / 2;
+  canopy.position.y = -0.006 - canopyH / 2;
   fan.add(canopy);
   const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, FAN.downrod, 16), pal.darkMetal);
   rod.position.y = -canopyH - FAN.downrod / 2;
@@ -149,8 +171,9 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
   const bladeR0 = FAN.housingR + 0.09, bladeR1 = FAN.bladeSpan / 2;
   const ironGeo = new THREE.BoxGeometry(ironR1 - ironR0, 0.008, 0.05);
   ironGeo.translate((ironR0 + ironR1) / 2, 0, 0);
-  const bladeGeo = new THREE.BoxGeometry(bladeR1 - bladeR0, 0.007, 0.13);
-  bladeGeo.translate((bladeR0 + bladeR1) / 2, -0.012, 0);
+  // Blades: constant 130 mm width, 11 mm thick, rounded edges
+  const bladeGeo = new RoundedBoxGeometry(bladeR1 - bladeR0, 0.011, 0.13, 2, 0.005);
+  bladeGeo.translate((bladeR0 + bladeR1) / 2, -0.014, 0);
   for (let i = 0; i < 4; i++) {
     const arm = new THREE.Group();
     arm.rotation.y = (i / 4) * Math.PI * 2;

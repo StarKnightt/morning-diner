@@ -172,27 +172,36 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     // Panes
     pane(x0 + fw, x1 - fw, y0 + fw, ty - fw / 2);
     pane(x0 + fw, x1 - fw, ty + fw / 2, y1 - fw);
-    // Interior sill: 40 mm nosing, projects 100 mm, meets the frame; apron below.
-    b.rbox(pal.trimPaint, [x0 - 0.06, y0 - 0.04, zFront - 0.1], [x1 + 0.06, y0, zF0], 0.008, 3);
-    b.rbox(pal.trimPaint, [x0 - 0.05, y0 - 0.12, zFront - 0.016], [x1 + 0.05, y0 - 0.04, zFront], 0.003);
+    // Interior sill board: 22 mm thick, rounded nose, projects 90 mm, meets the frame; distinct apron below.
+    b.rbox(pal.trimPaint, [x0 - 0.07, y0 - 0.022, zFront - 0.09], [x1 + 0.07, y0, zF0], 0.01, 3);
+    b.rbox(pal.trimPaint, [x0 - 0.06, y0 - 0.11, zFront - 0.018], [x1 + 0.06, y0 - 0.022, zFront], 0.003);
     // Casing around the reveal on the interior face (60 × 12 mm)
     const cw = 0.06, ct = 0.012;
-    b.rbox(pal.trimPaint, [x0 - cw, y0 - 0.12, zFront - ct], [x0, y1 + cw, zFront], 0.002);
-    b.rbox(pal.trimPaint, [x1, y0 - 0.12, zFront - ct], [x1 + cw, y1 + cw, zFront], 0.002);
+    b.rbox(pal.trimPaint, [x0 - cw, y0 - 0.11, zFront - ct], [x0, y1 + cw, zFront], 0.002);
+    b.rbox(pal.trimPaint, [x1, y0 - 0.11, zFront - ct], [x1 + cw, y1 + cw, zFront], 0.002);
     b.rbox(pal.trimPaint, [x0, y1, zFront - ct], [x1, y1 + cw, zFront], 0.002);
   }
 
   /* ---------------- door frame (leaf is built in Door.ts) ---------------- */
   {
     const x0 = doorOpening.a0, x1 = doorOpening.a1;
-    const jw = DOOR.jamb, jd = 0.1;
-    const z0 = zMid - jd / 2, z1 = zMid + jd / 2;
-    // Jambs and head sit inside the rough opening, so the wall reveal shows around them.
-    b.box(pal.alum, [x0, 0, z0], [x0 + jw, DOOR.height, z1]);
-    b.box(pal.alum, [x1 - jw, 0, z0], [x1, DOOR.height, z1]);
-    b.box(pal.alum, [x0 + jw, DOOR.height - jw, z0], [x1 - jw, DOOR.height, z1]);
-    // Threshold plate across the full wall depth
-    b.rbox(pal.alum, [x0, -0.002, zFront - 0.02], [x1, 0.012, zFront + T + 0.02], 0.003);
+    const jw = DOOR.jamb;
+    // Jambs and head fill the full wall depth inside the rough opening (visible returns).
+    const z0 = zFront - 0.005, z1 = zFront + T + 0.005;
+    b.rbox(pal.alum, [x0, 0, z0], [x0 + jw, DOOR.height, z1], 0.002);
+    b.rbox(pal.alum, [x1 - jw, 0, z0], [x1, DOOR.height, z1], 0.002);
+    b.rbox(pal.alum, [x0 + jw, DOOR.height - jw, z0], [x1 - jw, DOOR.height, z1], 0.002);
+    // Door stop on the exterior side of the leaf, so the 4 mm reveal reads dark.
+    const leafT = 0.045;
+    const zs0 = zMid + leafT / 2 + 0.002, zs1 = zs0 + 0.018;
+    const st = 0.02;
+    b.box(pal.alum, [x0 + jw, 0.02, zs0], [x0 + jw + st, DOOR.height - jw, zs1]);
+    b.box(pal.alum, [x1 - jw - st, 0.02, zs0], [x1 - jw, DOOR.height - jw, zs1]);
+    b.box(pal.alum, [x0 + jw, DOOR.height - jw - st, zs0], [x1 - jw, DOOR.height - jw, zs1]);
+    // 12 mm threshold saddle across the full wall depth
+    b.rbox(pal.alum, [x0 + jw, -0.002, zFront - 0.03], [x1 - jw, 0.012, zFront + T + 0.03], 0.004, 3);
+    // Closer bracket on the head (interior side); the arm lives on the leaf in Door.ts
+    b.rbox(pal.darkMetal, [x0 + jw + 0.08, DOOR.height - jw - 0.004, zFront + 0.01], [x0 + jw + 0.34, DOOR.height - jw, zFront + 0.07], 0.002);
   }
 
   /* ---------------- kitchen swing door (closed, inside its opening) ---------------- */
@@ -200,16 +209,15 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     const { a0: x0, a1: x1, y1: h } = kdoor;
     const cx = (x0 + x1) / 2;
     const zLeaf0 = zBack - T / 2 - 0.02, zLeaf1 = zBack - T / 2 + 0.02;
-    // Leaf
-    b.rbox(pal.laminateWood, [x0 + 0.005, 0.015, zLeaf0], [x1 - 0.005, h - 0.008, zLeaf1], 0.003);
-    // Kick plate and push plate (dining side, +z)
-    b.rbox(pal.stainless, [x0 + 0.03, 0.03, zLeaf1], [x1 - 0.03, 0.4, zLeaf1 + 0.003], 0.001);
+    // Leaf: painted (light, so it reads against the dark cabinets), stainless kick and push plates
+    b.rbox(pal.fixtureWhite, [x0 + 0.005, 0.015, zLeaf0], [x1 - 0.005, h - 0.008, zLeaf1], 0.003);
+    b.rbox(pal.stainless, [x0 + 0.03, 0.03, zLeaf1], [x1 - 0.03, 0.45, zLeaf1 + 0.003], 0.001);
     b.rbox(pal.stainless, [x0 + 0.03, 0.9, zLeaf1], [x1 - 0.03, 0.96, zLeaf1 + 0.02], 0.003);
-    // Vision window into the dark kitchen
-    const vw = 0.25, vh = 0.35, vy = 1.6;
+    // Vision lite (250 × 750) — dark glass, not a black hole
+    const { w: vw, h: vh, centerY: vy } = KITCHEN_DOOR.lite;
     const port = new THREE.BoxGeometry(vw, vh, 0.05);
     port.translate(cx, vy, (zLeaf0 + zLeaf1) / 2);
-    b.add(port, pal.voidBlack);
+    b.add(port, pal.darkGlass);
     const vf = 0.02;
     b.rbox(pal.stainless, [cx - vw / 2 - vf, vy - vh / 2 - vf, zLeaf0 - 0.002], [cx + vw / 2 + vf, vy - vh / 2, zLeaf1 + 0.006], 0.002);
     b.rbox(pal.stainless, [cx - vw / 2 - vf, vy + vh / 2, zLeaf0 - 0.002], [cx + vw / 2 + vf, vy + vh / 2 + vf, zLeaf1 + 0.006], 0.002);
@@ -222,15 +230,47 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     b.rbox(pal.trimPaint, [x0, h, zBack], [x1, h + j, zBack + ct], 0.002);
   }
 
-  /* ---------------- pass-through liner, shelf, header ---------------- */
+  /* ---------------- pass-through liner, shelf, heat lamp, header ---------------- */
   {
     const j = PASS_THROUGH.jamb;
     const z0 = zBack - T - 0.005, z1 = zBack + 0.005;
     b.rbox(pal.stainless, [pass.a0 - j, pass.y0, z0], [pass.a0, pass.y1 + j, z1], 0.002);
     b.rbox(pal.stainless, [pass.a1, pass.y0, z0], [pass.a1 + j, pass.y1 + j, z1], 0.002);
     b.rbox(pal.stainless, [pass.a0, pass.y1, z0], [pass.a1, pass.y1 + j, z1], 0.002);
-    // 250 mm shelf, projecting into the dining side
-    b.rbox(pal.stainless, [pass.a0 - j - 0.02, pass.y0 - 0.03, zBack - T + 0.03], [pass.a1 + j + 0.02, pass.y0, zBack - T + 0.03 + PASS_THROUGH.shelfDepth], 0.004, 3);
+    // 350 mm stainless shelf through the opening at sill height (100 mm into the dining side)
+    const sd = PASS_THROUGH.shelfDepth;
+    const zs1 = zBack + 0.1, zs0 = zs1 - sd;
+    b.rbox(pal.stainless, [pass.a0 - j - 0.02, pass.y0 - 0.03, zs0], [pass.a1 + j + 0.02, pass.y0, zs1], 0.004, 3);
+    // Heat-lamp bar 450 mm above the shelf, on the kitchen side of the opening
+    const hy = pass.y0 + PASS_THROUGH.heatLampAbove;
+    const hz = zBack - T - 0.12;
+    b.rbox(pal.stainless, [pass.a0 + 0.05, hy - 0.03, hz - 0.03], [pass.a1 - 0.05, hy + 0.03, hz + 0.03], 0.004);
+    for (const lx of [pass.a0 + 0.35, pass.a1 - 0.35]) {
+      const shade = new THREE.CylinderGeometry(0.075, 0.045, 0.09, 24, 1, true);
+      shade.translate(lx, hy - 0.075, hz);
+      b.add(shade, pal.darkMetal);
+    }
+  }
+
+  /* ---------------- shallow kitchen interior behind the pass-through ---------------- */
+  {
+    const { kitchenDepth: kd, kitchenHalfWidth: kw } = PASS_THROUGH;
+    const cx = PASS_THROUGH.centerX;
+    const zIn = zBack - T, zFar = zIn - kd;
+    const x0 = cx - kw, x1 = cx + kw;
+    const dim = pal.kitchenDim;
+    b.box(dim, [x0, 0, zFar - 0.05], [x1, H, zFar]); // back wall
+    b.box(dim, [x0 - 0.05, 0, zFar], [x0, H, zIn]); // side walls
+    b.box(dim, [x1, 0, zFar], [x1 + 0.05, H, zIn]);
+    b.box(dim, [x0, -0.05, zFar], [x1, 0, zIn]); // floor
+    b.box(dim, [x0, H, zFar], [x1, H + 0.05, zIn]); // ceiling
+    // Dim silhouettes: a work table under the heat lamps, a range + hood on the back wall
+    b.box(pal.kitchenDim, [cx - 0.9, 0.86, zIn - 0.75], [cx + 0.9, 0.9, zIn - 0.15]);
+    for (const [lx, lz] of [[cx - 0.85, zIn - 0.7], [cx + 0.85, zIn - 0.7], [cx - 0.85, zIn - 0.2], [cx + 0.85, zIn - 0.2]]) {
+      b.box(pal.kitchenDim, [lx - 0.02, 0, lz - 0.02], [lx + 0.02, 0.86, lz + 0.02]);
+    }
+    b.box(pal.kitchenDim, [cx - 0.75, 0, zFar], [cx + 0.75, 0.92, zFar + 0.8]);
+    b.box(pal.kitchenDim, [cx - 0.9, 1.9, zFar], [cx + 0.9, 2.4, zFar + 0.95]);
   }
 
   /* ---------------- cove base (100 × 12 mm) ---------------- */
@@ -257,13 +297,6 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     const voidBox = new THREE.Mesh(g, voidMat);
     voidBox.name = "kitchen-void";
     parent.add(voidBox);
-    // A dark shape: range hood silhouette, barely distinguishable from the void.
-    const hood = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.5, 0.9), new THREE.MeshBasicMaterial({ color: 0x0c0b0a }));
-    hood.position.set(-0.5, 2.15, zBack - T - 1.6);
-    parent.add(hood);
-    const range = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.95, 0.8), new THREE.MeshBasicMaterial({ color: 0x0a0909 }));
-    range.position.set(-0.5, 0.475, zBack - T - 1.6);
-    parent.add(range);
   }
 
   /* ---------------- exterior ground ---------------- */

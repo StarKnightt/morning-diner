@@ -9,8 +9,8 @@
  */
 
 export const ROOM = {
-  /** Interior half-length along x. */
-  halfX: 5.5,
+  /** Interior half-length along x (11.6 m room). */
+  halfX: 5.8,
   /** Interior z extents: partition to the kitchen at zBack, window wall at zFront. */
   zBack: -2.6,
   zFront: 3.25,
@@ -22,34 +22,39 @@ export const ROOM = {
 
 export const WINDOW = {
   width: 1.35,
-  sill: 0.82,
+  sill: 0.85,
   head: 2.62,
   /** Horizontal transom bar. */
   transomY: 2.2,
   /** Centres along x of the 5 front windows; each has a booth in front of it. Pitch 1.8. */
-  centersX: [-4.4, -2.6, -0.8, 1.0, 2.8],
+  centersX: [-4.7, -2.9, -1.1, 0.7, 2.5],
 } as const;
 
 export const DOOR = {
-  /** Rough opening; 50 mm jambs inside it leave a 0.9 × 2.1 clear opening for a 0.88 m leaf. */
+  /** Rough opening; 50 mm jambs inside it leave a 0.9 × 2.1 clear opening for the leaf. */
   width: 1.0,
   height: 2.15,
   jamb: 0.05,
-  /** Hinge side x (door swings on this edge); leaf extends toward +x. */
-  hingeX: 4.15,
-  centerX: 4.65,
+  /** Reveal between leaf and jamb / head. */
+  reveal: 0.004,
+  /** Hinge side x; leaf extends toward +x. 1.0 m clear of the last booth partition (vestibule zone). */
+  hingeX: 4.45,
+  centerX: 4.95,
 } as const;
 
 export const BOOTH = {
   pitch: 1.8,
-  /** Aisle end and wall end of the seating (z). */
+  /** Aisle end and wall end of the seating (z). Table wall edge sits 24 mm off the apron. */
   zInner: 2.0,
-  zOuter: 3.2,
-  table: { width: 0.7, length: 1.2, top: 0.75, thickness: 0.038, cornerR: 0.03, band: 0.025 },
+  zOuter: 3.21,
+  table: { width: 0.7, top: 0.75, thickness: 0.038, cornerR: 0.03, band: 0.025 },
   seat: { front: 0.36, depth: 0.45, thickness: 0.14, top: 0.45, edgeR: 0.04 },
-  back: { frontX: 0.79, rearX: 0.88, top: 0.99, reclineDeg: 8, rollR: 0.045 },
+  /** Wedge back: front face reclined, rear face vertical against the divider, tapering to the roll. */
+  back: { frontX: 0.76, rearX: 0.88, top: 0.97, reclineDeg: 9, rollR: 0.045 },
   divider: { x0: 0.88, x1: 0.92 },
-  cap: { y0: 1.05, y1: 1.08, proud: 0.03 },
+  /** One continuous mitred cap per divider (T in plan: divider + both end panels). */
+  cap: { y0: 1.045, y1: 1.08, width: 0.07 },
+  endPanel: 0.04,
   kick: 0.1,
 } as const;
 
@@ -60,14 +65,17 @@ export const COUNTER = {
   dieDepth: 0.4,
   height: 1.05,
   topThickness: 0.04,
-  xMin: -5.5,
+  xMin: -5.8,
   xMax: 2.0,
   /** L-return at the door end: die x ∈ [xMax, xMax+dieDepth], top out to lReturnXOuter. */
   lReturnXOuter: 2.7,
   lReturnZEnd: -1.15,
-  /** Register / pie-case cabinet block on the top, x range. */
-  register: { x0: 1.25, x1: 1.85 },
-  footrest: { y: 0.22, tubeR: 0.02, gap: 0.05, bracketPitch: 1.2 },
+  /** Register stand (0.45 × 0.35 × 0.35) on the L-return top by the door, off the counter sightline. */
+  register: { x0: 2.05, x1: 2.5, z0: -0.95, z1: -0.6 },
+  /** Chrome footrail: 36 mm Ø at 230 mm AFF, 130 mm off the die, brackets every 1.2 m. */
+  footrest: { y: 0.23, tubeR: 0.018, gap: 0.13, bracketPitch: 1.2 },
+  kickHeight: 0.1,
+  kickRecess: 0.04,
 } as const;
 
 export const STOOL = {
@@ -75,39 +83,42 @@ export const STOOL = {
   seatHeight: 0.73,
   seatThickness: 0.08,
   columnR: 0.04,
-  baseR: 0.21,
-  footringY: 0.25,
-  footringR: 0.2,
+  baseR: 0.215,
+  /** Torus footring: centre 290 mm AFF, ring Ø 0.42, tube Ø 20 mm, on four spokes + collar. */
+  footringY: 0.29,
+  footringR: 0.21,
+  footringTube: 0.01,
   /** Seat centre z: seat front 75 mm from the counter overhang edge. */
   z: 0.4,
   pitch: 0.6,
-  centersX: [-4.9, -4.3, -3.7, -3.1, -2.5, -1.9, -1.3, -0.7, -0.1, 0.5],
+  centersX: [-5.2, -4.6, -4.0, -3.4, -2.8, -2.2, -1.6, -1.0, -0.4, 0.2],
 } as const;
 
 export const BACK_BAR = {
   zFront: -1.95,
   depth: 0.65,
   height: 0.9,
-  xMin: -5.5,
+  /** Starts clear of the kitchen door casing at the -x end. */
+  xMin: -4.5,
   xMax: 2.4,
   /** Where the coffee warmer lives (System 2/7). */
   coffeeX: -1.4,
-  /** Under-counter equipment openings in the die, x ranges. */
-  openings: [
-    [-4.6, -3.6],
-    [0.4, 1.1],
-  ] as ReadonlyArray<readonly [number, number]>,
+  /** Under-counter equipment: reach-in cooler door, and a two-drawer unit. */
+  cooler: [-3.9, -2.9] as readonly [number, number],
+  drawers: [0.4, 1.1] as readonly [number, number],
 } as const;
 
 export const CABINETS = {
-  bottom: 1.45,
+  /** Bottoms 450 mm above the 0.9 m back counter. */
+  bottom: 1.35,
   top: 2.3,
-  depth: 0.35,
-  soffitDepth: 0.45,
-  doorWidth: 0.525,
+  depth: 0.3,
+  /** Bulkhead from cabinet tops to the ceiling, 60 mm proud of the cabinet faces. */
+  soffitDepth: 0.36,
+  doorWidth: 0.533,
   /** Two runs flanking the pass-through. */
   runs: [
-    [-5.5, -1.3],
+    [-4.5, -1.3],
     [0.3, 2.4],
   ] as ReadonlyArray<readonly [number, number]>,
 } as const;
@@ -118,15 +129,21 @@ export const PASS_THROUGH = {
   sill: 1.2,
   centerX: -0.5,
   jamb: 0.045,
-  shelfDepth: 0.25,
+  /** Stainless shelf through the opening, and the heat-lamp bar above it. */
+  shelfDepth: 0.35,
+  heatLampAbove: 0.45,
+  /** Shallow dark kitchen interior behind the opening. */
+  kitchenDepth: 1.7,
+  kitchenHalfWidth: 1.6,
 } as const;
 
 export const KITCHEN_DOOR = {
-  /** Closed swing door in the kitchen partition, at the open end of the service aisle. */
-  centerX: 3.35,
+  /** Closed swing door at the -x end of the back-bar wall; the service aisle opens onto it. */
+  centerX: -5.15,
   width: 0.9,
   height: 2.1,
   jamb: 0.1,
+  lite: { w: 0.25, h: 0.75, centerY: 1.45 },
 } as const;
 
 export const REGISTER = {
@@ -163,7 +180,7 @@ export function trofferCenter([i, j]: readonly [number, number]): [number, numbe
 
 export const FAN = {
   /** Centre of cell (7, 6). */
-  x: -1.0,
+  x: -1.3,
   z: 1.3,
   downrod: 0.4,
   housingR: 0.1,

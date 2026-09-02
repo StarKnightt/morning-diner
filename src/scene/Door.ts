@@ -1,6 +1,8 @@
 /**
- * Front door: a single aluminium-framed glass leaf hung on its own hinged
- * Group so System 7 can rotate `door.rotation.y` to swing it. Static for now.
+ * Front door: a single dark-bronze aluminium-framed glass leaf hung on its own
+ * hinged Group so System 7 can rotate `door.rotation.y` to swing it. The leaf
+ * sits inside the jambs with a 4 mm reveal and closes against the exterior
+ * stop built in Shell.ts. Static for now.
  */
 import * as THREE from "three";
 import type { Palette } from "../core/materials";
@@ -11,22 +13,25 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   const hinge = new THREE.Group();
   hinge.name = "front-door";
   const zMid = ROOM.zFront + ROOM.wallThickness / 2;
-  hinge.position.set(DOOR.hingeX + DOOR.jamb + 0.01, 0, zMid);
+  hinge.position.set(DOOR.hingeX + DOOR.jamb + DOOR.reveal, 0, zMid);
 
   const b = new MergedBuilder();
-  const leafW = DOOR.width - 2 * DOOR.jamb - 0.02; // 0.88 m leaf between the jambs
-  const leafH = DOOR.height - DOOR.jamb - 0.006; // 3 mm head clearance, 12 mm at the threshold
+  const clearW = DOOR.width - 2 * DOOR.jamb;
+  const clearH = DOOR.height - DOOR.jamb;
+  const leafW = clearW - 2 * DOOR.reveal;
+  const leafH = clearH - DOOR.reveal - 0.012; // 12 mm over the threshold saddle
+  const y0 = 0.012;
   const t = 0.045; // leaf thickness
   const z0 = -t / 2, z1 = t / 2;
-  const stile = 0.1, bottomRail = 0.28, topRail = 0.12;
+  const stile = 0.1, bottomRail = 0.26, topRail = 0.12;
 
-  // Frame (aluminium), 2 mm bevels
-  b.rbox(pal.alum, [0, 0.012, z0], [stile, leafH, z1], 0.002);
-  b.rbox(pal.alum, [leafW - stile, 0.012, z0], [leafW, leafH, z1], 0.002);
-  b.rbox(pal.alum, [stile - 0.002, 0.012, z0], [leafW - stile + 0.002, bottomRail, z1], 0.002);
+  // Frame (dark bronze), 2 mm bevels; bottom rail is the same section as the stiles
+  b.rbox(pal.alum, [0, y0, z0], [stile, leafH, z1], 0.002);
+  b.rbox(pal.alum, [leafW - stile, y0, z0], [leafW, leafH, z1], 0.002);
+  b.rbox(pal.alum, [stile - 0.002, y0, z0], [leafW - stile + 0.002, y0 + bottomRail, z1], 0.002);
   b.rbox(pal.alum, [stile - 0.002, leafH - topRail, z0], [leafW - stile + 0.002, leafH, z1], 0.002);
-  // Glass stops (15 mm) around the light, both faces
-  const gx0 = stile, gx1 = leafW - stile, gy0 = bottomRail, gy1 = leafH - topRail;
+  // Glazing beads (15 mm) around the light, both faces
+  const gx0 = stile, gx1 = leafW - stile, gy0 = y0 + bottomRail, gy1 = leafH - topRail;
   for (const [za, zb] of [
     [z0 - 0.012, z0],
     [z1, z1 + 0.012],
@@ -36,11 +41,8 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
     b.box(pal.alum, [gx0 - 0.005, gy0 + 0.015, za], [gx0 + 0.015, gy1 - 0.015, zb]);
     b.box(pal.alum, [gx1 - 0.015, gy0 + 0.015, za], [gx1 + 0.005, gy1 - 0.015, zb]);
   }
-  // Kick plate (dark brushed) on both faces of the bottom rail
-  b.rbox(pal.darkMetal, [stile + 0.01, 0.02, z0 - 0.002], [leafW - stile - 0.01, bottomRail - 0.03, z0], 0.001);
-  b.rbox(pal.darkMetal, [stile + 0.01, 0.02, z1], [leafW - stile - 0.01, bottomRail - 0.03, z1 + 0.002], 0.001);
-  // Push bar (interior side, -z) at 1.0 m, on two brackets
-  const barY = 1.0;
+  // Push bar (interior side, -z) at 1.02 m, on two brackets
+  const barY = 1.02;
   const bar = new THREE.CylinderGeometry(0.016, 0.016, leafW - stile * 2 + 0.06, 20);
   bar.rotateZ(Math.PI / 2);
   bar.translate(leafW / 2, barY, z0 - 0.07);
@@ -54,6 +56,24 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   b.add(pull, pal.chrome);
   for (const y of [barY - 0.19, barY + 0.19]) {
     b.rbox(pal.chrome, [leafW - stile / 2 - 0.012, y - 0.012, z1], [leafW - stile / 2 + 0.012, y + 0.012, z1 + 0.06], 0.004);
+  }
+  // Surface closer on the top rail (interior side) with its arm reaching the head bracket
+  const cy0 = leafH - topRail + 0.02, cy1 = leafH - 0.015;
+  b.rbox(pal.darkMetal, [0.12, cy0, z0 - 0.06], [0.36, cy1, z0], 0.004);
+  const armY = (cy0 + cy1) / 2;
+  const arm1 = new THREE.BoxGeometry(0.03, 0.012, 0.16);
+  arm1.rotateY(THREE.MathUtils.degToRad(35));
+  arm1.translate(0.2, armY + 0.02, z0 - 0.12);
+  b.add(arm1, pal.darkMetal);
+  const arm2 = new THREE.BoxGeometry(0.03, 0.012, 0.14);
+  arm2.rotateY(THREE.MathUtils.degToRad(-40));
+  arm2.translate(0.25, armY + 0.034, z0 - 0.19);
+  b.add(arm2, pal.darkMetal);
+  // Offset pivots at top and bottom of the hinge stile
+  for (const y of [y0 + 0.02, leafH - 0.02]) {
+    const piv = new THREE.CylinderGeometry(0.012, 0.012, 0.05, 16);
+    piv.translate(0.02, y, z0 - 0.012);
+    b.add(piv, pal.darkMetal);
   }
   b.build(hinge, { name: "door" });
 

@@ -28,6 +28,8 @@ export interface Palette {
   fixtureLens: THREE.MeshStandardMaterial;
   fanBlade: THREE.MeshStandardMaterial;
   voidBlack: THREE.MeshBasicMaterial;
+  kitchenDim: THREE.MeshStandardMaterial;
+  darkGlass: THREE.MeshStandardMaterial;
   asphalt: THREE.MeshStandardMaterial;
   concrete: THREE.MeshStandardMaterial;
   acUnit: THREE.MeshStandardMaterial;
@@ -79,8 +81,8 @@ export function createPalette(maxAnisotropy: number): Palette {
     formica: new THREE.MeshStandardMaterial({ color: 0xe8dcc0, roughness: 0.35, metalness: 0 }),
     formicaEdge: new THREE.MeshStandardMaterial({ color: 0xd4d4d4, roughness: 0.3, metalness: 0.6 }),
     chrome: new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.2, metalness: 0.8 }),
-    darkMetal: new THREE.MeshStandardMaterial({ color: 0x2b2a28, roughness: 0.5, metalness: 0.8 }),
-    alum: new THREE.MeshStandardMaterial({ color: 0x8e9194, roughness: 0.45, metalness: 0.6 }),
+    darkMetal: new THREE.MeshStandardMaterial({ color: 0x3a3836, roughness: 0.5, metalness: 0.6 }),
+    alum: new THREE.MeshStandardMaterial({ color: 0x4f4841, roughness: 0.45, metalness: 0.55 }),
     glass: new THREE.MeshPhysicalMaterial({
       color: 0xdfe8ea,
       roughness: 0.02,
@@ -104,6 +106,8 @@ export function createPalette(maxAnisotropy: number): Palette {
     }),
     fanBlade: new THREE.MeshStandardMaterial({ color: 0x4a3524, roughness: 0.55, metalness: 0 }),
     voidBlack: new THREE.MeshBasicMaterial({ color: 0x040404 }),
+    kitchenDim: new THREE.MeshStandardMaterial({ color: 0x4a4744, roughness: 0.95, metalness: 0 }),
+    darkGlass: new THREE.MeshStandardMaterial({ color: 0x1c1b1a, roughness: 0.15, metalness: 0.4 }),
     asphalt,
     concrete,
     acUnit: new THREE.MeshStandardMaterial({ color: 0xd8d6cf, roughness: 0.6, metalness: 0.2 }),
