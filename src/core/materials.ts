@@ -109,12 +109,16 @@ export interface Palette {
   glassCarafe: THREE.MeshPhysicalMaterial;
   /** Cove base with mop marks and heel scuffs (derived from `baseboard`; metric UVs). */
   baseboardWorn: THREE.MeshStandardMaterial;
+  /** Door kick plate: satin (0.45) brushed stainless, lighter than the brewer trim (derived from `stainlessCool`). */
+  kickPlate: THREE.MeshPhysicalMaterial;
+  /** Cast pedestal bells: dark metal with a grey dust film and kick marks over the bottom 30 mm (derived from `darkMetal`). */
+  castBaseDusty: THREE.MeshStandardMaterial;
   /** Door/window dressing atlas: OPEN sign, hours, PUSH, card sticker, film edge. */
   decal: THREE.MeshStandardMaterial;
 }
 
 /** Palette fields that are derived from tuned base materials after the env-intensity pass. */
-type DerivedKey = "tbarPainted" | "formicaCounterWorn" | "formicaEdgeBrushed" | "chromeScuffed" | "chromeBar" | "stainlessTouched" | "glassCarafe" | "baseboardWorn" | "vinylRedWeltCracked";
+type DerivedKey = "tbarPainted" | "formicaCounterWorn" | "formicaEdgeBrushed" | "chromeScuffed" | "chromeBar" | "stainlessTouched" | "glassCarafe" | "baseboardWorn" | "vinylRedWeltCracked" | "kickPlate" | "castBaseDusty";
 
 export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palette {
   const aniso = Math.min(8, maxAnisotropy);
@@ -143,9 +147,11 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   });
   const extWallTex = tex.paintedWall("#d9cfbd", 1024, 12, 0.08);
   const stipple = tex.wallStipple(1024, 14);
-  stipple.repeat.set(WALL_M / texModule.WALL_STIPPLE_M, WALL_M / texModule.WALL_STIPPLE_M);
+  stipple.normalMap.repeat.set(WALL_M / texModule.WALL_STIPPLE_M, WALL_M / texModule.WALL_STIPPLE_M);
+  stipple.aoMap.repeat.copy(stipple.normalMap.repeat);
   const stippleWin = tex.wallStipple(1024, 15);
-  stippleWin.repeat.set(WIN_M / texModule.WALL_STIPPLE_M, WIN_M / texModule.WALL_STIPPLE_M);
+  stippleWin.normalMap.repeat.set(WIN_M / texModule.WALL_STIPPLE_M, WIN_M / texModule.WALL_STIPPLE_M);
+  stippleWin.aoMap.repeat.copy(stippleWin.normalMap.repeat);
   const tileTex = tex.acousticTile(1024);
   const tileStainTex = tex.acousticTile(1024, 556, true);
   const concreteTex = tex.concrete(1024);
@@ -160,8 +166,8 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   });
 
   // Wall boxes get world-anchored metric UVs (1 UV unit = WALL_M / WIN_M), so repeat stays 1.
-  const wallPaint = new THREE.MeshStandardMaterial({ map: wallTex.map, roughnessMap: wallTex.roughnessMap, normalMap: stipple, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.82, metalness: 0 });
-  const wallPaintWindow = new THREE.MeshStandardMaterial({ map: winWallTex.map, roughnessMap: winWallTex.roughnessMap, normalMap: stippleWin, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.82, metalness: 0 });
+  const wallPaint = new THREE.MeshStandardMaterial({ map: wallTex.map, roughnessMap: wallTex.roughnessMap, normalMap: stipple.normalMap, aoMap: stipple.aoMap, aoMapIntensity: 1, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.82, metalness: 0 });
+  const wallPaintWindow = new THREE.MeshStandardMaterial({ map: winWallTex.map, roughnessMap: winWallTex.roughnessMap, normalMap: stippleWin.normalMap, aoMap: stippleWin.aoMap, aoMapIntensity: 1, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.82, metalness: 0 });
   const wallPaintExt = new THREE.MeshStandardMaterial({ map: extWallTex.map, roughness: 0.92, metalness: 0 });
 
   const ceilingTile = new THREE.MeshStandardMaterial({
@@ -190,15 +196,18 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // #A8141C (System 2) had B > G — a crimson that the bluish window fill pushed to magenta,
   // and AgX then rendered its sunlit stripes pink. Warmed to a cherry red (G ≥ B) so the
   // sunlit crowns roll off toward orange-white and the shade stays a deep red (System 4).
-  const vinylColor = new THREE.Color("#AA1A15"); // reads ≈ #AF1C17 after the crown vertex tint
+  // Vinyl red #AA1A15 (reads ≈ #AF1C17 after the crown vertex tint) — baked into the map below.
   const mkVinyl = (crazed: boolean) => {
     // System 5: authored at the displayed scale — repeat 4 on metric UVs shows one canvas per
     // 0.25 m, so `metres` is 0.25 and the 0.55 mm pebble grain / 3.5 mm crazing cells are true size.
     const t = tex.vinylSurface(1024, 0.25, crazed);
     t.normalMap.repeat.set(4, 4);
     t.roughnessMap.repeat.set(4, 4);
+    t.map.repeat.set(4, 4);
     return new THREE.MeshPhysicalMaterial({
-      color: vinylColor,
+      // Rev 2: the red moved into the map (burnished blotches darker, scrim in the cracks).
+      color: 0xffffff,
+      map: t.map,
       normalMap: t.normalMap,
       // 0.8 (was 1.25): at 1.25 the 0.1 mm/texel grain under a 0.3-rough clearcoat sparkled —
       // pixel-scale highlights that changed with every camera step read as flicker (rev 7).
@@ -220,14 +229,13 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   const boomerang = tex.formicaBoomerang(2048, 1.2, 31);
   boomerang.map.repeat.set(1 / 1.2, 1 / 1.2);
   boomerang.roughnessMap!.repeat.set(1 / 1.2, 1 / 1.2);
-  // System 5: the in-service roughness (wipe arcs, long scratches, cup-ring ghosts) replaces
-  // the plain wipe streaks; 0.18 is the same factory gloss the old map centred on. Its own
-  // 1.25 m period, and Booths.ts offsets each table's UVs, so no two tables share a scratch.
-  const tableWear = tex.laminateWear(1024, 1.25, 0.18, 32, 3);
-  tableWear.repeat.set(1 / 1.25, 1 / 1.25);
+  // System 5 rev 2: the table's use (wipe haze, cup rings, scratches) lives in the boomerang
+  // canvas itself — albedo AND roughness from one generator, so the marks coincide (rev 1 had
+  // them in a separate roughness-only map at a different period: invisible under this light,
+  // and misaligned with anything that could have shown). Booths.ts offsets each table's UVs.
   const formica = new THREE.MeshPhysicalMaterial({
     map: boomerang.map,
-    roughnessMap: tableWear,
+    roughnessMap: boomerang.roughnessMap,
     roughness: 1, // × map ≈ 0.18
     metalness: 0,
     clearcoat: 0.2,
@@ -251,7 +259,7 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // 1.5–2.5 mm, latewood bands every 9–13 mm, a few mm of drift, one cathedral arch
   // per canvas, luminance contrast ≤ 9 %. Every metric panel gets its own UV offset
   // and a coin-flip 180° turn in MergedBuilder so no two panels share a feature.
-  const capTex = tex.woodVeneer(1024, 0.5, { hex: "#6E4A2E", seed: 501, contrast: 0.09, rough: 0.3, pore: 0.4, vertical: false, pitch: 1.5, ring: 9, warp: 2, figure: 12, dings: 3 });
+  const capTex = tex.woodVeneer(1024, 0.5, { hex: "#6E4A2E", seed: 501, contrast: 0.09, rough: 0.3, pore: 0.4, vertical: false, pitch: 1.5, ring: 9, warp: 2, figure: 12, dings: 7 });
   const panelTex = tex.woodVeneer(1024, 0.5, { hex: "#7A5236", seed: 502, contrast: 0.09, rough: 0.5, pore: 0, vertical: true, pitch: 2, ring: 11, warp: 4, figure: 22 });
   const cabTex = tex.woodVeneer(1024, 0.5, { hex: "#B98E5E", seed: 503, contrast: 0.06, rough: 0.5, pore: 0, vertical: true, pitch: 2.5, ring: 13, warp: 3, figure: 18 });
   for (const t of [capTex, panelTex, cabTex]) for (const m of [t.map, t.roughnessMap, t.normalMap]) m.repeat.set(2, 2);
@@ -355,7 +363,11 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     clearcoat: 0.6,
     clearcoatRoughness: 0.06,
   });
-  const coffeeStain = new THREE.MeshStandardMaterial({ color: 0x4a2a12, roughness: 0.6, metalness: 0, transparent: true, opacity: 0.55 });
+  // Coffee tide line inside the decanter. NOT transparent (rev 2): three.js's transmission
+  // buffer holds opaque objects only, so a transparent band behind the transmissive glass
+  // never rendered — the rev 1 "no tide line". Opaque with an alphaTest cut-out instead; the
+  // alpha map (System 5) shapes the band into a dense line thinning upward with drips.
+  const coffeeStain = new THREE.MeshStandardMaterial({ color: 0x3a1f0c, roughness: 0.7, metalness: 0, alphaTest: 0.35, side: THREE.DoubleSide });
   const lens = tex.prismLens(256, 8);
   // 8 cells per canvas × 25 repeats over the 1.2 m lens = 6 mm prisms (real K12 lens pitch)
   lens.normalMap.repeat.set(25, 12);
@@ -398,7 +410,9 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     laminateScuffed,
     edgeBand,
     // Bright grooved aluminium T-mould
-    formicaEdge: new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.66, 0.68, 0.7, THREE.LinearSRGBColorSpace), roughness: 0.2, metalness: 1 }),
+    // Fluted aluminium T-mould: neutral bright aluminium (rev 2: was a blue-grey), brushed
+    // roughness map added below; the flutes are geometry (slabGeometry grooves).
+    formicaEdge: new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.8, 0.8, 0.78, THREE.LinearSRGBColorSpace), roughness: 0.3, metalness: 1 }),
     alumGroove,
     chrome,
     chromeWorn,
@@ -566,9 +580,46 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   const vinylRedWeltCracked = palette.vinylRedCrazed.clone();
   {
     const t = tex.vinylSurface(1024, 0.25, true, true);
-    for (const m of [t.normalMap, t.roughnessMap]) { m.wrapS = m.wrapT = THREE.RepeatWrapping; m.repeat.set(4, 4); }
+    for (const m of [t.normalMap, t.roughnessMap, t.map]) { m.wrapS = m.wrapT = THREE.RepeatWrapping; m.repeat.set(4, 4); }
     vinylRedWeltCracked.normalMap = t.normalMap;
     vinylRedWeltCracked.roughnessMap = t.roughnessMap;
+    vinylRedWeltCracked.map = t.map;
+  }
+  // Kick plate: satin brushed stainless — a looser finish than the brewer trim (0.45) so it
+  // scatters the room into a light grey instead of mirroring the dark floor (rev 1 read as
+  // a flat mauve-brown rectangle), horizontal brushing along the plate.
+  const kickPlate = withRough(palette.stainlessCool.clone(), tex.brushedRoughness(512, 0.45, 96));
+  kickPlate.color.setRGB(0.68, 0.69, 0.7, THREE.LinearSRGBColorSpace);
+  kickPlate.anisotropy = 0.5;
+  // Pedestal bells at floor contact (rev 2): the LatheGeometry's v runs up the profile, the
+  // rim and shoulder are v ≲ 0.2. A 64 × 64 DataTexture (no worker) carries the cast's own
+  // colour with a grey dust film and mop splash over the bottom, patchy around the base, and
+  // lighter grey kick marks (shoe rubber shows pale on dark paint); roughness up under the dust.
+  const castBaseDusty = palette.darkMetal.clone();
+  {
+    const N = 64, rgba = new Uint8Array(N * N * 4), rgh = new Uint8Array(N * N * 4);
+    let seed = 4242;
+    const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    const kicks = Array.from({ length: 9 }, () => [rnd() * N, 2 + rnd() * 9, 2 + rnd() * 5, 1 + rnd() * 1.5] as const);
+    for (let y = 0; y < N; y++)
+      for (let x = 0; x < N; x++) {
+        const v = y / N; // texture row 0 = v 0 (DataTexture flipY false)
+        const dust = (1 - THREE.MathUtils.smoothstep(v, 0.08, 0.24)) * (0.55 + 0.45 * rnd());
+        let r = 58, g = 56, b = 54;
+        r += (112 - r) * dust * 0.6; g += (108 - g) * dust * 0.6; b += (102 - b) * dust * 0.6;
+        let kick = 0;
+        for (const [kx, ky, kw, kh] of kicks) { const dx = Math.min(Math.abs(x - kx), N - Math.abs(x - kx)) / kw, dy = (y - ky) / kh; kick = Math.max(kick, Math.max(0, 1 - dx * dx - dy * dy)); }
+        r += (150 - r) * kick * 0.5; g += (146 - g) * kick * 0.5; b += (140 - b) * kick * 0.5;
+        const o = (y * N + x) * 4;
+        rgba[o] = r; rgba[o + 1] = g; rgba[o + 2] = b; rgba[o + 3] = 255;
+        const ro = Math.min(255, 255 * (0.5 + dust * 0.35 + kick * 0.3));
+        rgh[o] = rgh[o + 1] = rgh[o + 2] = ro; rgh[o + 3] = 255;
+      }
+    const mk = (d: Uint8Array, srgb: boolean) => { const t = new THREE.DataTexture(d, N, N); t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.wrapS = THREE.RepeatWrapping; t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.needsUpdate = true; return t; };
+    castBaseDusty.color.set(0xffffff);
+    castBaseDusty.map = mk(rgba, true);
+    castBaseDusty.roughnessMap = mk(rgh, false);
+    castBaseDusty.roughness = 1;
   }
   // Fingerprints on the napkin dispensers and brewer trim (one canvas per face).
   const stainlessTouched = withRough(palette.stainlessBrushed.clone(), tex.fingerprints(512, palette.stainlessBrushed.roughness, 63));
@@ -579,18 +630,19 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   counterWear.repeat.set(1 / 2.05, 1 / 2.05);
   const formicaCounterWorn = withRough(palette.formicaCounter.clone(), counterWear);
   // Grid tees: chips and yellowing over the same enamel (uvScale 1 on the tee boxes).
-  const tee = tex.teePaint(1024, 21);
+  const tee = tex.teePaint(2048, 21); // rev 2: 2 px/mm so a 3 mm chip is a shape, not a texel
   const tbarPainted = palette.tbar.clone();
   tbarPainted.map = tee.map;
   tbarPainted.roughnessMap = tee.roughnessMap!;
   // Cove base: mop tide marks and heel scuffs (metric UVs, 1 m canvas, jittered per run).
   const cove = tex.baseboardScuff(1024, 23);
   const baseboardWorn = palette.baseboard.clone();
+  baseboardWorn.color.set(0xffffff); // rev 2: the map carries the black (a multiplier could never show a grey dust band)
   baseboardWorn.map = cove.map;
   baseboardWorn.roughnessMap = cove.roughnessMap!;
   // Decanter tide line: an alpha map turns the flat 55 % band into a dense line thinning
   // upward with drips (additive param on the existing material).
   palette.coffeeStain.alphaMap = tex.tideLineAlpha(512, 65);
 
-  return { ...palette, formicaEdgeBrushed, chromeScuffed, chromeBar, stainlessTouched, glassCarafe, formicaCounterWorn, tbarPainted, baseboardWorn, vinylRedWeltCracked };
+  return { ...palette, formicaEdgeBrushed, chromeScuffed, chromeBar, stainlessTouched, glassCarafe, formicaCounterWorn, tbarPainted, baseboardWorn, vinylRedWeltCracked, kickPlate, castBaseDusty };
 }

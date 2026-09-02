@@ -47,8 +47,10 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     b.add(slab, pal.formicaCounterWorn);
     if (band) b.add(band, pal.formicaEdgeBrushed);
     if (grooves) b.add(grooves, pal.alumGroove);
-    // Laminate sheet seams every 3.6 m across the top
-    for (let sx = xMin + 3.6; sx < xMax; sx += 3.6) b.box(pal.alumGroove, [sx - 0.0006, height - 0.002, dieBack + 0.02], [sx + 0.0006, height + 0.0008, topFrontZ - 0.03]);
+    // Laminate sheet seams every 3.6 m across the top: a tight 0.8 mm line, perpendicular to
+    // the front edge, slightly LIGHTER than the sheet (the seam filler and the pale core show;
+    // rev 1's dark groove read as a black hairline).
+    for (let sx = xMin + 3.6; sx < xMax; sx += 3.6) b.box(pal.trimPaint, [sx - 0.0004, height - 0.002, dieBack + 0.02], [sx + 0.0004, height + 0.0003, topFrontZ - 0.03]);
     // 100 mm stainless backsplash lip along the service edge of the top
     b.rbox(pal.stainless, [xMin, height - 0.004, dieBack - 0.006], [xMax + 0.006, height + 0.1, dieBack + 0.014], 0.003);
 

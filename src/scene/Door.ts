@@ -53,15 +53,17 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
     // Cast standoff: 45 × 60 mm rose on the stile, tapered post out to a saddle under the bar.
     // Satin stainless, not mirror chrome: a mirror this close to the dark-bronze stile
     // reflects nothing but bronze and reads as copper (System 3 rev 1 critic).
+    // Rev 2 (System 5 critic): the posts and saddles are chrome like the bar; only the rose
+    // against the bronze stile stays satin.
     b.rbox(pal.stainlessCool, [x - 0.0225, barY - 0.03, z0 - 0.01], [x + 0.0225, barY + 0.03, z0], 0.004);
     const post = new THREE.CylinderGeometry(0.012, 0.016, 0.052, 20);
     post.rotateX(Math.PI / 2);
     post.translate(x, barY, z0 - 0.036);
-    b.add(post, pal.stainlessCool);
+    b.add(post, pal.chromeBar);
     const saddle = new THREE.CylinderGeometry(0.019, 0.019, 0.03, 24);
     saddle.rotateZ(Math.PI / 2);
     saddle.translate(x, barY, z0 - 0.07);
-    b.add(saddle, pal.stainlessCool);
+    b.add(saddle, pal.chromeBar);
   }
   // Pull handle (exterior side, +z): vertical chrome bar
   const pull = new THREE.CylinderGeometry(0.014, 0.014, 0.45, 20);
@@ -72,7 +74,20 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   }
   // Kick plate (System 5): 8" (203 mm) satin stainless on the push side, door width less 2",
   // screwed to the bottom rail — standard commercial hardware (ANSI/BHMA A156.6 protective plates).
-  b.rbox(pal.stainlessCool, [stile + 0.023, y0 + 0.012, z0 - 0.0015], [leafW - stile - 0.023, y0 + 0.012 + 0.203, z0], 0.001, 1);
+  // Rev 2: its own satin material, a 1.5 mm rolled edge that catches a highlight, and six
+  // Ø 8 mm oval-head screws (25 mm in from the corners, one pair mid-run).
+  const kx0 = stile + 0.023, kx1 = leafW - stile - 0.023, ky0 = y0 + 0.012, ky1 = ky0 + 0.203;
+  b.rbox(pal.kickPlate, [kx0, ky0, z0 - 0.0015], [kx1, ky1, z0], 0.0012, 2);
+  for (const sx of [kx0 + 0.025, (kx0 + kx1) / 2, kx1 - 0.025])
+    for (const sy of [ky0 + 0.025, ky1 - 0.025]) {
+      const screw = new THREE.SphereGeometry(0.004, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+      screw.scale(1, 0.45, 1);
+      screw.rotateX(-Math.PI / 2);
+      screw.translate(sx, sy, z0 - 0.0015);
+      b.add(screw, pal.chromeBar);
+      // Slot: a dark hairline across the head
+      b.box(pal.darkMetal, [sx - 0.003, sy - 0.0003, z0 - 0.0035], [sx + 0.003, sy + 0.0003, z0 - 0.0015]);
+    }
   // Surface closer on the top rail (interior side) with its arm reaching the head bracket
   const cy0 = leafH - topRail + 0.02, cy1 = leafH - 0.015;
   b.rbox(pal.darkMetal, [0.12, cy0, z0 - 0.06], [0.36, cy1, z0], 0.004);

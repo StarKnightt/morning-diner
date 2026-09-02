@@ -232,7 +232,7 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
           // Traffic: the glaze dulls (roughness up), whites grey off by a clear step (rev 2:
           // 0.1 → 0.24 — rev 1's 4 % was lost under tone mapping), blacks scuff to a grey haze.
           r += lane * 0.3 - shelter * 0.12;
-          greyMix = lane * (black ? 0.22 : 0.24);
+          greyMix = lane * (black ? 0.24 : 0.32);
           k *= 1 + dust * 0.03 * (black ? 2 : 1); // a dust film reads lighter on the blacks
         }
       }
@@ -301,12 +301,12 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
     const path: Array<[number, number]> = [];
     for (let k = 0; k <= steps; k++) {
       const t = k / steps;
-      const wob = Math.sin(t * 9.1) * 0.008 + Math.sin(t * 23.7 + 1.3) * 0.004 + (rng() - 0.5) * 0.005;
+      const wob = Math.sin(t * 9.1) * 0.008 + Math.sin(t * 4.3 + 1.3) * 0.006 + (rng() - 0.5) * 0.002;
       path.push([sx + (Math.cos(a) * len * t - Math.sin(a) * wob) / mPerPx, sy + (Math.sin(a) * len * t + Math.cos(a) * wob) / mPerPx]);
     }
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    for (const [col, off, lw] of [["rgba(40,34,28,0.18)", 0, 3.2], ["rgba(255,255,255,0.35)", 0.9, 0.9], ["rgba(22,18,14,0.9)", 0, 1.2]] as Array<[string, number, number]>) {
+    for (const [col, off, lw] of [["rgba(40,34,28,0.16)", 0, 2.6], ["rgba(255,255,255,0.3)", 0.8, 0.7], ["rgba(22,18,14,0.85)", 0, 1.0]] as Array<[string, number, number]>) {
       ctx.strokeStyle = col;
       ctx.lineWidth = lw;
       ctx.beginPath();
@@ -348,12 +348,14 @@ export function dinerFloorWear(): FloorWear {
     originZ: zBack, // canvas row 0 = texture v 1 = the kitchen-side edge (flipY; Shell.ts puts v 0 at zFront)
     metresPerTile: 0.3,
     lanes: [
-      { pts: [[-halfX + 0.4, aisleZ], [COUNTER.xMax + 0.3, aisleZ], [doorX - 0.3, aisleZ + 0.15]], half: 0.42, k: 1 },
+      // Aisle: worn z ≈ 0.85–1.65, leaving an unworn strip against the booth plinths and under
+      // the stool seats (rev 2: half 0.42 → 0.3 so the step is visible from the door end).
+      { pts: [[-halfX + 0.4, aisleZ], [COUNTER.xMax + 0.3, aisleZ], [doorX - 0.3, aisleZ + 0.15]], half: 0.3, k: 1 },
       { pts: [[doorX, zFront - 0.05], [doorX - 0.1, zFront - 0.7], [doorX - 0.35, aisleZ + 0.15]], half: 0.32, k: 1 },
       // The door fan: everyone steps in and turns toward the counter, spreading the wear.
       { pts: [[doorX, zFront - 0.1], [doorX - 0.75, zFront - 0.75]], half: 0.3, k: 0.8 },
       { pts: [[doorX - 0.05, zFront - 0.15], [doorX - 0.5, zFront - 1.0], [COUNTER.xMax + 0.2, stoolZ + 0.35]], half: 0.28, k: 0.7 },
-      { pts: [[COUNTER.xMin + 0.5, stoolZ + 0.32], [COUNTER.xMax - 0.2, stoolZ + 0.32]], half: 0.24, k: 0.55 },
+      { pts: [[COUNTER.xMin + 0.5, stoolZ + 0.34], [COUNTER.xMax - 0.2, stoolZ + 0.34]], half: 0.18, k: 0.5 },
       { pts: [[kitchenX, zBack + 0.05], [kitchenX + 0.2, staffZ], [BACK_BAR.xMax - 0.3, staffZ]], half: 0.34, k: 0.6 },
       // Short spurs from the aisle into each booth (people slide in and out).
       ...WINDOW.centersX.map((cx) => ({ pts: [[cx, aisleZ + 0.2], [cx, BOOTH.zInner + 0.1]] as Array<[number, number]>, half: 0.22, k: 0.45 })),
@@ -507,7 +509,7 @@ export function paintedWall(hex: string, size: number, seed: number, strength = 
       for (let x = 0; x < size; x++) {
         const u = x / size;
         const patch = 0.35 + 0.65 * along(u, 0.3); // where people sit more
-        const aBand = prof * prof * 0.13 * patch;
+        const aBand = prof * prof * 0.18 * patch;
         const wob = (gate(u, 0.8) - 0.5) * 0.006 * pxPerM;
         const lh = (0.006 + 0.003 * along(u, 0.1)) * pxPerM / 2;
         const dl = Math.abs(y - (yLine + wob)) / lh;
@@ -546,7 +548,7 @@ export function paintedWall(hex: string, size: number, seed: number, strength = 
  * on a 0.05 mm fbm swell so the field never reads as a regular dot screen.
  */
 export const WALL_STIPPLE_M = 0.3;
-export function wallStipple(size: number, seed: number): THREE.Texture {
+export function wallStipple(size: number, seed: number): { normalMap: THREE.Texture; aoMap: THREE.Texture } {
   const mmPerPx = (WALL_STIPPLE_M * 1000) / size;
   const rng = makeRng(seed);
   const swell = makeFbm(seed + 5, 12, 3);
@@ -578,7 +580,12 @@ export function wallStipple(size: number, seed: number): THREE.Texture {
       hf[y * size + x] = hgt + (swell(x / size, y / size) - 0.5) * 0.1;
     }
   }
-  return normalFromHeight(hf, size, size, 0.5 / mmPerPx, 4);
+  // Occlusion between the domes (rev 2): the valleys of an orange-peel film sit in their
+  // own shade whatever the light does, so the relief keeps a lighting-independent presence
+  // (the normal alone vanished under a flat rig). 0.9 in the deepest valley, 1 on a dome top.
+  const ao = new Float32Array(size * size);
+  for (let i = 0; i < ao.length; i++) ao[i] = 0.9 + 0.1 * clamp01(hf[i] / 0.25);
+  return { normalMap: normalFromHeight(hf, size, size, 0.5 / mmPerPx, 4), aoMap: greyFromField(ao, size, size, 4) };
 }
 
 /**
@@ -755,30 +762,51 @@ export function teePaint(size: number, seed: number): TextureSet {
     }
   ctx.putImageData(img, 0, 0);
   const pxPerMm = size / 1000;
-  const chips = 3 + Math.floor(rng() * 6);
+  // Tee faces are 24 mm wide with metric UVs (v 0–0.024): with flipY that is the LAST 2.4 % of
+  // rows. Rev 2: 7–12 chips per metre, 3–12 mm long along the tee × 1.5–4 mm tall (a tile
+  // pushed up drags the flange edge), showing grey zinc with a dark rim and a rust bloom that
+  // spreads 1.5× beyond the chip; plus a grime drift along the face (finger-grey at 0–3 %).
+  const faceRows = Math.max(4, Math.round(size * 0.024));
+  const y0 = size - faceRows;
+  const chips = 7 + Math.floor(rng() * 6);
   for (let k = 0; k < chips; k++) {
-    // Tee faces are 24 mm wide with metric UVs (v 0–0.024): with flipY that is the LAST 2.4 % of rows.
-    const x = rng() * size, y = size - rng() * size * 0.024, r = (0.6 + rng() * 1.6) * pxPerMm;
-    ctx.fillStyle = "rgb(138,140,142)";
-    ctx.beginPath();
-    ctx.ellipse(x, y, r * (1 + rng()), r, rng() * Math.PI, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "rgba(150,90,50,0.6)";
-    ctx.beginPath();
-    ctx.arc(x + r * 0.6, y + r * 0.3, r * 0.35, 0, Math.PI * 2);
-    ctx.fill();
-    for (let dy = -r; dy <= r; dy++)
-      for (let dx = -r * 2; dx <= r * 2; dx++) {
+    const x = rng() * size, y = y0 + faceRows * (0.15 + rng() * 0.7);
+    const L = (3 + rng() * 9) * pxPerMm, Hc = (1.5 + rng() * 2.5) * pxPerMm, ang = (rng() - 0.5) * 0.25;
+    // Rust bloom first (under the chip edge), then the bare zinc, then the dark rim
+    ctx.fillStyle = "rgba(150,82,34,0.55)";
+    ctx.beginPath(); ctx.ellipse(x, y, L * 0.8, Hc * 0.9, ang, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(120,60,25,0.35)";
+    ctx.beginPath(); ctx.ellipse(x + L * 0.2, y + Hc * 0.4, L * 0.7, Hc * 0.8, ang, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgb(132,134,136)";
+    ctx.beginPath(); ctx.ellipse(x, y, L * 0.5, Hc * 0.5, ang, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(60,50,40,0.8)";
+    ctx.lineWidth = Math.max(0.6, 0.3 * pxPerMm);
+    ctx.beginPath(); ctx.ellipse(x, y, L * 0.5, Hc * 0.5, ang, 0, Math.PI * 2); ctx.stroke();
+    for (let dy = -Hc; dy <= Hc; dy++)
+      for (let dx = -L; dx <= L; dx++) {
         const i = ((Math.round(y + dy) + size) % size) * size + ((Math.round(x + dx) + size) % size);
-        rough[i] = 0.64; // × 0.55 paint → 0.35 bare zinc
+        const inChip = (dx * dx) / (L * L * 0.25) + (dy * dy) / (Hc * Hc * 0.25) < 1;
+        rough[i] = inChip ? 0.64 : 1.35; // × 0.55 paint → 0.35 bare zinc; rust matte
       }
   }
+  // Grime drift along the face: a few darker runs where the tile edges rub the flange
+  const grime = makeFbm(seed + 3, 9, 2);
+  const im2 = ctx.getImageData(0, y0, size, faceRows);
+  for (let yy = 0; yy < faceRows; yy++)
+    for (let x = 0; x < size; x++) {
+      const g = smoothstep(0.5, 0.75, grime(x / size, yy / faceRows)) * 0.06;
+      const i = (yy * size + x) * 4;
+      im2.data[i] *= 1 - g; im2.data[i + 1] *= 1 - g * 0.9; im2.data[i + 2] *= 1 - g * 0.8;
+    }
+  ctx.putImageData(im2, 0, y0);
   return { map: finish(c, true, 4), roughnessMap: greyFromField(rough, size, size, 4) };
 }
 
 export interface VinylSet {
   normalMap: THREE.Texture;
   roughnessMap: THREE.Texture;
+  /** sRGB: the vinyl's red, burnished blotches a shade darker, pale cotton scrim in the crack floors. */
+  map: THREE.Texture;
 }
 
 /**
@@ -885,6 +913,8 @@ export function vinylSurface(size: number, metres: number, crazed: boolean, welt
   }
   const nimg = nctx.createImageData(size, size);
   const rimg = rctx.createImageData(size, size);
+  const { c: mc, ctx: mctx } = canvas(size, size);
+  const mimg = mctx.createImageData(size, size);
   const H = (x: number, y: number) => height[((y + size) % size) * size + ((x + size) % size)];
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
@@ -898,16 +928,26 @@ export function vinylSurface(size: number, metres: number, crazed: boolean, welt
       nimg.data[o + 3] = 255;
       // Roughness around 0.5 (material scales it), cracks a little matter (≤ 15 %), the creases
       // hold dirt (+0.04), and burnished patches — the seat nose, the grab points on the backs,
-      // wherever a metric panel's jitter puts them — drop up to 0.1 in 5–12 cm blotches.
+      // wherever a metric panel's jitter puts them — drop up to 0.18 in 5–12 cm blotches
+      // (rev 2: was 0.1; also a shade darker in the albedo, as polished vinyl is).
       const worn = smoothstep(0.54, 0.7, polish(x / size, y / size));
-      const r = 0.45 + (H(x, y) - crack[i]) * 0.06 + crack[i] * 0.07 + crease[i] * 0.04 - worn * 0.1;
+      const r = 0.45 + (H(x, y) - crack[i]) * 0.06 + crack[i] * 0.07 + crease[i] * 0.04 - worn * 0.18;
       const rv = Math.min(255, Math.max(0, r * 255));
       rimg.data[o] = rv; rimg.data[o + 1] = rv; rimg.data[o + 2] = rv; rimg.data[o + 3] = 255;
+      // Albedo (sRGB): #AA1A15 vinyl; burnished −10 %; the floor of a through-crack is the
+      // pale cotton scrim the vinyl was cast on (rev 2 — the critic's "scrim in the crack").
+      const k = 1 - 0.1 * worn;
+      const scrim = smoothstep(0.35, 0.85, crack[i]);
+      mimg.data[o] = 170 * k * (1 - scrim) + 206 * scrim;
+      mimg.data[o + 1] = 26 * k * (1 - scrim) + 196 * scrim;
+      mimg.data[o + 2] = 21 * k * (1 - scrim) + 176 * scrim;
+      mimg.data[o + 3] = 255;
     }
   }
   nctx.putImageData(nimg, 0, 0);
   rctx.putImageData(rimg, 0, 0);
-  return { normalMap: finish(nc, false, 8), roughnessMap: finish(rc, false, 8) };
+  mctx.putImageData(mimg, 0, 0);
+  return { normalMap: finish(nc, false, 8), roughnessMap: finish(rc, false, 8), map: finish(mc, true, 8) };
 }
 
 /**
@@ -993,18 +1033,73 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
       if (outline) { ctx.fillStyle = "#EDE6D6"; draw(px, py, 1.1 * pxPerMm); } // 1.1 mm outline stroke
     }
   }
-  ctx.fillStyle = "#D8C28A";
-  for (let k = 0; k < areaCm2 * 0.8; k++) ctx.fillRect(rng() * size, rng() * size, 1, 1);
+  // Gold flecks in the print: soft 1.5 mm dots at 0.3/cm² (rev 2: the 1-texel hard dots at
+  // 0.8/cm² aliased into a regular halftone screen under minification).
+  ctx.fillStyle = "rgba(216,194,138,0.55)";
+  for (let k = 0; k < areaCm2 * 0.3; k++) { ctx.beginPath(); ctx.arc(rng() * size, rng() * size, 0.75 * pxPerMm, 0, Math.PI * 2); ctx.fill(); }
+
+  // Use (rev 2, in the albedo — the roughness alone never read): wipe haze — the last rag's
+  // sweeps left a faint greyer film in long arcs; two or three cup rings (coffee residue,
+  // usually incomplete); fine scratches, light where the print's clear coat scattered, one
+  // or two dark where something dug in.
   const wipe = makeFbm(seed + 5, 6, 3);
   const rimg = rctx.createImageData(size, size);
+  const arcs: Array<[number, number, number, number, number]> = [];
+  for (let k = 0; k < 4; k++) arcs.push([rng() * size, size * (0.3 + rng() * 0.7), size * (0.3 + rng() * 0.4), rng() * Math.PI * 2, 0.6 + rng() * 0.9]);
+  ctx.lineCap = "round";
+  for (const [ax, ay, ar, a0, sweep] of arcs) {
+    for (let p = 0; p < 5; p++) {
+      ctx.strokeStyle = `rgba(150,146,140,${0.035 + rng() * 0.03})`;
+      ctx.lineWidth = (8 + rng() * 16) * pxPerMm;
+      ctx.beginPath();
+      ctx.arc(ax, ay, ar + (p - 2) * 14 * pxPerMm, a0, a0 + sweep);
+      ctx.stroke();
+    }
+  }
+  const rings: Array<[number, number, number, number]> = [];
+  for (let k = 0; k < 3; k++) {
+    const rx = size * (0.15 + rng() * 0.7), ry = size * (0.15 + rng() * 0.7), rr = (34 + rng() * 10) * pxPerMm;
+    rings.push([rx, ry, rr, rng() * Math.PI * 2]);
+    const a0 = rng() * Math.PI * 2, gap = rng() < 0.7 ? 0.5 + rng() * 1.2 : 0;
+    ctx.strokeStyle = "rgba(118,86,48,0.16)";
+    ctx.lineWidth = 3.5 * pxPerMm;
+    ctx.beginPath(); ctx.arc(rx, ry, rr, a0 + gap, a0 + Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = "rgba(118,86,48,0.28)"; // the dried outer edge is denser
+    ctx.lineWidth = 0.9 * pxPerMm;
+    ctx.beginPath(); ctx.arc(rx, ry, rr + 1.6 * pxPerMm, a0 + gap + 0.1, a0 + Math.PI * 2 - 0.1); ctx.stroke();
+  }
+  ctx.lineCap = "butt";
+  const scr: Array<[number, number, number, number]> = [];
+  for (let k = 0; k < 11; k++) {
+    const sx = rng() * size, sy = rng() * size, len = (40 + rng() * 180) * pxPerMm, ang = rng() * Math.PI;
+    const dark = k < 2;
+    ctx.strokeStyle = dark ? "rgba(70,60,50,0.5)" : `rgba(255,255,255,${0.3 + rng() * 0.25})`;
+    ctx.lineWidth = dark ? 1.1 : 0.9;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + Math.cos(ang) * len, sy + Math.sin(ang) * len); ctx.stroke();
+    scr.push([sx, sy, sx + Math.cos(ang) * len, sy + Math.sin(ang) * len]);
+  }
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
       const n = wipe(x / size, (y / size) * 0.15) - 0.5;
-      const v = Math.min(255, Math.max(0, (0.18 + n * 0.1) * 255));
+      let r = 0.18 + n * 0.1;
+      for (const [rx, ry, rr] of rings) { const dd = Math.abs(Math.hypot(x - rx, y - ry) - rr); if (dd < 2.5 * pxPerMm) r += 0.3 * (1 - dd / (2.5 * pxPerMm)); }
+      const v = Math.min(255, Math.max(0, r * 255));
       const o = (y * size + x) * 4;
       rimg.data[o] = v; rimg.data[o + 1] = v; rimg.data[o + 2] = v; rimg.data[o + 3] = 255;
     }
   rctx.putImageData(rimg, 0, 0);
+  // The same haze arcs and scratches in the roughness (lighter = duller), so the albedo marks
+  // and the gloss breaks coincide — one map pair, one UV offset per table (Booths.ts).
+  rctx.lineCap = "round";
+  for (const [ax, ay, ar, a0, sweep] of arcs) {
+    rctx.strokeStyle = "rgba(255,255,255,0.14)";
+    rctx.lineWidth = 60 * pxPerMm;
+    rctx.beginPath(); rctx.arc(ax, ay, ar, a0, a0 + sweep); rctx.stroke();
+  }
+  rctx.lineCap = "butt";
+  rctx.strokeStyle = "rgba(255,255,255,0.6)";
+  rctx.lineWidth = 1;
+  for (const [sx, sy, ex, ey] of scr) { rctx.beginPath(); rctx.moveTo(sx, sy); rctx.lineTo(ex, ey); rctx.stroke(); }
   return { map: finish(c, true, 8), roughnessMap: finish(rc, false, 8) };
 }
 
@@ -1099,7 +1194,7 @@ export function woodVeneer(size: number, metres: number, o: WoodOpts): WoodSet {
     }
   for (let k = 0; k < (o.dings ?? 0); k++) {
     // Elliptical dent: 0.4 mm deep, dark crushed floor, a paler bruised ring of finish around it.
-    const cx = rng() * size, cy = rng() * size, ra = (1.5 + rng() * 2.5) * pxPerMm, rb = ra * (0.5 + rng() * 0.5), ang = rng() * Math.PI;
+    const cx = rng() * size, cy = rng() * size, ra = (2.5 + rng() * 5) * pxPerMm, rb = ra * (0.45 + rng() * 0.5), ang = rng() * Math.PI; // 5–15 mm (rev 2: was 3–8)
     const R = Math.ceil(Math.max(ra, rb) * 1.6);
     for (let dy = -R; dy <= R; dy++)
       for (let dx = -R; dx <= R; dx++) {
@@ -1108,8 +1203,8 @@ export function woodVeneer(size: number, metres: number, o: WoodOpts): WoodSet {
         if (dd > 1.6) continue;
         const x = (Math.round(cx + dx) + size) % size, y = (Math.round(cy + dy) + size) % size, i = y * size + x, idx = i * 4;
         const inside = 1 - smoothstep(0.7, 1.05, dd), ring = smoothstep(0.85, 1.05, dd) * (1 - smoothstep(1.2, 1.6, dd));
-        heights[i] -= inside * 0.4;
-        const k2 = 1 - inside * 0.16 + ring * 0.07;
+        heights[i] -= inside * 0.6;
+        const k2 = 1 - inside * 0.26 + ring * 0.09;
         img.data[idx] *= k2; img.data[idx + 1] *= k2; img.data[idx + 2] *= k2;
         rimg.data[idx] = Math.min(255, rimg.data[idx] + inside * 60);
         rimg.data[idx + 1] = rimg.data[idx]; rimg.data[idx + 2] = rimg.data[idx];
@@ -1370,7 +1465,7 @@ export function scuffRoughness(size: number, base: number, seed: number): THREE.
       const s = smoothstep(0.52, 0.72, streak(x / size, y / size));
       // Heels ride the upper half of a rail/ring: v ∈ [0.55, 1) gets most of the scuffing.
       const band = 0.35 + 0.65 * smoothstep(0.45, 0.7, y / size);
-      f[y * size + x] = base + s * band * 0.22 + (haze(x / size, y / size) - 0.5) * 0.04 + (rng() - 0.5) * 0.01;
+      f[y * size + x] = base + s * band * 0.3 + (haze(x / size, y / size) - 0.5) * 0.04 + (rng() - 0.5) * 0.01;
     }
   return greyFromField(f, size, size, 8);
 }
@@ -1458,11 +1553,13 @@ export function carafeScratches(size: number, base: number, seed: number): THREE
     const etch = smoothstep(0.02, 0.05, v) * (1 - smoothstep(0.1, 0.2, v)) + smoothstep(0.52, 0.55, v) * (1 - smoothstep(0.55, 0.62, v));
     for (let x = 0; x < size; x++) f[y * size + x] += etch * (0.045 + rng() * 0.02);
   }
-  for (let s = 0; s < 26; s++) {
-    const x0 = rng() * size, y0 = (0.05 + rng() * 0.4) * size, len = (0.05 + rng() * 0.25) * size, ang = (rng() - 0.5) * 0.9;
+  // Rev 2: shorter (2–10 % of the girth) and dimmer (+0.06–0.12) — rev 1's long bright
+  // streaks read as chalk lines on the glass.
+  for (let s = 0; s < 30; s++) {
+    const x0 = rng() * size, y0 = (0.05 + rng() * 0.4) * size, len = (0.02 + rng() * 0.08) * size, ang = (rng() - 0.5) * 0.9;
     const pts: Array<[number, number]> = [];
     for (let k = 0; k < len; k++) pts.push([(x0 + Math.cos(ang) * k) % size, y0 + Math.sin(ang) * k * 0.4]);
-    strokeField(f, size, pts, 0.14 + rng() * 0.1, 1);
+    strokeField(f, size, pts, 0.06 + rng() * 0.06, 1);
   }
   return greyFromField(f, size, size, 8);
 }
@@ -1506,36 +1603,57 @@ export function tideLineAlpha(size: number, seed: number): THREE.Texture {
 }
 
 /**
- * Cove base in service: black vinyl with mop-water tide marks and grey heel
- * scuffs along the top third, dust at the toe. Metric UVs (1 canvas = 1 m of
- * base, jittered per run). Albedo is a multiplier over the material colour so
- * the lighting pass keeps the base tone; roughness is × the material value
- * (scuffs matte: 1.25, mop sheen: 0.85).
+ * Cove base in service (rev 2: absolute colour, the material is white): black vinyl
+ * (#2a2724) with a grey dust film over the bottom 25 mm (the broom never quite reaches
+ * the toe), a pale mineral mop tide line 30–45 mm up — a wavering horizontal deposit
+ * with drips, where the mop water sat and dried night after night — and light-grey heel
+ * scuffs along the run. Metric UVs (1 canvas = 1 m of base, jittered per run).
+ * Roughness is × the material value (scuffs matte 1.25, mop residue matte, dust matte).
  */
 export function baseboardScuff(size: number, seed: number): TextureSet {
   const rng = makeRng(seed);
   const { c, ctx } = canvas(size, size / 4);
   const h = size / 4;
   const mottle = makeFbm(seed, 6, 3);
+  const tideWob = makeFbm(seed + 2, 5, 2);
   const img = ctx.createImageData(size, h);
   const rough = new Float32Array(size * h);
+  const mmPerRow = 100 / h; // the cove is ≈ 100 mm tall; v 0 at the floor
   for (let y = 0; y < h; y++) {
-    const v = 1 - y / h; // v 0 at the floor
-    const toe = 1 - smoothstep(0.05, 0.3, v);
+    const v = 1 - y / h;
+    const mm = v * 100;
+    const toe = 1 - smoothstep(12, 30, mm);
     for (let x = 0; x < size; x++) {
       const m = mottle(x / size, y / h) - 0.5;
-      const k = 1 + m * 0.12 + toe * 0.25 * (0.5 + m); // dusty grey film at the toe
+      // Base vinyl with a ±6 % mottle
+      let r = 42 * (1 + m * 0.12), g = 39 * (1 + m * 0.12), b = 36 * (1 + m * 0.12);
+      // Dust film: grey, denser at the very toe
+      const dust = toe * (0.45 + 0.5 * (mottle(x / size + 0.3, y / h) - 0.5) * 2) * 0.55;
+      r = r * (1 - dust) + 118 * dust; g = g * (1 - dust) + 114 * dust; b = b * (1 - dust) + 108 * dust;
+      // Mop tide line: centre wanders 32–44 mm, 3–5 mm tall, denser on its upper edge
+      const tc = 38 + (tideWob(x / size, 0.5) - 0.5) * 12, th = 2 + tideWob(x / size, 0.2) * 3;
+      const dt = (mm - tc) / th;
+      const tide = dt > -1 && dt < 1 ? (1 - dt * dt) * (0.55 + 0.45 * smoothstep(-0.2, 0.6, dt)) * smoothstep(0.35, 0.6, tideWob(x / size, 0.8)) : 0;
+      const ta = tide * 0.55;
+      r = r * (1 - ta) + 165 * ta; g = g * (1 - ta) + 160 * ta; b = b * (1 - ta) + 150 * ta;
       const o = (y * size + x) * 4;
-      img.data[o] = 255 * Math.min(1, k); img.data[o + 1] = 255 * Math.min(1, k * 0.99); img.data[o + 2] = 255 * Math.min(1, k * 0.97); img.data[o + 3] = 255;
-      rough[y * size + x] = 1 + toe * 0.2 - m * 0.2;
+      img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b; img.data[o + 3] = 255;
+      rough[y * size + x] = 1 + dust * 0.35 + ta * 0.3 - m * 0.2;
     }
   }
   ctx.putImageData(img, 0, 0);
   ctx.lineCap = "round";
+  // Drips below the tide line where the mop water ran
+  for (let d = 0; d < 14; d++) {
+    const x = rng() * size, top = h * (1 - 0.42 + rng() * 0.05);
+    ctx.strokeStyle = `rgba(165,160,150,${0.25 + rng() * 0.25})`;
+    ctx.lineWidth = 1 + rng() * 1.5;
+    ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x + (rng() - 0.5) * 3, top + (6 + rng() * 14) / mmPerRow); ctx.stroke();
+  }
   for (let s = 0; s < 26; s++) {
     // Heel/broom scuffs: light grey streaks, mostly along the run
     const x = rng() * size, y = (0.1 + rng() * 0.6) * h, len = (0.02 + rng() * 0.1) * size, ang = (rng() - 0.5) * 0.5;
-    ctx.strokeStyle = `rgba(200,196,190,${0.15 + rng() * 0.25})`;
+    ctx.strokeStyle = `rgba(200,196,190,${0.2 + rng() * 0.3})`;
     ctx.lineWidth = 0.8 + rng() * 2;
     ctx.beginPath();
     ctx.moveTo(x, y);
