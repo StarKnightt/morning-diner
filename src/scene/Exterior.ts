@@ -14,7 +14,8 @@ import * as THREE from "three";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { makeRng, makeFbm } from "../core/rng";
-import * as ext from "../procedural/exterior";
+import type { TextureBank } from "../core/textureBank";
+import * as extModule from "../procedural/exterior";
 import { ROOM } from "./layout";
 
 const T = ROOM.wallThickness;
@@ -249,7 +250,8 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
   parent.add(dm);
 }
 
-export function buildExterior(parent: THREE.Group, pal: Palette, sunDir: THREE.Vector3): ExteriorResult {
+export function buildExterior(parent: THREE.Group, pal: Palette, sunDir: THREE.Vector3, bank?: TextureBank): ExteriorResult {
+  const ext = bank ? bank.proxy(extModule, "ext") : extModule; // canvases in workers when a bank is given
   const rng = makeRng(3302);
   const b = new MergedBuilder();
   const envMaterials: THREE.Material[] = [];
@@ -268,7 +270,7 @@ export function buildExterior(parent: THREE.Group, pal: Palette, sunDir: THREE.V
   /* ---------------- lot: detailed near plane + plain surround ---------------- */
   const stallLinesX: number[] = [];
   for (let x = -13.5; x <= 13.5 + 1e-6; x += LOT.stallPitch) stallLinesX.push(x);
-  const layout: ext.LotLayout = { x0: LOT.x0, z0: LOT.kerbZ, w: LOT.w, d: LOT.d, stallLinesX, stallDepth: LOT.stallDepth };
+  const layout: extModule.LotLayout = { x0: LOT.x0, z0: LOT.kerbZ, w: LOT.w, d: LOT.d, stallLinesX, stallDepth: LOT.stallDepth };
   const lotTex = ext.lotSurface(2048, layout, 3310);
   const detail = ext.asphaltDetail(512, 3311);
   const asphalt = skyFill(new THREE.MeshStandardMaterial({
