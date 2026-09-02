@@ -26,39 +26,78 @@ const V2 = (x: number, y: number) => new THREE.Vector2(x, y);
 const MUG_H = 0.089;
 
 /**
+ * Self-occlusion for the ceramic, written into the UVs (System 4 rev 3). `materials.ts`
+ * gives `ceramic` and `bisque` an identity-ramp aoMap (texel v = v), so a vertex's uv.y IS
+ * its ambient/specular occlusion and three applies it to the probe's diffuse, the
+ * clearcoat's and the base specular (aomap_fragment: computeSpecularOcclusion). The
+ * ceramic has no colour map, so the UVs are free for this.
+ *
+ * Why: a one-point probe has no parallax and no self-occlusion. The glaze at the foot
+ * chamfer of an upright mug (normal 45° down and out) reflects a ray that goes UP, through
+ * the mug's own body — and the probe returns the troffer lens overhead (10,000 nits) for
+ * it: a 1,700-nit crescent at the base, brighter than any lit part of the mug (the rev 1–2
+ * critics' "mug-base light leak"). Same at the rim curl of an inverted mug standing on the
+ * mat. The true reflection is the mug's own shaded underside.
+ *
+ * Occlusion per lathe profile point (index → value), one set per orientation, since the
+ * end that meets the table differs and the InstancedMeshes are split by orientation.
+ */
+function writeProfileOcclusion(geo: THREE.BufferGeometry, pointCount: number, ao: (j: number) => number): void {
+  const uv = geo.getAttribute("uv") as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) {
+    const j = Math.round(uv.getY(i) * (pointCount - 1));
+    uv.setXY(i, 0.5, ao(j));
+  }
+  uv.needsUpdate = true;
+}
+
+const MUG_PROFILE = [
+  V2(0, 0.003), V2(0.031, 0.003), V2(0.036, 0.006), V2(0.04, 0.014), V2(0.041, 0.024),
+  V2(0.0395, 0.038), V2(0.0385, 0.05), V2(0.039, 0.062), V2(0.0405, 0.074), V2(0.041, 0.082),
+  V2(0.0405, 0.0875), V2(0.0385, 0.089), V2(0.0355, 0.089), V2(0.034, 0.0875), V2(0.0335, 0.084),
+  V2(0.0325, 0.072), V2(0.0315, 0.05), V2(0.032, 0.03), V2(0.03, 0.016), V2(0.026, 0.013), V2(0, 0.013),
+];
+// Upright (foot on the table): bottom + chamfer occluded by the table and the body above;
+// the cavity (inner wall, floor) is a deep white cup — modest; the rim sees the ceiling.
+const MUG_AO_UPRIGHT = [0.15, 0.15, 0.3, 0.55, 0.9, 1, 1, 1, 1, 1, 0.95, 0.9, 0.9, 0.85, 0.7, 0.6, 0.5, 0.45, 0.4, 0.4, 0.4];
+// Inverted (rim on the table): the rim curl and the wall just above it are what would
+// mirror the ceiling through the body; the foot, now on top, sees everything.
+const MUG_AO_INVERTED = [1, 1, 1, 0.95, 0.9, 1, 1, 1, 0.85, 0.5, 0.3, 0.25, 0.25, 0.3, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35];
+
+/**
  * Victor-style heavy mug: 89 mm tall, Ø 82 with a clear waist, 6 mm walls, a
  * 3.5 mm rounded rim, tapered foot, heavy C-handle. Origin at the foot; the
  * unglazed foot ring is a separate geometry (see `mugFootGeometry`).
  */
-function mugGeometry(): THREE.BufferGeometry {
+function mugGeometry(inverted: boolean): THREE.BufferGeometry {
   // Outer wall down the right, inner wall back up: 7–8 mm walls, 13 mm floor, 6.5 mm rim.
-  const body = new THREE.LatheGeometry(
-    [
-      V2(0, 0.003), V2(0.031, 0.003), V2(0.036, 0.006), V2(0.04, 0.014), V2(0.041, 0.024),
-      V2(0.0395, 0.038), V2(0.0385, 0.05), V2(0.039, 0.062), V2(0.0405, 0.074), V2(0.041, 0.082),
-      V2(0.0405, 0.0875), V2(0.0385, 0.089), V2(0.0355, 0.089), V2(0.034, 0.0875), V2(0.0335, 0.084),
-      V2(0.0325, 0.072), V2(0.0315, 0.05), V2(0.032, 0.03), V2(0.03, 0.016), V2(0.026, 0.013), V2(0, 0.013),
-    ],
-    48,
-  );
+  const body = new THREE.LatheGeometry(MUG_PROFILE, 48);
+  const ao = inverted ? MUG_AO_INVERTED : MUG_AO_UPRIGHT;
+  writeProfileOcclusion(body, MUG_PROFILE.length, (j) => ao[j]);
   // Stubby C-handle: 36 mm outside reach, 15 mm thick, bonded high and low on the waist.
   const handle = new THREE.TorusGeometry(0.019, 0.0075, 12, 28, 1.2 * Math.PI);
   handle.rotateZ(-0.6 * Math.PI);
   handle.scale(1, 1.25, 1);
   handle.translate(0.052, 0.048, 0);
+  writeProfileOcclusion(handle, 2, () => 1);
   return mergeGeometries([body.toNonIndexed(), handle.toNonIndexed()], false)!;
 }
 
 /** Unglazed foot ring, 3 mm tall, matching the mug's base. */
-function mugFootGeometry(): THREE.BufferGeometry {
-  return new THREE.LatheGeometry([V2(0.024, 0.0002), V2(0.026, 0), V2(0.031, 0), V2(0.0315, 0.003), V2(0.0235, 0.003), V2(0.024, 0.0002)], 40);
+function mugFootGeometry(inverted: boolean): THREE.BufferGeometry {
+  const geo = new THREE.LatheGeometry([V2(0.024, 0.0002), V2(0.026, 0), V2(0.031, 0), V2(0.0315, 0.003), V2(0.0235, 0.003), V2(0.024, 0.0002)], 40);
+  // On the table, the 3 mm ring sees half a hemisphere at best; on top of an inverted mug, all of it.
+  writeProfileOcclusion(geo, 6, () => (inverted ? 1 : 0.5));
+  return geo;
 }
 
+const SAUCER_PROFILE = [V2(0, 0.003), V2(0.03, 0.003), V2(0.033, 0), V2(0.045, 0), V2(0.05, 0.005), V2(0.072, 0.014), V2(0.078, 0.018), V2(0.074, 0.019), V2(0.052, 0.011), V2(0.042, 0.008), V2(0, 0.008)];
+
 function saucerGeometry(): THREE.BufferGeometry {
-  return new THREE.LatheGeometry(
-    [V2(0, 0.003), V2(0.03, 0.003), V2(0.033, 0), V2(0.045, 0), V2(0.05, 0.005), V2(0.072, 0.014), V2(0.078, 0.018), V2(0.074, 0.019), V2(0.052, 0.011), V2(0.042, 0.008), V2(0, 0.008)],
-    40,
-  );
+  const geo = new THREE.LatheGeometry(SAUCER_PROFILE, 40);
+  // Underside and foot against the counter; the flare's underside sees the counter only.
+  writeProfileOcclusion(geo, SAUCER_PROFILE.length, (j) => (j <= 3 ? 0.2 : j <= 5 ? 0.5 : 1));
+  return geo;
 }
 
 export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
@@ -255,8 +294,8 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
   for (const x of PROPS.napkinCounterX) tableSet(x, PROPS.napkinCounterZ, COUNTER.height, Math.PI / 2);
 
   /* ---------------- mugs ---------------- */
-  const mugGeo = mugGeometry();
-  const footGeo = mugFootGeometry();
+  const mugGeo = mugGeometry(false), mugGeoInv = mugGeometry(true);
+  const footGeo = mugFootGeometry(false), footGeoInv = mugFootGeometry(true);
   const yBar = BACK_BAR.height;
   const ledge = PROPS.mugLedge;
   {
@@ -268,13 +307,13 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
       b.rbox(pal.rubberMat, [xr - 0.002, yBar + 0.008, ledge.z0 + 0.006], [xr + 0.002, yBar + 0.012, ledge.z1 - 0.006], 0.0015);
     }
   }
-  const mugPoses: THREE.Matrix4[] = [];
+  const mugPoses: THREE.Matrix4[] = [], mugPosesInv: THREE.Matrix4[] = [];
   const contactDiscs: ContactDisc[] = [];
   const mugAt = (x: number, y: number, z: number, yaw: number, inverted: boolean, onSaucer = false) => {
     const m = new THREE.Matrix4().makeRotationY(yaw);
     if (inverted) m.premultiply(new THREE.Matrix4().makeRotationX(Math.PI)).setPosition(x, y + MUG_H, z);
     else m.setPosition(x, y, z);
-    mugPoses.push(m);
+    (inverted ? mugPosesInv : mugPoses).push(m);
     // Contact occlusion (System 4 rev 2): inverted, the Ø 82 rim sits on the surface and the
     // shade spreads ≈ 35 mm out from it; upright, the Ø 63 foot ring. Inside the ring the
     // disc is hidden by the mug itself. On a saucer the saucer's own ring stands in (a disc
@@ -305,9 +344,13 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     contactDiscs.push({ x, y: COUNTER.height, z: PROPS.saucerZ, r0: 0.05, r1: 0.12, ao: 0.45 });
     mugAt(x, COUNTER.height + 0.009, PROPS.saucerZ, Math.PI * (0.9 + rng() * 0.3), true, true);
   }
-  for (const [geo, mat, name] of [[mugGeo, pal.ceramic, "mugs"], [footGeo, pal.bisque, "mug-feet"]] as const) {
-    const im = new THREE.InstancedMesh(geo, mat, mugPoses.length);
-    mugPoses.forEach((m, i) => im.setMatrixAt(i, m));
+  for (const [geo, mat, name, poses] of [
+    [mugGeo, pal.ceramic, "mugs", mugPoses], [footGeo, pal.bisque, "mug-feet", mugPoses],
+    [mugGeoInv, pal.ceramic, "mugs-inverted", mugPosesInv], [footGeoInv, pal.bisque, "mug-feet-inverted", mugPosesInv],
+  ] as const) {
+    if (poses.length === 0) continue;
+    const im = new THREE.InstancedMesh(geo, mat, poses.length);
+    poses.forEach((m, i) => im.setMatrixAt(i, m));
     im.instanceMatrix.needsUpdate = true;
     im.castShadow = im.receiveShadow = true;
     im.name = name;
@@ -320,6 +363,11 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
   pourMug.rotation.y = -0.6;
   pourMug.castShadow = pourMug.receiveShadow = true;
   const pourFoot = new THREE.Mesh(footGeo, pal.bisque);
+  pourFoot.name = "pourMug:foot";
+  // System 4 rev 3: the foot never received shadows, so its 0.5 mm top sliver outside the
+  // body's chamfer took the full sun through the roof — the 4,800-nit "mug-base crescent"
+  // the critics saw in `macro-warmer` for three revs.
+  pourFoot.castShadow = pourFoot.receiveShadow = true;
   pourMug.add(pourFoot);
   parent.add(pourMug);
   contactDiscs.push({ x: PROPS.pourMug.x, y: yBar, z: PROPS.pourMug.z, r0: 0.031, r1: 0.062, ao: 0.6 });

@@ -254,7 +254,10 @@ export class Diner {
         // physically visible from there, but on a Ø 170 glass it prints as a sharp
         // checkerboard inside the decanter and reads as a CG artefact.
         if (floorMesh) floorMesh.material = plainFloor;
+        const propSunOff = new URLSearchParams(location.search).has("propsunoff");
+        if (propSunOff) this.sun.intensity = 0;
         const prop = probe(-1.7, 1.15, -1.9);
+        if (propSunOff) this.sun.intensity = sunIntensity;
         if (floorMesh && floorMat) floorMesh.material = floorMat;
         if (pass === 0) await hooks.probes(2);
         // Lot probe: sky dome, facade and asphalt for everything outdoors.

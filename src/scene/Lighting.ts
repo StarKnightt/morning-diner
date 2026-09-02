@@ -850,6 +850,13 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   sun.shadow.normalBias = 0.004; // one 4 mm texel; the receiver-plane bias in the PCSS kernel does the rest (rev 2: 0.012)
   // PCSS: 0.53° sun → 9.3 mm/m full penumbra = 4.65 mm/m filter radius (≈ 0.0127 UV per unit depth here).
   sun.shadow.radius = penumbraPerDepth(sun.shadow.camera, SPOT_DIST, SUN_ANGULAR_DIAMETER / 2);
+  {
+    // Diagnostics: `?nopcss` = fixed 4-tap kernel, `?nbias=n` overrides normalBias (metres).
+    const dq = new URLSearchParams(location.search);
+    if (dq.has("nopcss")) sun.shadow.radius = -1;
+    const nb = Number(dq.get("nbias"));
+    if (dq.has("nbias") && Number.isFinite(nb)) sun.shadow.normalBias = nb;
+  }
   scene.add(sun, sun.target);
   const sunBeam = buildSunBeam(sun);
   SUN_PCF_UNIFORM.value = (sunBeam.shadow.map as THREE.WebGLRenderTarget).depthTexture;

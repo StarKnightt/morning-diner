@@ -335,9 +335,24 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   });
 
   // Glazed ivory china: opaque, tight gloss from a clearcoat layer over a satin base.
-  const ceramic = new THREE.MeshPhysicalMaterial({ color: 0xf2eee6, roughness: 0.15, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.12 });
+  // System 4 rev 3: an identity-ramp aoMap (texel v = v) — Props.ts writes each vertex's
+  // self-occlusion into uv.y (writeProfileOcclusion), and three applies it to the probe's
+  // diffuse, the base specular (computeSpecularOcclusion) and the clearcoat's. The
+  // ceramic has no colour map, so the UVs are free for this.
+  const aoRamp = (() => {
+    const n = 256, data = new Uint8Array(n);
+    for (let i = 0; i < n; i++) data[i] = Math.round((255 * i) / (n - 1));
+    const t = new THREE.DataTexture(data, 1, n, THREE.RedFormat, THREE.UnsignedByteType);
+    t.minFilter = t.magFilter = THREE.LinearFilter;
+    t.generateMipmaps = false;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    t.name = "ao-ramp";
+    t.needsUpdate = true;
+    return t;
+  })();
+  const ceramic = new THREE.MeshPhysicalMaterial({ color: 0xf2eee6, roughness: 0.15, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.12, aoMap: aoRamp });
   // Unglazed foot ring: bare stoneware, noticeably darker than the glaze.
-  const bisque = new THREE.MeshStandardMaterial({ color: 0x8e7e6e, roughness: 0.88, metalness: 0 });
+  const bisque = new THREE.MeshStandardMaterial({ color: 0x8e7e6e, roughness: 0.88, metalness: 0, aoMap: aoRamp });
   // Clear glass: transmission 1 (at 0.95 the remaining 5 % was a diffuse white skin that
   // read as a milky veil over the sugar in rev 6), roughness 0 so the transmission pass is
   // not blurred, thin refraction thickness, no attenuation. Ribs are geometry, not maps.
