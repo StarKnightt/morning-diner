@@ -292,40 +292,57 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
       ctx.quadraticCurveTo(px + Math.cos(ang + bend) * len * 0.5, py + Math.sin(ang + bend) * len * 0.5, px + Math.cos(ang) * len, py + Math.sin(ang) * len);
       ctx.stroke();
     }
-    // Hairline crack: a jittered polyline through several tiles, dark line with a light
-    // glaze-chip catch along one side and a faint wider shadow so it still reads from 2 m.
-    const { x: cx, z: cz, len, deg } = wear.crack;
-    const [sx, sy] = toPx(cx, cz);
-    const a = THREE.MathUtils.degToRad(deg);
-    const steps = 22;
-    const path: Array<[number, number]> = [];
-    for (let k = 0; k <= steps; k++) {
-      const t = k / steps;
-      const wob = Math.sin(t * 9.1) * 0.008 + Math.sin(t * 4.3 + 1.3) * 0.006 + (rng() - 0.5) * 0.002;
-      path.push([sx + (Math.cos(a) * len * t - Math.sin(a) * wob) / mPerPx, sy + (Math.sin(a) * len * t + Math.cos(a) * wob) / mPerPx]);
-    }
+    // Hairline crack: a jittered polyline through several tiles — one dark line over a faint
+    // wider shadow. (Rev 2: no offset light "catch" line — two 1-texel lines a fraction of a
+    // texel apart beat against the texel grid and the crack rendered as a twisted rope.)
+    // The dark line itself is a 2 mm ribbon mesh in Shell.ts (floorCrackPath — same polyline):
+    // at 3.75 mm per texel a 1-texel antialiased diagonal magnifies into a string of beads.
+    // The map carries only its soft shadow and a faint darkening so it survives at distance.
+    const path: Array<[number, number]> = floorCrackPath(wear).map(([x, z]) => toPx(x, z));
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    for (const [col, off, lw] of [["rgba(40,34,28,0.16)", 0, 2.6], ["rgba(255,255,255,0.3)", 0.8, 0.7], ["rgba(22,18,14,0.85)", 0, 1.0]] as Array<[string, number, number]>) {
+    for (const [col, off, lw] of [["rgba(40,34,28,0.16)", 0, 2.6], ["rgba(22,18,14,0.3)", 0, 1.2]] as Array<[string, number, number]>) {
       ctx.strokeStyle = col;
       ctx.lineWidth = lw;
       ctx.beginPath();
       path.forEach(([px, py], i) => (i ? ctx.lineTo(px + off, py + off) : ctx.moveTo(px + off, py + off)));
       ctx.stroke();
     }
-    // The crack also breaks the glaze: matte along it.
+    // The crack also breaks the glaze: matte along it. Anti-aliased by distance to the
+    // polyline — a 3×3 texel stamp at rounded positions gave a stair-stepped matte band whose
+    // jaggies beat against the dark line and read as a twisted rope in specular.
     for (let k = 0; k + 1 < path.length; k++) {
-      const n = 6;
-      for (let s = 0; s <= n; s++) {
-        const px = path[k][0] + (path[k + 1][0] - path[k][0]) * (s / n), py = path[k][1] + (path[k + 1][1] - path[k][1]) * (s / n);
-        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
-          const i = (Math.round(py) + dy) * w + Math.round(px) + dx;
-          if (i >= 0 && i < rough.length) rough[i] = Math.max(rough[i], 0.7);
-        }
+      const [ax, ay] = path[k], [bx, by] = path[k + 1];
+      const x0 = Math.max(0, Math.floor(Math.min(ax, bx)) - 2), x1 = Math.min(w - 1, Math.ceil(Math.max(ax, bx)) + 2);
+      const y0 = Math.max(0, Math.floor(Math.min(ay, by)) - 2), y1 = Math.min(h - 1, Math.ceil(Math.max(ay, by)) + 2);
+      const vx = bx - ax, vy = by - ay, vv = vx * vx + vy * vy || 1;
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const t = Math.max(0, Math.min(1, ((x + 0.5 - ax) * vx + (y + 0.5 - ay) * vy) / vv));
+        const d = Math.hypot(x + 0.5 - ax - vx * t, y + 0.5 - ay - vy * t);
+        const m = 1 - THREE.MathUtils.smoothstep(d, 0.5, 1.6);
+        if (m > 0) { const i = y * w + x; rough[i] = Math.max(rough[i], rough[i] + (0.62 - rough[i]) * m); }
       }
     }
   }
   return { map: finish(c, true, anisotropy), roughnessMap: greyFromField(rough, w, h, anisotropy), normalMap: floorGrout(1024, wear?.seed ?? 1234) };
+}
+
+/**
+ * The hairline crack's polyline in world metres (x, z): a gentle two-frequency wander about
+ * the heading in `wear.crack`. Shared by the floor map (shadow + matte band) and the 2 mm
+ * ribbon Shell.ts lays on the tile so both stay registered.
+ */
+export function floorCrackPath(wear: FloorWear): Array<[number, number]> {
+  const { x, z, len, deg } = wear.crack;
+  const a = THREE.MathUtils.degToRad(deg);
+  const steps = 22;
+  const pts: Array<[number, number]> = [];
+  for (let k = 0; k <= steps; k++) {
+    const t = k / steps;
+    const wob = Math.sin(t * 9.1) * 0.008 + Math.sin(t * 4.3 + 1.3) * 0.006 + Math.sin(t * 23.7 + 0.4) * 0.0012;
+    pts.push([x + Math.cos(a) * len * t - Math.sin(a) * wob, z + Math.sin(a) * len * t + Math.cos(a) * wob]);
+  }
+  return pts;
 }
 
 /**
@@ -355,7 +372,7 @@ export function dinerFloorWear(): FloorWear {
       // The door fan: everyone steps in and turns toward the counter, spreading the wear.
       { pts: [[doorX, zFront - 0.1], [doorX - 0.75, zFront - 0.75]], half: 0.3, k: 0.8 },
       { pts: [[doorX - 0.05, zFront - 0.15], [doorX - 0.5, zFront - 1.0], [COUNTER.xMax + 0.2, stoolZ + 0.35]], half: 0.28, k: 0.7 },
-      { pts: [[COUNTER.xMin + 0.5, stoolZ + 0.34], [COUNTER.xMax - 0.2, stoolZ + 0.34]], half: 0.18, k: 0.5 },
+      { pts: [[COUNTER.xMin + 0.5, stoolZ + 0.36], [COUNTER.xMax - 0.2, stoolZ + 0.36]], half: 0.14, k: 0.5 },
       { pts: [[kitchenX, zBack + 0.05], [kitchenX + 0.2, staffZ], [BACK_BAR.xMax - 0.3, staffZ]], half: 0.34, k: 0.6 },
       // Short spurs from the aisle into each booth (people slide in and out).
       ...WINDOW.centersX.map((cx) => ({ pts: [[cx, aisleZ + 0.2], [cx, BOOTH.zInner + 0.1]] as Array<[number, number]>, half: 0.22, k: 0.45 })),
@@ -509,7 +526,7 @@ export function paintedWall(hex: string, size: number, seed: number, strength = 
       for (let x = 0; x < size; x++) {
         const u = x / size;
         const patch = 0.35 + 0.65 * along(u, 0.3); // where people sit more
-        const aBand = prof * prof * 0.18 * patch;
+        const aBand = prof * prof * 0.24 * patch;
         const wob = (gate(u, 0.8) - 0.5) * 0.006 * pxPerM;
         const lh = (0.006 + 0.003 * along(u, 0.1)) * pxPerM / 2;
         const dl = Math.abs(y - (yLine + wob)) / lh;
@@ -582,9 +599,9 @@ export function wallStipple(size: number, seed: number): { normalMap: THREE.Text
   }
   // Occlusion between the domes (rev 2): the valleys of an orange-peel film sit in their
   // own shade whatever the light does, so the relief keeps a lighting-independent presence
-  // (the normal alone vanished under a flat rig). 0.9 in the deepest valley, 1 on a dome top.
+  // (the normal alone vanished under a flat rig). 0.84 in the deepest valley, 1 on a dome top.
   const ao = new Float32Array(size * size);
-  for (let i = 0; i < ao.length; i++) ao[i] = 0.9 + 0.1 * clamp01(hf[i] / 0.25);
+  for (let i = 0; i < ao.length; i++) ao[i] = 0.84 + 0.16 * clamp01(hf[i] / 0.25);
   return { normalMap: normalFromHeight(hf, size, size, 0.5 / mmPerPx, 4), aoMap: greyFromField(ao, size, size, 4) };
 }
 
@@ -887,7 +904,9 @@ export function vinylSurface(size: number, metres: number, crazed: boolean, welt
           }
         const edge = (f2 - f1) / pxPerMm; // mm from the cell boundary
         const p = patch(x / size, y / size);
-        let presence = Math.min(1, Math.max(0, (p - 0.5) / 0.14));
+        // Rev 2: on the welt-cracked panel the general patches are halved so the seam bands
+        // lead (the panel's u repeats per channel, and repeated patches read as a print).
+        let presence = Math.min(1, Math.max(0, (p - 0.5) / 0.14)) * (weltCracks ? 0.45 : 1);
         let w = 0.2 + p * 0.25; // crack half-width in mm
         if (weltCracks) {
           // Seam cracking (System 5): the vinyl flexes along the sewn welt every time a back is

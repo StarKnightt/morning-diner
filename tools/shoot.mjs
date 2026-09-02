@@ -82,6 +82,8 @@ const POSES = {
   "door-dressing": { x: 4.95, y: 1.45, z: 2.0, yaw: 180, pitch: -6 },
   "floor-macro": { x: 1.6, y: 1.35, z: 1.05, yaw: 250, pitch: -48 },
   "wall-macro": { x: 4.85, y: 1.25, z: 0.7, yaw: 270, pitch: -10 },
+  // Crouched a metre inside the door: the kick plate (satin grain, bevel, screws) and the saddle.
+  "kick-macro": { x: 4.95, y: 0.55, z: 2.3, yaw: 180, pitch: -14 },
   // 0.5 m from the second booth's aisle-side back panel (welt cracking); the stained tile over booth 3.
   "welt-macro": { x: -3.0, y: 1.05, z: 2.55, yaw: 90, pitch: -8 },
   "ceiling-stain": { x: -1.9, y: 1.6, z: 0.35, yaw: 180, pitch: 36 },

@@ -166,8 +166,8 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   });
 
   // Wall boxes get world-anchored metric UVs (1 UV unit = WALL_M / WIN_M), so repeat stays 1.
-  const wallPaint = new THREE.MeshStandardMaterial({ map: wallTex.map, roughnessMap: wallTex.roughnessMap, normalMap: stipple.normalMap, aoMap: stipple.aoMap, aoMapIntensity: 1, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.82, metalness: 0 });
-  const wallPaintWindow = new THREE.MeshStandardMaterial({ map: winWallTex.map, roughnessMap: winWallTex.roughnessMap, normalMap: stippleWin.normalMap, aoMap: stippleWin.aoMap, aoMapIntensity: 1, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.82, metalness: 0 });
+  const wallPaint = new THREE.MeshStandardMaterial({ map: wallTex.map, roughnessMap: wallTex.roughnessMap, normalMap: stipple.normalMap, aoMap: stipple.aoMap, aoMapIntensity: 1, normalScale: new THREE.Vector2(1.3, 1.3), roughness: 0.82, metalness: 0 });
+  const wallPaintWindow = new THREE.MeshStandardMaterial({ map: winWallTex.map, roughnessMap: winWallTex.roughnessMap, normalMap: stippleWin.normalMap, aoMap: stippleWin.aoMap, aoMapIntensity: 1, normalScale: new THREE.Vector2(1.3, 1.3), roughness: 0.82, metalness: 0 });
   const wallPaintExt = new THREE.MeshStandardMaterial({ map: extWallTex.map, roughness: 0.92, metalness: 0 });
 
   const ceilingTile = new THREE.MeshStandardMaterial({
@@ -588,9 +588,12 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // Kick plate: satin brushed stainless — a looser finish than the brewer trim (0.45) so it
   // scatters the room into a light grey instead of mirroring the dark floor (rev 1 read as
   // a flat mauve-brown rectangle), horizontal brushing along the plate.
-  const kickPlate = withRough(palette.stainlessCool.clone(), tex.brushedRoughness(512, 0.45, 96));
-  kickPlate.color.setRGB(0.68, 0.69, 0.7, THREE.LinearSRGBColorSpace);
-  kickPlate.anisotropy = 0.5;
+  const kickPlate = withRough(palette.stainlessCool.clone(), tex.brushedRoughness(512, 0.5, 96));
+  // Slightly cool: the warm room env otherwise tints the plate mauve. Anisotropy along the
+  // brushing (vertical grain on a kick plate) smears the reflection into satin streaks.
+  kickPlate.color.setRGB(0.74, 0.77, 0.8, THREE.LinearSRGBColorSpace);
+  kickPlate.anisotropy = 0.7;
+  kickPlate.anisotropyRotation = Math.PI / 2;
   // Pedestal bells at floor contact (rev 2): the LatheGeometry's v runs up the profile, the
   // rim and shoulder are v ≲ 0.2. A 64 × 64 DataTexture (no worker) carries the cast's own
   // colour with a grey dust film and mop splash over the bottom, patchy around the base, and
@@ -604,22 +607,28 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     for (let y = 0; y < N; y++)
       for (let x = 0; x < N; x++) {
         const v = y / N; // texture row 0 = v 0 (DataTexture flipY false)
-        const dust = (1 - THREE.MathUtils.smoothstep(v, 0.08, 0.24)) * (0.55 + 0.45 * rnd());
+        const dust = (1 - THREE.MathUtils.smoothstep(v, 0.14, 0.36)) * (0.7 + 0.3 * rnd());
         let r = 58, g = 56, b = 54;
-        r += (112 - r) * dust * 0.6; g += (108 - g) * dust * 0.6; b += (102 - b) * dust * 0.6;
+        r += (158 - r) * dust * 0.9; g += (152 - g) * dust * 0.9; b += (144 - b) * dust * 0.9;
         let kick = 0;
         for (const [kx, ky, kw, kh] of kicks) { const dx = Math.min(Math.abs(x - kx), N - Math.abs(x - kx)) / kw, dy = (y - ky) / kh; kick = Math.max(kick, Math.max(0, 1 - dx * dx - dy * dy)); }
-        r += (150 - r) * kick * 0.5; g += (146 - g) * kick * 0.5; b += (140 - b) * kick * 0.5;
+        r += (185 - r) * kick * 0.6; g += (180 - g) * kick * 0.6; b += (174 - b) * kick * 0.6;
         const o = (y * N + x) * 4;
         rgba[o] = r; rgba[o + 1] = g; rgba[o + 2] = b; rgba[o + 3] = 255;
+        // G = roughness (× material 1), B = metalness: dust and rubber are dielectric, so the
+        // film goes diffuse grey where the cast's 0.6 metalness would otherwise mirror the floor.
         const ro = Math.min(255, 255 * (0.5 + dust * 0.35 + kick * 0.3));
-        rgh[o] = rgh[o + 1] = rgh[o + 2] = ro; rgh[o + 3] = 255;
+        const me = Math.max(0, 255 * 0.6 * (1 - dust * 0.85 - kick * 0.7));
+        rgh[o] = ro; rgh[o + 1] = ro; rgh[o + 2] = me; rgh[o + 3] = 255;
       }
     const mk = (d: Uint8Array, srgb: boolean) => { const t = new THREE.DataTexture(d, N, N); t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.wrapS = THREE.RepeatWrapping; t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.needsUpdate = true; return t; };
     castBaseDusty.color.set(0xffffff);
     castBaseDusty.map = mk(rgba, true);
-    castBaseDusty.roughnessMap = mk(rgh, false);
+    const rm = mk(rgh, false);
+    castBaseDusty.roughnessMap = rm;
     castBaseDusty.roughness = 1;
+    castBaseDusty.metalnessMap = rm;
+    castBaseDusty.metalness = 1;
   }
   // Fingerprints on the napkin dispensers and brewer trim (one canvas per face).
   const stainlessTouched = withRough(palette.stainlessBrushed.clone(), tex.fingerprints(512, palette.stainlessBrushed.roughness, 63));
