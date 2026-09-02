@@ -8,10 +8,14 @@ code. The target is a paused frame that reads as a photograph.
 
 ```
 src/
-  main.ts                 renderer, 37° camera, frame-capped loop, resize, ?debug logging
+  main.ts                 boot pipeline (loader → staged build → probes → first frames → enter),
+                          renderer, 37° camera, frame-capped loop, resize, ?debug logging
+  ui/Loader.ts            the loading overlay (#loader in index.html): bar, stage label, Click to enter
   scene/
     layout.ts             THE floor plan: every dimension and position, in metres
-    Diner.ts              composes the room, owns colliders and per-frame animation
+    Diner.ts              composes the room in yielding stages (`build()`), issues every shader
+                          program in parallel, bakes the three probes once, owns colliders and
+                          per-frame animation, `invalidateShadows()`
     Shell.ts              floor, 250 mm walls with punched openings (reveals show),
                           window frames + transom + glass stops, sill boards/aprons/casings,
                           full-depth door frame with stops + closer bracket + saddle,
@@ -57,7 +61,13 @@ src/
     upholstery.ts         pillowed cushions (analytic normals, edge-wear vertex colours),
                           welt piping along seams, channel-tufted back panels
     rng.ts                deterministic PRNG, tileable value/fBm noise
+    scheduler.ts          yieldToPaint / sleep, weighted Progress model, BootTimeline (marks)
+    textureBank.ts        worker pool for the canvas generators: proxies textures.ts / exterior.ts,
+                          hands out placeholder textures, fills them from ImageBitmaps; main-thread fallback
+    texProtocol.ts        worker message types + `propsOf` / `applyProps` (sampler state round-trip)
+    compile.ts            parallel shader link: issueCompile / waitForPrograms (KHR_parallel_shader_compile)
   procedural/
+    texWorker.ts          Web Worker entry: runs any generator below on an OffscreenCanvas, posts bitmaps
     textures.ts           canvas textures: checker floor, painted wall, acoustic tile, asphalt,
                           concrete, vinyl micro-grain + crazing (normal/roughness only), boomerang
                           and speckle laminate, wood grain (map/rough/normal), glaze speckle,
@@ -69,7 +79,7 @@ src/
     environment.ts        procedural emissive room used ONLY during the startup CubeCamera pass;
                           Diner.ts then PMREMs a 256 px capture of the real interior from counter
                           height and that becomes `scene.environment`
-  capture/pose.ts         window.__setPose / __SCENE_READY / __stats for the harness
+  capture/pose.ts         window.__ready / __SCENE_READY / __setPose / __stats / __perf for the harness
 tools/
   shoot.mjs               headless capture harness (build → serve :5210 → shoot poses)
   gpu.mjs                 Chromium GPU flags and software-rasteriser assertion
@@ -113,7 +123,74 @@ shallow dim kitchen box behind the pass-through and a black void elsewhere.
   merged per material (`MergedBuilder`); stools (11 parts), mugs and 184 tiles are
   `InstancedMesh`.
   Textures ≤ 2048 px, pixel ratio capped at 1.5. The loop is capped at ~120 fps
-  and drops to ~10 fps when the tab is hidden or the window loses focus.
+  and drops to ~10 fps when the tab is hidden or the window loses focus. The
+  shadow map is rendered once at boot (`shadowMap.autoUpdate = false`; call
+  `diner.invalidateShadows()` when the sun, blinds or door change) — that pass
+  was ~110 draw calls and ~6 ms of GPU time per frame.
+
+## Startup
+
+`main.ts` boots in stages behind a DOM overlay (`index.html` `#loader`,
+`src/ui/Loader.ts`): title, a thin bar with a percentage, a one-line stage
+label, and at the end "Click to enter" — the click is forwarded to the canvas so
+FirstPerson takes pointer lock and the AudioContext starts on the same gesture.
+With `?shoot` (the harness) the overlay is removed as soon as the scene is
+ready and no click is needed. `window.__ready` (a Promise) and
+`window.__SCENE_READY` are installed before any work starts and settle after the
+second rendered frame; `window.__perf()` returns the boot timeline.
+
+Order, and where the time goes on the RTX 4060 / 7600X (cold, headless, DPR 1):
+
+```
+  0.2 s  renderer + palette   createPalette() calls the generators through TextureBank.proxy():
+                              every canvas generator returns a placeholder texture immediately
+                              and the job goes to a pool of 8 Workers (OffscreenCanvas, same
+                              code, same PRNG → byte-identical pixels)
+  0.7 s  geometry             Shell, Booths, Counter, Ceiling, Door, Props, Blinds, Exterior —
+                              one stage per painted frame so the bar moves
+  1.2 s  environment          procedural room map (buildEnvironment)
+  1.6 s  stand-in + compile   a blank 512 px cubemap PMREM'd to the probes' size stands in as
+                              scene.environment while ALL 94 programs are issued at once:
+                              A render-target + room env (probe pass), B canvas + probe env
+                              (main pass), C render-target + probe env (transmission pass).
+                              Programs key on the env map's PMREM height, not its content.
+  ~7.5 s textures             workers finish (≈ 33 s of generator CPU across 25 jobs; the
+                              driver's link threads share the same six cores)
+  ~8.3 s shaders              all programs linked (ANGLE links on a thread pool;
+                              WebGLProgram.isReady() polled every 20 ms)
+  ~9.2 s probes               room / prop / lot CubeCamera captures, PMREM'd, assigned;
+                              the shadow map renders once inside the first probe face
+  ~9.8 s first frames         → __ready, overlay fades / Click to enter
+```
+
+Measured with `tools/shoot.mjs` (`[shoot] boot:` line): **9.5–9.9 s to ready**,
+was 34–49 s before (43 s of that was one-at-a-time synchronous shader links —
+the canvases were only ~7 s). Main-thread fallback (`?workers=0`, or when
+Workers/OffscreenCanvas are missing): 12.7 s. Frame time at the spawn pose:
+GPU 5.8 ms median (was 11.9), 124 draw calls (was 233), 1.4 M triangles (was
+2.2 M) — the difference is the per-frame shadow pass. The bar's weights
+(`main.ts`) follow the shares above: geometry 12, textures 25, shaders 40,
+probes 18, first frame 5.
+
+The remaining floor is CPU: ~33 s of canvas generation plus the D3D compile of
+94 physical-material programs on six cores. Cutting further means cheaper
+generators (`lotSurface` 2048², `glassDust`, `paintedWall`, `woodVeneer` ×3 and
+`concrete` are 2–3 s each) or fewer program variants — both change
+`src/procedural/*` / material parameters and were out of scope for the loader.
+
+Worker rules: generators are dispatched through `TextureBank.proxy(module)`;
+only functions listed in `SHAPES` (textureBank.ts) go to a worker — the entry
+says which fields of the result are textures. The proxy returns real
+`THREE.Texture` placeholders with the generator's sampler state applied when the
+bitmap lands, so call sites can keep doing `t.repeat.set(...)` / `t.wrapS = …`
+right after the call (call-site values win over the generator's, exactly as in
+the synchronous path). A texture that is re-drawn at runtime must NOT be listed
+in `SHAPES` — it needs a live canvas on the main thread. Bitmaps are created
+with `imageOrientation: "flipY"` and `premultiplyAlpha: "none"` and the texture
+is marked `flipY = false`: WebGL ignores UNPACK_FLIP_Y / UNPACK_PREMULTIPLY_ALPHA
+for ImageBitmap sources, so the flip has to be baked in (without it every
+texture was upside down — the checker floor inverted and every surface differed
+by a few LSB). `?workers=N` overrides the pool size for profiling.
 
 ## Pose / capture API
 
@@ -121,13 +198,17 @@ Installed on `window` by `src/capture/pose.ts`:
 
 | Global | Meaning |
 |---|---|
-| `__SCENE_READY` | `true` after the second rendered frame |
+| `__ready` | Promise, resolves after the second rendered frame (probes baked). Installed before any boot work |
+| `__SCENE_READY` | `true` at the same moment (what `tools/shoot.mjs` polls) |
+| `__perf()` | boot timeline `{ marks: [{name, ms, dt}], textures: { workers, wallMs, jobs }, programs, parallelCompile }` |
 | `__setPose({x, y?, z, yaw, pitch})` | teleport the camera. Metres; angles in **degrees**. `yaw 0` looks toward −z (the kitchen wall), positive turns left (toward −x). `pitch` positive looks up. `y` defaults to eye height 1.62 |
 | `__stats()` | `{ calls, triangles, renderer }` from the live WebGL context |
 | `__APP` | `{ renderer, scene, camera }` for ad-hoc inspection |
 
-URL flags: `?debug` logs the GPU adapter and draw calls every 5 s; `?nofill`
-renders the sun alone (diagnostic).
+URL flags: `?debug` logs the GPU adapter, boot timeline, per-job texture times
+and draw calls every 5 s; `?shoot` removes the loader without a click (the
+harness sets it); `?workers=N` sets the texture worker count (0 = main thread);
+`?nofill` renders the sun alone (diagnostic).
 
 ## Running the capture
 
@@ -190,6 +271,17 @@ at a booth seat and table under the slat shadows.
   it to the few glass props and never on the window glass.
 - r185 deprecates `PCFSoftShadowMap` (it silently maps to PCF). Use
   `PCFShadowMap` + `shadow.radius`.
+- **Shader links were the cold start.** On ANGLE/D3D11 every three.js program
+  is an HLSL compile (~0.3 s); this room has 94 across three output/env
+  variants, and first-use linking is synchronous. `renderer.compile()` per
+  variant issues them all and Chromium's KHR_parallel_shader_compile links on a
+  thread pool. Two traps: a *synchronous* link (PMREMGenerator's own materials,
+  anything that reads LINK_STATUS) queued behind the batch waits for the whole
+  batch (~2 s), so make the stand-in PMREM before issuing; and programs key on
+  the environment map's PMREM *height*, so the main-pass variants can be
+  compiled against a blank cubemap of the probes' size before the probes exist.
+- ImageBitmap textures ignore `flipY` / `premultiplyAlpha` at upload; bake the
+  flip into `createImageBitmap(..., { imageOrientation: "flipY" })` (texWorker.ts).
 - D3D emits `X4122` precision *warnings* in the program info log for the
   RectAreaLight LTC code. They are benign; the harness fails only on errors.
 - `mergeGeometries` needs a consistent index state; `ExtrudeGeometry` is
@@ -322,7 +414,7 @@ at a booth seat and table under the slat shadows.
 |---|---|---|
 | 1 | Interior geometry and floor plan | **done** (rev 4 close-out: empty L-return, footrail at 200 mm on cast brackets, bell pedestals, head bulkhead + 25 mm wall angle, 60 × 40 caps, 100 mm saddle + stepped exterior slab) |
 | 2 | Booth and counter detail | **PASSED at rev 7 (`9adefff`)**; System 3 rev 1 polish: 3 condiment sets on 9 stools (centred between stool pairs), boomerangs in two classes (32–38 mm + 15–20 mm) with a few outline-only shapes, channels pillowed 4 mm outward with the 1–2 mm valley at the welt, stool seats with a 17 mm crown + 10 mm roll over the band, near-white granular sugar. Rev 7 was: flicker audit + fixes (see Lessons); stools built per stool into the merged buckets (no instancing): ±6 mm column height, any yaw with the welt junction + boxing seam travelling with it, ±5 % squash, 250 × 200 mm sit-hollow 6–9 mm deep in its own shade, one 2.5° worn swivel, three chrome wear grades (roughness 0.07/0.12/0.17), four bolt caps per base; glass `transmission 1`/roughness 0/thin, granular sugar top tilted 7° at 75 %, grey-blue granular salt standing in front of the pepper; black SplashGard funnel (Ø 178 × 100, paddle handle) in the rails, stainless fill lid so one black warmer disc tops the hood, 7 mugs staggered ±15 mm on the mat; napkin tip with folded leaf + crease, domed cast pedestal with collar, pass-through surround in wall-trim paint. Rev 6 was: A1 veneer at true scale (lines 1.5–2.5 mm, one decaying cathedral per 0.5 m, ≤ 9 % contrast, per-panel UV jitter + flips; oak caps / walnut panels + die / maple cabinets + fan blades kept); A2 cords proud of the channels (centre +1 mm over the crowns, 6 mm, baked line shadows, 6 puckers in the last 30 mm at both tucks), 6 mm piped head-roll seam, seat welt + boxing seam + dark top-stitch line at the nose, 6 mm welt torus round every stool seat over a 1" band; vinyl roughness ≈ 0.32–0.5, grain normal 1.25, clearcoat 0.1. B1 boomerangs as straight-armed 100–130° elbows with rounded tapered tips, 28–52 mm, ~3.5 / 100 cm², three tones, on a 2048 px / 1.2 m tile (no repeat on a table). B2 one fluted jar (14 cos² ribs, 2.5 mm) in `glassFluted` (10 mm refraction thickness) with the sugar at 97 % of the bore to 65 %, full-diameter 12 mm lid with 1" side-hinged flap; S&P 1.5 mm glass walls, fills at 97 % of the bore to 60 %, opaque `salt`. B3 hood in light `stainlessCool` (albedo 0.6, roughness 0.3, anisotropic, room probe) with black control band + black 150 mm warmer discs top and base, stainless base plate over a black base, 25 × 14 mm lit rocker switches with pivot line. B4 mug 7–8 mm walls / 13 mm floor / 6.5 mm rim, dark `bisque` foot ring, stubby handle; 8 spares inverted on a ribbed rubber bar mat, 2 upright, saucers only at the two stools. B5 stools: seat parts pivot on the column top with ±1.2° tilt, ±10 mm height, ±5 % cushion squash, ±10 mm pitch with two nudged 22–30 mm. C: 2" fluted T-mould with 4 grooves on the counter, 28 mm push bar on cast rose/post/saddle standoffs, 4.5" × ½" five-rib saddle threshold, 5 mm dark-steel spider plate with 4 screws on a dark-sealed underside, ½" troffer recess in a 1" frame, shaped cast fan irons with bosses, 1.8 mm rolled dispenser lid edge. Rev 5 was: mugs are `MeshPhysicalMaterial` ivory china (opaque, roughness 0.15, clearcoat 0.6, env 0.45; runtime probe confirmed transmission/transparent were never set — the rev 4 "frosted" read was a shaded white body mirroring the counter); Skylark laminate as sparse (~30 %) round-capped stroked chevrons, three tones pulled toward cream, non-touching; Tablecraft-221 dispenser in smooth `stainlessBrushed` (roughness 0.2, anisotropy 0.4 — at 1.0 the sun lobe whited the face) with 70 × 22 slots on both long faces, napkin fans, flange lid, rubber feet; BUNN tower in matte `blackPowder` with brushed stainless side panels and a Ø 190 × 110 stainless funnel with forward handle; channel depth 20 mm with 6 mm cords riding 2 mm under the crowns, vinyl #A8141C roughness ≈ 0.3–0.4, 0.4 mm grain, clearcoat 0.15; veneer ridge pitch 1–4 mm with ~300 mm cathedral figure at ≤ 12 % contrast (caps satin 0.3, laminates 0.5); shaker fill fitted to the glass, half-moon side-hinged sugar flap, 13 mm troffer reveal. Rev 4 was: prop-side reflection probe (no checker in glassware), opaque #2A1408 coffee at 55 % with fill line/meniscus/tide line, 12 mm D-handle facing the aisle, 100 mm-deep funnel; opaque ivory mugs (roughness 0.14, env 0.2) inverted on 140 mm saucers on the drip tray + 3 loose uprights + `pourMug`; Skylark boomerangs as bent chevrons (62/72 mm, 12–15 mm, tan/grey-blue/white, ~40 %); three grain sources via `woodVeneer` (oak caps, walnut panels/die, maple cabinets); seat boxing seam 25 mm below the crown, brighter valley cords, ±3–4 mm puckers; stools ±8 mm height/±10 mm pitch/±25 mm off-line, concave rim band mirrors the checker; Tablecraft-221 dispenser with 52 × 42 arch, napkin tip, lid seam; bright 4" saddle; kitchen box with its own emissive ambient. Rev 3 was: — 5 mm welt cords proud in every channel valley + 7 mm roll-seam and boxing-seam welts, puckers at both tucks, broad sheen (roughness map 0.35–0.55, clearcoat 0.25); 512 px interior-capture PMREM; irregular vertical veneer grain on end panels/counter die/cabinets (contrast 0.10), horizontal cap grain; T-mould with 3 real 2 mm grooves + returned lip, 38 mm tops with sparse two-tone boomerang; counter sheet seams every 3.6 m; steep-rimmed bell stool bases that mirror the floor, per-stool rim seam, ±12 mm height/±25 mm offset; footrail elbow + return flange; 300 mm brushed spider plate; BUNN VPR brewer with one lower + one upper warmer, deep SplashGard funnel, brushed body; 173 × 178 decanter with opaque 55 % coffee, fill line, tide line, black collar/handle, stainless base ring; closed 98 × 117 × 184 dispenser with recessed faceplates and one napkin tip; 12-flute sugar pourer at 65 %; glass shakers with visible fill; glossy waisted mugs (roughness 0.1); 6 mm prism troffer lens; 14 mm fan blades; alu threshold plate |
-| 3 | Windows, blinds, exterior view | **built, rev 1 (proof crops in `shots/crops/`)** — venetian blinds on all five windows (none on the door: the reference diners keep the door pane clear for the OPEN sign and the view of who is coming), instanced curved 1" slats at 22 mm pitch / 45°, ±0.5° tilt, ±0.3 mm sag, a kinked slat per window, ±4 % tone, dust streaks on the up-faces, rails, two ladders + lift cords + wand each; slats cast the hard stripe shadows through the existing sun (tight 3.3 mm shadow texels). Window/door glass `MeshPhysicalMaterial` T = 1 with the 12 % loss in the colour, IOR 1.52, 6 mm, green-grey attenuation, room-probe reflection, dust haze heavier at the lower edge/corners, wipe streaks, five handprints at push-bar height (roughness patch + haze decal). Exterior: 150 mm kerb + 1.5 m sidewalk, 12 stalls of re-striped asphalt (drift, tyre polish, sealcoat patches, alligator + long cracks with dusty/sealed fills, oil drips, old + new lines) over a plain surround, kerb stops, 1.2 m CMU wall at the far edge, two 7 m light standards on concrete bases, dusty white pickup (5.3 m, 2.9 m wheelbase, 0.71 m tyres) and maroon sedan (4.9 m, faded clearcoat) with dark glass, chrome bumpers/trim, recessed headlamps with chrome bezels, contact-shadow decals, `lotEnv` probe; desert dirt with 900 instanced scrub patches, fBm mesa/ridge ring fading into the sky, shader sky dome (near-white horizon → pale desaturated blue, sun glare on az 38° / el 35°), linear fog 45–260 m for atmospheric perspective. Draw calls 181–335 (worst: `length`). |
+| 3 | Windows, blinds, exterior view | **built, rev 1 (proof crops in `shots/crops/`)** — venetian blinds on all five windows (none on the door: the reference diners keep the door pane clear for the OPEN sign and the view of who is coming), instanced curved 1" slats at 22 mm pitch / 45°, ±0.5° tilt, ±0.3 mm sag, a kinked slat per window, ±4 % tone, dust streaks on the up-faces, rails, two ladders + lift cords + wand each; slats cast the hard stripe shadows through the existing sun (tight 3.3 mm shadow texels). Window/door glass `MeshPhysicalMaterial` T = 1 with the 12 % loss in the colour, IOR 1.52, 6 mm, green-grey attenuation, room-probe reflection, dust haze heavier at the lower edge/corners, wipe streaks, five handprints at push-bar height (roughness patch + haze decal). Exterior: 150 mm kerb + 1.5 m sidewalk, 12 stalls of re-striped asphalt (drift, tyre polish, sealcoat patches, alligator + long cracks with dusty/sealed fills, oil drips, old + new lines) over a plain surround, kerb stops, 1.2 m CMU wall at the far edge, two 7 m light standards on concrete bases, dusty white pickup (5.3 m, 2.9 m wheelbase, 0.71 m tyres) and maroon sedan (4.9 m, faded clearcoat) with dark glass, chrome bumpers/trim, recessed headlamps with chrome bezels, contact-shadow decals, `lotEnv` probe; desert dirt with 900 instanced scrub patches, fBm mesa/ridge ring fading into the sky, shader sky dome (near-white horizon → pale desaturated blue, sun glare on az 38° / el 35°), linear fog 45–260 m for atmospheric perspective. Draw calls 181–335 (worst: `length`) with the per-frame shadow pass; 124–228 since the shadow map is rendered once at boot. |
 | 4 | Lighting | pending (placeholder sun/hemi/troffers in `Lighting.ts`) |
 | 5 | Materials and textures | pending (placeholder palette in `materials.ts`) |
 | 6 | Sound design | pending |
