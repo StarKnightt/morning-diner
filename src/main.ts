@@ -23,6 +23,7 @@ import { initInteractions, type Interactions } from "./interactions";
 import { FirstPerson } from "./player/FirstPerson";
 import { createPostPipeline, type PostPipeline } from "./post/PostPipeline";
 import { Diner } from "./scene/Diner";
+import { configureRenderer } from "./scene/Lighting";
 import { Loader } from "./ui/Loader";
 
 const params = new URLSearchParams(location.search);
@@ -43,13 +44,19 @@ progress.stage("Opening up…");
 const renderer = new THREE.WebGLRenderer({ powerPreference: "high-performance", antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = true;
-// r185 deprecated PCFSoftShadowMap (it silently maps to PCF anyway); PCF with
-// shadow.radius gives the same soft edge without the console warning.
-renderer.shadowMap.type = THREE.PCFShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
+// Tone mapping, exposure (a camera setting: ISO 100 · f/5.6 · 1/160 s) and the shadow
+// filter live with the light rig (System 4, scene/Lighting.ts): the camera curve (white at
+// +3.5 EV over grey), exposure = 1 / L_sat, BasicShadowMap depth textures filtered by the
+// PCSS chunk. `?tm=camera|aces|agx|neutral` and `?ev=±n` override them for side-by-side captures.
+configureRenderer(renderer);
+{
+  const tm = params.get("tm");
+  if (tm === "aces") renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  else if (tm === "agx") renderer.toneMapping = THREE.AgXToneMapping;
+  else if (tm === "neutral") renderer.toneMapping = THREE.NeutralToneMapping;
+  else if (tm === "camera") renderer.toneMapping = THREE.CustomToneMapping;
+  if (params.has("ev")) renderer.toneMappingExposure *= Math.pow(2, Number(params.get("ev")));
+}
 document.body.appendChild(renderer.domElement);
 
 if (DEBUG) console.log(`[gpu] ${gpuRendererString(renderer)}  parallel-compile=${hasParallelCompile(renderer)}`);
@@ -116,8 +123,10 @@ async function boot(): Promise<void> {
   interactions = initInteractions({ renderer, scene, camera, player, diner });
   // System 8: dust, haze, shimmer, steam, photographic finish. `?post=0` → plain renderer.render.
   // Created here, after build(): the lights exist, both shadow maps have rendered once (inside the
-  // first probe face) and the sun-beam dust samples its spawn volume from the live `diner.sun`.
-  post = createPostPipeline(renderer, scene, camera, { sun: diner.sun });
+  // first probe face) and the sun-beam dust samples its spawn volume from the live sun. It gets
+  // `diner.sunBeam`, the sun's twin whose map is a compare-mode depth texture (System 4 filters
+  // `diner.sun`'s own map with PCSS from a raw depth texture, which `sampler2DShadow` cannot read).
+  post = createPostPipeline(renderer, scene, camera, { sun: diner.sunBeam });
   timeline.mark("post");
   // The pour's four materials (clipped decanter coffee, rippled mug surface, stream, steam)
   // and the post pipeline's scene objects (dust motes, decanter steam) enter the scene here,

@@ -29,19 +29,32 @@ type Shape = "direct" | readonly string[];
 /** Result shape of every generator that may run in a worker (module → function → texture keys). */
 const SHAPES: Record<string, Record<string, Shape>> = {
   tex: {
-    checkerFloor: ["map", "roughnessMap"],
-    paintedWall: ["map"],
-    acousticTile: ["map", "roughnessMap"],
-    vinylSurface: ["normalMap", "roughnessMap"],
+    checkerFloor: ["map", "roughnessMap", "normalMap"],
+    paintedWall: ["map", "roughnessMap"],
+    acousticTile: ["map", "roughnessMap", "normalMap"],
+    vinylSurface: ["normalMap", "roughnessMap", "map"],
     formicaBoomerang: ["map", "roughnessMap"],
     woodVeneer: ["map", "roughnessMap", "normalMap"],
     prismLens: ["normalMap", "map"],
+    trofferLens: ["emissiveMap"],
     formicaSpeckle: ["map"],
     glazeSpeckle: ["map"],
     brushedRoughness: "direct",
     speckleRoughness: "direct",
     asphalt: ["map"],
     concrete: ["map"],
+    // System 5 (materials branch): wear and dressing maps
+    floorGrout: "direct",
+    wallStipple: ["normalMap", "aoMap"],
+    teePaint: ["map", "roughnessMap"],
+    laminateWear: ["map", "roughnessMap"],
+    scuffRoughness: "direct",
+    handWear: "direct",
+    fingerprints: "direct",
+    carafeScratches: "direct",
+    tideLineAlpha: "direct",
+    baseboardScuff: ["map", "roughnessMap"],
+    doorDecals: "direct",
   },
   ext: {
     lotSurface: ["map", "roughnessMap"],
@@ -55,6 +68,10 @@ const SHAPES: Record<string, Record<string, Shape>> = {
     contactShadowAlpha: "direct",
     tyreTread: "direct",
   },
+  // System 9 (src/procedural/presence.ts): the apron / cardigan / newspaper / plate atlas.
+  pres: {
+    presenceAtlas: ["map", "roughnessMap", "normalMap"],
+  },
 };
 
 /** Loader stage labels ("Generating <label>…"). */
@@ -66,6 +83,7 @@ const LABELS: Record<string, string> = {
   formicaBoomerang: "boomerang laminate",
   woodVeneer: "wood veneer",
   prismLens: "troffer lenses",
+  trofferLens: "fluorescent tubes",
   formicaSpeckle: "speckle laminate",
   glazeSpeckle: "china glaze",
   brushedRoughness: "brushed steel",
@@ -82,6 +100,18 @@ const LABELS: Record<string, string> = {
   blockWall: "block wall",
   contactShadowAlpha: "contact shadows",
   tyreTread: "tyre tread",
+  floorGrout: "grout joints",
+  wallStipple: "roller stipple",
+  teePaint: "grid tees",
+  laminateWear: "laminate scratches",
+  scuffRoughness: "chrome scuffs",
+  handWear: "hand-worn chrome",
+  fingerprints: "fingerprints",
+  carafeScratches: "decanter scratches",
+  tideLineAlpha: "coffee tide line",
+  baseboardScuff: "cove base",
+  doorDecals: "door signage",
+  presenceAtlas: "the apron and the paper",
 };
 
 /** Rough pixel count so the pool starts the big jobs first (longest-processing-time first). */
@@ -89,11 +119,16 @@ function estimateCost(fn: string, args: unknown[]): number {
   const n = (i: number) => (typeof args[i] === "number" ? (args[i] as number) : 1);
   switch (fn) {
     case "checkerFloor":
-      return n(0) * n(1) * n(2) * n(2) * 2;
+      return n(0) * n(1) * n(2) * n(2) * 3 + 1024 * 1024; // + its 2 × 2-tile grout normal
+    case "wallStipple":
+    case "acousticTile":
+      return n(0) * n(0) * 2.5;
+    case "laminateWear":
+      return n(0) * n(0) * 1.5;
     case "lotSurface":
       return n(0) * n(0) * 0.5 * 3;
     case "vinylSurface":
-      return n(0) * n(0) * (args[2] ? 4 : 1.5);
+      return n(0) * n(0) * (args[2] ? 5.5 : 3);
     case "woodVeneer":
       return n(0) * n(0) * 3;
     case "formicaBoomerang":

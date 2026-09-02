@@ -11,8 +11,10 @@
  */
 import { PerspectiveCamera, MathUtils } from "three";
 import { ROOM, COUNTER, BACK_BAR, BOOTH, DOOR, WINDOW } from "../../scene/layout";
+import { easeIn, easeInOutSine, easeOutBack } from "../../interactions/util";
 import { createDinerAudio, defaultPositions, type DinerAudio } from "../index";
 import { gainToDb } from "../dsp";
+import { POUR_POINTS, wiredPositions } from "../wiring";
 
 /* ------------------------------------------------------------------ */
 /* offline render                                                      */
@@ -22,12 +24,25 @@ export interface OfflineRequest {
   seconds?: number;
   seed?: number;
   sampleRate?: number;
-  listener?: { x: number; y: number; z: number; yawDeg: number };
+  /** yaw 0 looks toward −z, positive turns left (toward −x); pitch positive looks up. Degrees. */
+  listener?: { x: number; y: number; z: number; yawDeg: number; pitchDeg?: number };
   /** Also fire the one-shots at fixed times (pour 1 s, clink 5 s, door 6 s; outside opens in 0.7 s and holds). */
   sfx?: boolean;
+  /**
+   * System 7 timelines, exactly as `src/interactions/Pour.ts` / `DoorSwing.ts` drive the audio:
+   *   "pour"  t0: clink at the decanter rest → t0+1.3 s pourCoffee(2.5, mugTop) → t0+5.3 s clink at rest
+   *   "door"  t0: doorOpen(); setOutside(deg/85) every `tickHz` frame along the 7.15 s swing/hold/close/latch
+   * `t0` defaults to 1 s.
+   */
+  scenario?: "pour" | "door" | "sys9";
+  t0?: number;
+  /** Scheduler / per-frame call rate for the scenario (default 50 Hz; the game runs 60–120). */
+  tickHz?: number;
   /** Bus names to keep; everything else is muted (the mix then contains only these). */
   solo?: string[];
   masterDb?: number;
+  /** Bus names whose stereo PCM (pre-compressor tap) is returned as well as the mix. */
+  taps?: string[];
 }
 
 export interface ChannelStats {
@@ -48,9 +63,35 @@ export interface OfflineResult {
   events: { name: string; t: number; dur: number }[];
   /** Stereo mix as interleaved 16-bit PCM, base64. */
   pcm16: string;
+  /** Requested bus taps (pre-compressor), same encoding. */
+  taps: Record<string, string>;
+  /** Scenario timeline (context seconds) for the analysis: when each call was made. */
+  timeline: { name: string; t: number }[];
+  /** Emitter positions the graph was built with (the scene's `wiredPositions()` over the defaults). */
+  positions: Record<string, unknown>;
 }
 
-const BUS_ORDER = ["mix", "sum", "ac", "fan", "radio", "coffee", "room", "outside", "sfx-coffee", "sfx-door"];
+const BUS_ORDER = ["mix", "sum", "interior", "ac", "fan", "radio", "coffee", "room", "kitchen", "outside", "sfx-coffee", "sfx-door", "sfx-player", "sfx-openables"];
+
+/**
+ * DoorSwing.ts's leaf angle for `t` seconds into the cycle (kept in step with `TL` /
+ * `OPEN_DEG` / `SWEEP_TO_DEG` there): ease-out-back to 85° over 1.1 s, hold to 5.1 s,
+ * sine sweep to 8° by 6.9 s, cubic latch to 0° at 7.15 s.
+ */
+export const DOOR_TL = { open: [0, 1.1], hold: [1.1, 5.1], sweep: [5.1, 6.9], latch: [6.9, 7.15], end: 7.15, openDeg: 85, sweepToDeg: 8 } as const;
+export function doorLeafDeg(t: number): number {
+  const ph = (a: number, b: number): number => Math.min(1, Math.max(0, (t - a) / (b - a)));
+  const { open, hold, sweep, latch, openDeg, sweepToDeg } = DOOR_TL;
+  if (t < 0 || t >= DOOR_TL.end) return 0;
+  if (t < open[1]) return openDeg * easeOutBack(ph(open[0], open[1]), 0.6);
+  if (t < hold[1]) return openDeg;
+  if (t < sweep[1]) return openDeg - (openDeg - sweepToDeg) * easeInOutSine(ph(sweep[0], sweep[1]));
+  if (t < latch[1]) return sweepToDeg * (1 - easeIn(ph(latch[0], latch[1])));
+  return 0;
+}
+
+/** Pour.ts timeline: clink at start, stream from 1.3 s for 2.5 s, clink when the decanter is back at 5.3 s. */
+export const POUR_TL = { clinkA: 0, stream: [1.3, 3.8], clinkB: 5.3, fill: [1.42, 3.75] } as const;
 
 async function renderOffline(req: OfflineRequest = {}): Promise<OfflineResult> {
   const seconds = req.seconds ?? 10;
@@ -58,16 +99,20 @@ async function renderOffline(req: OfflineRequest = {}): Promise<OfflineResult> {
   const channels = BUS_ORDER.length * 2;
   const ctx = new OfflineAudioContext(channels, Math.floor(seconds * sampleRate), sampleRate);
 
-  const audio = createDinerAudio({}, { context: ctx, seed: req.seed ?? 20260902, masterDb: req.masterDb });
+  // The scene's graph: `wireDinerAudio()` = createDinerAudio(wiredPositions()).
+  const positions = wiredPositions();
+  const audio = createDinerAudio(positions, { context: ctx, seed: req.seed ?? 20260902, masterDb: req.masterDb });
   await audio.start();
   const engine = audio.engine!;
 
   const l = req.listener ?? { x: 0, y: 1.62, z: 0.9, yawDeg: 90 };
   const yaw = MathUtils.degToRad(l.yawDeg);
+  const pitch = MathUtils.degToRad(l.pitchDeg ?? 0);
+  const cp = Math.cos(pitch), sp = Math.sin(pitch);
   engine.setListenerImmediate(
     { x: l.x, y: l.y, z: l.z },
-    { x: -Math.sin(yaw), y: 0, z: -Math.cos(yaw) },
-    { x: 0, y: 1, z: 0 },
+    { x: -Math.sin(yaw) * cp, y: sp, z: -Math.cos(yaw) * cp },
+    { x: Math.sin(yaw) * sp, y: cp, z: Math.cos(yaw) * sp },
   );
 
   // Tap every bus (pre-compressor) to its own channel pair; the master already
@@ -75,13 +120,16 @@ async function renderOffline(req: OfflineRequest = {}): Promise<OfflineResult> {
   const merger = ctx.createChannelMerger(channels);
   const buses = new Map<string, GainNode>();
   buses.set("sum", engine.input);
+  buses.set("interior", engine.interior);
   for (const layer of audio.layers) buses.set(layer.name, layer.bus);
   buses.set("outside", audio.door!.outsideBus);
   buses.set("sfx-coffee", audio.coffee!.bus);
   buses.set("sfx-door", audio.door!.bus);
+  if (audio.playerSfx) buses.set("sfx-player", audio.playerSfx.bus);
+  if (audio.openablesSfx) buses.set("sfx-openables", audio.openablesSfx.bus);
   if (req.solo?.length) {
     for (const [name, bus] of buses) {
-      if (name !== "sum" && !req.solo.includes(name)) bus.gain.value = 0;
+      if (name !== "sum" && name !== "interior" && !req.solo.includes(name)) bus.gain.value = 0;
     }
   }
   BUS_ORDER.forEach((name, i) => {
@@ -96,18 +144,37 @@ async function renderOffline(req: OfflineRequest = {}): Promise<OfflineResult> {
   merger.connect(ctx.destination);
 
   // Drive the schedulers every 250 ms of rendered time, and the SFX script.
-  const step = 0.25;
+  const t0 = req.t0 ?? 1.0;
+  const timeline: { name: string; t: number }[] = [];
+  const call = (name: string, fn: () => void): void => {
+    timeline.push({ name, t: ctx.currentTime });
+    fn();
+  };
   let fired = new Set<string>();
   const once = (key: string, fn: () => void): void => {
     if (fired.has(key)) return;
     fired.add(key);
-    fn();
+    call(key, fn);
   };
-  for (let t = step; t < seconds; t += step) {
+  // Suspend points: coarse 250 ms ticks for the schedulers, plus the scenario's own frame rate
+  // while it runs (setOutside is a per-frame call in the game).
+  const times = new Set<number>();
+  const tickStep = 0.25;
+  for (let t = tickStep; t < seconds; t += tickStep) times.add(Math.round(t * 1000) / 1000);
+  let lastTick = 0;
+  if (req.scenario) {
+    const frame = 1 / (req.tickHz ?? 50);
+    const span = req.scenario === "door" ? DOOR_TL.end + 0.5 : req.scenario === "sys9" ? 8 : POUR_TL.clinkB + 0.5;
+    for (let t = t0; t <= Math.min(seconds - frame, t0 + span); t += frame) times.add(Math.round(t * 1000) / 1000);
+  }
+  for (const t of [...times].sort((a, b) => a - b)) {
     void ctx.suspend(t).then(() => {
-      engine.tick();
+      const now = ctx.currentTime;
+      if (now - lastTick >= tickStep - 1e-6) {
+        engine.tick();
+        lastTick = now;
+      }
       if (req.sfx) {
-        const now = ctx.currentTime;
         if (now >= 1.0) once("pour", () => audio.sfx.pourCoffee(3));
         if (now >= 5.0) once("clink", () => audio.sfx.mugClink());
         if (now >= 6.0) {
@@ -117,6 +184,35 @@ async function renderOffline(req: OfflineRequest = {}): Promise<OfflineResult> {
           });
         }
       }
+      if (req.scenario === "pour") {
+        const u = now - t0;
+        if (u >= POUR_TL.clinkA) once("clink-lift", () => audio.sfx.mugClink(POUR_POINTS.potRest));
+        if (u >= POUR_TL.stream[0]) once("pour", () => audio.sfx.pourCoffee(POUR_TL.stream[1] - POUR_TL.stream[0], POUR_POINTS.mugTop));
+        if (u >= POUR_TL.clinkB) once("clink-set", () => audio.sfx.mugClink(POUR_POINTS.potRest));
+      } else if (req.scenario === "door") {
+        const u = now - t0;
+        if (u >= 0) {
+          once("door-open", () => audio.sfx.doorOpen());
+          // DoorSwing.apply(): setOutside(deg / 85) whenever the progress changed, every frame.
+          const p = Math.min(1, Math.max(0, doorLeafDeg(u) / DOOR_TL.openDeg));
+          audio.sfx.setOutside(p);
+          if (u >= DOOR_TL.end) once("door-latched", () => audio.sfx.setOutside(0));
+        }
+      } else if (req.scenario === "sys9") {
+        // System 9 one-shots in order: footfall, sip, cabinet release / stop / close, kitchen door.
+        const u = now - t0;
+        const cab = { x: -2.6, y: 0.5, z: -0.15 };
+        const kd = { x: -5.15, y: 1.1, z: -2.6 };
+        if (u >= 0) once("footfall", () => audio.sfx.footfall(1));
+        if (u >= 1) once("sip", () => audio.sfx.sip());
+        if (u >= 2.5) once("cab-release", () => audio.sfx.cabinetCatch(cab, "release"));
+        if (u >= 3.2) once("cab-stop", () => audio.sfx.cabinetStop(cab));
+        if (u >= 4.2) once("cab-close", () => audio.sfx.cabinetCatch(cab, "close"));
+        if (u >= 5.5) once("kd-push", () => audio.sfx.kitchenDoorPush(kd));
+        if (u >= 5.9) once("kd-pass", () => audio.sfx.kitchenDoorPass(kd, 1));
+        if (u >= 6.8) once("kd-pass2", () => audio.sfx.kitchenDoorPass(kd, 0.5));
+        if (u >= 7.6) once("kd-settle", () => audio.sfx.kitchenDoorSettle(kd));
+      }
       void ctx.resume();
     });
   }
@@ -125,8 +221,13 @@ async function renderOffline(req: OfflineRequest = {}): Promise<OfflineResult> {
   const buffer = await ctx.startRendering();
   const stats: ChannelStats[] = BUS_ORDER.map((name, i) => channelStats(name, buffer, i * 2));
   const pcm16 = encodePcm16(buffer.getChannelData(0), buffer.getChannelData(1));
+  const taps: Record<string, string> = {};
+  for (const name of req.taps ?? []) {
+    const i = BUS_ORDER.indexOf(name);
+    if (i > 0) taps[name] = encodePcm16(buffer.getChannelData(i * 2), buffer.getChannelData(i * 2 + 1));
+  }
   const events = engine.events.filter((e) => e.t < seconds).map((e) => ({ name: e.name, t: e.t, dur: e.dur }));
-  return { sampleRate, seconds, stats, events, pcm16 };
+  return { sampleRate, seconds, stats, events, pcm16, taps, timeline, positions: { ...defaultPositions(), ...positions } };
 }
 
 function channelStats(name: string, buffer: AudioBuffer, first: number): ChannelStats {
@@ -182,10 +283,26 @@ function encodePcm16(L: Float32Array, R: Float32Array): string {
 declare global {
   interface Window {
     __renderOffline?: (req?: OfflineRequest) => Promise<OfflineResult>;
+    __HARNESS_LAYOUT?: Record<string, unknown>;
     __HARNESS_READY?: boolean;
   }
 }
 window.__renderOffline = renderOffline;
+// Floor plan + emitter positions for tools/audio-harness.mjs (it builds its listener poses from these).
+window.__HARNESS_LAYOUT = {
+  room: ROOM,
+  door: DOOR,
+  window: WINDOW,
+  booth: BOOTH,
+  counter: COUNTER,
+  backBar: BACK_BAR,
+  positions: { ...defaultPositions(), ...wiredPositions() },
+  pour: POUR_POINTS,
+  // Sit.ts: eye 1.15 m, 0.6 m from the booth centre, turned 35° to the window, −9° pitch.
+  seated: { eye: 1.15, fromCentre: 0.6, turnDeg: 35, pitchDeg: -9 },
+  doorTimeline: DOOR_TL,
+  pourTimeline: POUR_TL,
+};
 
 /* ------------------------------------------------------------------ */
 /* live page                                                           */

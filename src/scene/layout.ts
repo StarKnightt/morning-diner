@@ -111,6 +111,8 @@ export const BACK_BAR = {
   /** Under-counter equipment: reach-in cooler door, and a two-drawer unit. */
   cooler: [-3.9, -2.9] as readonly [number, number],
   drawers: [0.4, 1.1] as readonly [number, number],
+  /** Under-counter cabinet bay below the brewer: two hinged laminate doors (System 9, Openables.ts). */
+  cabinet: [-2.3, -1.3] as readonly [number, number],
 } as const;
 
 /** System 2 tabletop and back-counter props. */

@@ -8,6 +8,8 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
+import { DECAL, atlasQuad } from "../core/shapes";
+import { dinerFloorWear, floorCrackPath } from "../procedural/textures";
 import { DOOR, KITCHEN_DOOR, PASS_THROUGH, REGISTER, ROOM, WINDOW } from "./layout";
 
 export interface Opening {
@@ -53,7 +55,14 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
   const b = new MergedBuilder();
   const { halfX, zBack, zFront, height: H, wallThickness: T, slabDrop } = ROOM;
   const yLow = -slabDrop;
+  // Interior paint: world-anchored UVs (merge.ts worldBoxUv), 1 UV unit = 2.4 m — the wall
+  // canvas period — so drywall seams and the scuff band are continuous across the punched
+  // wall's pieces. The window wall uses the 1.8 m window-pitch canvas with u = 0.5 on every
+  // window centre (see materials.ts wallPaintWindow). Exterior faces keep box-relative UVs.
   const uv = { uvScale: 2 };
+  const uvIn = { worldUv: 2.4 };
+  const winPitch = WINDOW.centersX[1] - WINDOW.centersX[0];
+  const uvWin: { worldUv: number; uvOffset: [number, number] } = { worldUv: winPitch, uvOffset: [0.5 - WINDOW.centersX[0] / winPitch, 0] };
 
   /* ---------------- floor ---------------- */
   {
@@ -74,9 +83,41 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     const map = pal.floor.map!;
     map.repeat.set(w / 0.3 / 40, d / 0.3 / 20);
     pal.floor.roughnessMap!.repeat.copy(map.repeat);
+    // Grout relief is a 2 × 2-tile detail canvas (textures.ts floorGrout): one repeat per 0.6 m.
+    pal.floor.normalMap!.repeat.set(w / 0.6, d / 0.6);
     floor.receiveShadow = true;
     floor.name = "floor";
     parent.add(floor);
+
+    // The hairline crack (System 5): a 2 mm ribbon 0.6 mm proud of the tile along the same
+    // polyline the floor map shades. Drawn in the map alone it beaded — one antialiased texel
+    // (3.75 mm) magnified through bilinear filtering — so the dark floor of the crack is
+    // geometry. Folded into the cove-base bucket: the top strip of that map is plain matte
+    // black vinyl, which is what a crack floor looks like. +0 draw calls.
+    {
+      const wear = dinerFloorWear();
+      const pts = floorCrackPath(wear);
+      const hw = 0.0011, y = 0.0006;
+      const pos: number[] = [], nrm: number[] = [], uv: number[] = [], idx: number[] = [];
+      for (let i = 0; i < pts.length; i++) {
+        const [x, z] = pts[i];
+        const [px, pz] = pts[Math.max(0, i - 1)], [nx, nz] = pts[Math.min(pts.length - 1, i + 1)];
+        const dx = nx - px, dz = nz - pz, l = Math.hypot(dx, dz) || 1;
+        // Perpendicular, tapering to a point at both ends
+        const taper = i === 0 || i === pts.length - 1 ? 0.15 : 1;
+        const ox = (-dz / l) * hw * taper, oz = (dx / l) * hw * taper;
+        pos.push(x + ox, y, z + oz, x - ox, y, z - oz);
+        nrm.push(0, 1, 0, 0, 1, 0);
+        uv.push(i / (pts.length - 1) * 3, 0.96, i / (pts.length - 1) * 3, 0.95);
+        if (i) { const k = i * 2; idx.push(k - 2, k - 1, k, k - 1, k + 1, k); }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+      g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+      g.setIndex(idx);
+      b.add(g, pal.baseboardWorn);
+    }
   }
 
   /* ---------------- front (window) wall, +z ---------------- */
@@ -90,7 +131,7 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
   const frontOpenings = [...windowOpenings, doorOpening];
   const zMid = zFront + T / 2;
   punchedWall(-halfX, halfX, yLow, H, frontOpenings, (x0, x1, y0, y1) => {
-    b.box(pal.wallPaint, [x0, y0, zFront], [x1, y1, zMid], uv);
+    b.box(pal.wallPaintWindow, [x0, y0, zFront], [x1, y1, zMid], uvWin);
     b.box(pal.wallPaintExt, [x0, y0, zMid], [x1, y1, zFront + T], uv);
   });
   // Solid collision for the whole wall except the door opening (the leaf is
@@ -112,14 +153,14 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     y1: KITCHEN_DOOR.height,
   };
   punchedWall(-halfX, halfX, yLow, H, [pass, kdoor], (x0, x1, y0, y1) => {
-    b.box(pal.wallPaint, [x0, y0, zBack - T], [x1, y1, zBack], uv);
+    b.box(pal.wallPaint, [x0, y0, zBack - T], [x1, y1, zBack], uvIn);
   });
   b.collider([-halfX, 0, zBack - T], [halfX, H, zBack]);
 
   /* ---------------- end walls, ±x ---------------- */
-  b.box(pal.wallPaint, [-halfX - T / 2, yLow, zBack - T], [-halfX, H, zFront + T], uv);
+  b.box(pal.wallPaint, [-halfX - T / 2, yLow, zBack - T], [-halfX, H, zFront + T], uvIn);
   b.box(pal.wallPaintExt, [-halfX - T, yLow, zBack - T], [-halfX - T / 2, H, zFront + T], uv);
-  b.box(pal.wallPaint, [halfX, yLow, zBack - T], [halfX + T / 2, H, zFront + T], uv);
+  b.box(pal.wallPaint, [halfX, yLow, zBack - T], [halfX + T / 2, H, zFront + T], uvIn);
   b.box(pal.wallPaintExt, [halfX + T / 2, yLow, zBack - T], [halfX + T, H, zFront + T], uv);
   b.collider([-halfX - T, 0, zBack - T], [-halfX, H, zFront + T]);
   b.collider([halfX, 0, zBack - T], [halfX + T, H, zFront + T]);
@@ -152,6 +193,7 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
   const zF0 = zMid - fd / 2, zF1 = zMid + fd / 2;
   const stop = 0.015;
   const glassGeos: THREE.BufferGeometry[] = [];
+  const filmGeos: THREE.BufferGeometry[] = [];
   const pane = (x0: number, x1: number, y0: number, y1: number) => {
     const g = new THREE.PlaneGeometry(x1 - x0, y1 - y0);
     g.translate((x0 + x1) / 2, (y0 + y1) / 2, zMid);
@@ -180,6 +222,15 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     // Panes
     pane(x0 + fw, x1 - fw, y0 + fw, ty - fw / 2);
     pane(x0 + fw, x1 - fw, ty + fw / 2, y1 - fw);
+    // Solar film on the lower lights (interior face): its 3 mm cut-back from the stops and one
+    // lifted corner are the only things that show — a quad carrying the atlas "film" region.
+    {
+      const fx0 = x0 + fw + stop, fx1 = x1 - fw - stop, fy0 = y0 + fw + stop, fy1 = ty - fw / 2 - stop;
+      const film = atlasQuad(fx1 - fx0, fy1 - fy0, DECAL.film);
+      film.rotateY(Math.PI); // decal material is FrontSide: face the room (−z)
+      film.translate((fx0 + fx1) / 2, (fy0 + fy1) / 2, zMid - 0.0015);
+      filmGeos.push(film);
+    }
     // Interior sill board: 22 mm thick, rounded nose, projects 90 mm, meets the frame; distinct apron below.
     b.rbox(pal.trimPaint, [x0 - 0.07, y0 - 0.022, zFront - 0.09], [x1 + 0.07, y0, zF0], 0.01, 3);
     b.rbox(pal.trimPaint, [x0 - 0.06, y0 - 0.11, zFront - 0.018], [x1 + 0.06, y0 - 0.022, zFront], 0.003);
@@ -193,7 +244,7 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
   /* ---------------- window head bulkhead (blind pocket) between head trim and grid ---------------- */
   {
     const { bottom, depth } = WINDOW.headSoffit;
-    b.box(pal.wallPaint, [-halfX, bottom, zFront - depth], [halfX, H, zFront], uv);
+    b.box(pal.wallPaint, [-halfX, bottom, zFront - depth], [halfX, H, zFront], uvIn);
   }
 
   /* ---------------- door frame (leaf is built in Door.ts) ---------------- */
@@ -229,25 +280,9 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     b.rbox(pal.darkMetal, [x0 + jw + 0.08, DOOR.height - jw - 0.004, zFront + 0.01], [x0 + jw + 0.34, DOOR.height - jw, zFront + 0.07], 0.002);
   }
 
-  /* ---------------- kitchen swing door (closed, inside its opening) ---------------- */
+  /* ---------------- kitchen swing door casings (the leaf itself swings: Openables.ts, System 9) ---------------- */
   {
     const { a0: x0, a1: x1, y1: h } = kdoor;
-    const cx = (x0 + x1) / 2;
-    const zLeaf0 = zBack - T / 2 - 0.02, zLeaf1 = zBack - T / 2 + 0.02;
-    // Leaf: painted (light, so it reads against the dark cabinets), stainless kick and push plates
-    b.rbox(pal.fixtureWhite, [x0 + 0.005, 0.015, zLeaf0], [x1 - 0.005, h - 0.008, zLeaf1], 0.003);
-    b.rbox(pal.stainless, [x0 + 0.03, 0.03, zLeaf1], [x1 - 0.03, 0.45, zLeaf1 + 0.003], 0.001);
-    b.rbox(pal.stainless, [x0 + 0.03, 0.9, zLeaf1], [x1 - 0.03, 0.96, zLeaf1 + 0.02], 0.003);
-    // Vision lite (250 × 750) — dark glass, not a black hole
-    const { w: vw, h: vh, centerY: vy } = KITCHEN_DOOR.lite;
-    const port = new THREE.BoxGeometry(vw, vh, 0.05);
-    port.translate(cx, vy, (zLeaf0 + zLeaf1) / 2);
-    b.add(port, pal.darkGlass);
-    const vf = 0.02;
-    b.rbox(pal.stainless, [cx - vw / 2 - vf, vy - vh / 2 - vf, zLeaf0 - 0.002], [cx + vw / 2 + vf, vy - vh / 2, zLeaf1 + 0.006], 0.002);
-    b.rbox(pal.stainless, [cx - vw / 2 - vf, vy + vh / 2, zLeaf0 - 0.002], [cx + vw / 2 + vf, vy + vh / 2 + vf, zLeaf1 + 0.006], 0.002);
-    b.rbox(pal.stainless, [cx - vw / 2 - vf, vy - vh / 2, zLeaf0 - 0.002], [cx - vw / 2, vy + vh / 2, zLeaf1 + 0.006], 0.002);
-    b.rbox(pal.stainless, [cx + vw / 2, vy - vh / 2, zLeaf0 - 0.002], [cx + vw / 2 + vf, vy + vh / 2, zLeaf1 + 0.006], 0.002);
     // Painted jamb casings (100 mm) and header on the dining face
     const j = KITCHEN_DOOR.jamb, ct = 0.015;
     b.rbox(pal.trimPaint, [x0 - j, 0, zBack], [x0, h + j, zBack + ct], 0.002);
@@ -279,6 +314,12 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
       const shade = new THREE.CylinderGeometry(0.075, 0.045, 0.09, 24, 1, true);
       shade.translate(lx, hy - 0.075, hz);
       b.add(shade, pal.darkMetal);
+      // System 4 rev 2: the red R40 bulb itself, its face 5 mm below the shade's mouth —
+      // emissive (materials.ts heatLampBulb, ≈ 8,000 nits) so the pass-through reads as
+      // lit from the dining room. The light it throws on the shelf is Lighting.ts "heat-lamp".
+      const bulb = new THREE.CylinderGeometry(0.04, 0.038, 0.02, 20);
+      bulb.translate(lx, hy - 0.125, hz);
+      b.add(bulb, pal.heatLampBulb);
     }
   }
 
@@ -306,7 +347,8 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
   /* ---------------- cove base (100 × 12 mm) ---------------- */
   {
     const bh = 0.1, bt = 0.012;
-    const base = (min: [number, number, number], max: [number, number, number]) => b.rbox(pal.baseboard, min, max, 0.004, 2);
+    // Metric UVs (jittered per run) carry the mop marks and heel scuffs of baseboardWorn.
+    const base = (min: [number, number, number], max: [number, number, number]) => b.rbox(pal.baseboardWorn, min, max, 0.004, 2, { metric: true });
     base([-halfX, 0, zFront - bt], [DOOR.hingeX, bh, zFront]);
     base([DOOR.hingeX + DOOR.width, 0, zFront - bt], [halfX, bh, zFront]);
     base([-halfX, 0, zBack], [kdoor.a0 - KITCHEN_DOOR.jamb, bh, zBack + bt]);
@@ -340,6 +382,10 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
   glass.renderOrder = 10;
   glass.name = "window-glass";
   parent.add(glass);
+  const film = new THREE.Mesh(mergeGeometries(filmGeos, false)!, pal.decal);
+  film.renderOrder = 12;
+  film.name = "window-film";
+  parent.add(film);
 
   b.build(parent, { name: "shell" });
   return { colliders: b.colliders };

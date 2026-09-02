@@ -76,6 +76,17 @@ const POSES = {
   "lot-wide": { x: -1.35, z: 0.9, yaw: 180, pitch: -2 },
   // Second booth's table where the slat stripes land.
   stripes: { x: -3.35, y: 1.3, z: 1.85, yaw: 158, pitch: -32 },
+  // System 5 — surface close-ups. Door glass from 1.2 m (signage, kick plate, push bar wear);
+  // the aisle floor from standing height looking down (lane wear, grout, scuffs); the door-end
+  // wall at arm's length (stipple, seam, scuff band, cove base).
+  "door-dressing": { x: 4.95, y: 1.45, z: 2.0, yaw: 180, pitch: -6 },
+  "floor-macro": { x: 1.6, y: 1.35, z: 1.05, yaw: 250, pitch: -48 },
+  "wall-macro": { x: 4.85, y: 1.25, z: 0.7, yaw: 270, pitch: -10 },
+  // Crouched a metre inside the door: the kick plate (satin grain, bevel, screws) and the saddle.
+  "kick-macro": { x: 4.95, y: 0.55, z: 2.3, yaw: 180, pitch: -14 },
+  // 0.5 m from the second booth's aisle-side back panel (welt cracking); the stained tile over booth 3.
+  "welt-macro": { x: -3.0, y: 1.05, z: 2.55, yaw: 90, pitch: -8 },
+  "ceiling-stain": { x: -1.9, y: 1.6, z: 0.35, yaw: 180, pitch: 36 },
   // System 3 debug poses — OUTSIDE the building, for judging the lot dressing at critic distance
   // (never player-reachable; the window wall is between the player and the lot). Shoot with --tag=sys3.
   "dbg-pickup-front34": { x: 3.8, y: 1.6, z: 4.4, yaw: 111, pitch: -8 },
@@ -95,6 +106,17 @@ const POSES = {
   "pour-mid": { interact: "pour-mid" },
   "pour-full": { interact: "pour-full" },
   "door-open": { interact: "door-open" },
+  // System 9 — implied presence props (src/scene/Presence.ts), each from about a metre.
+  "sys9-apron": { x: -1.45, y: 1.6, z: -1.7, yaw: 352, pitch: 6 },
+  "sys9-cardigan": { x: -2.0, y: 1.3, z: 1.3, yaw: 34, pitch: -27 },
+  "sys9-plate": { x: -1.0, y: 1.35, z: 1.75, yaw: 165, pitch: -35 },
+  "sys9-cup": { x: -3.4, y: 1.35, z: 0.7, yaw: 29, pitch: -16 },
+  // System 9 — openables at rest and open (Openables.ts; the open poses go through __interactPose).
+  "sys9-cabinet": { x: -1.55, y: 1.35, z: -0.7, yaw: 8, pitch: -30 },
+  "sys9-cabinet-open": { interact: "cabinet-open" },
+  "sys9-kitchen-door": { x: -4.6, y: 1.5, z: -1.3, yaw: 23, pitch: -18 },
+  "sys9-kitchen-door-open": { interact: "kitchen-door-open" },
+  "sys9-kitchen-door-back": { interact: "kitchen-door-back" },
 };
 const NAMES = ONLY.length ? Object.keys(POSES).filter((p) => ONLY.includes(p)) : Object.keys(POSES);
 

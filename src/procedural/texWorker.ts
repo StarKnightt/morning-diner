@@ -10,6 +10,7 @@
  */
 import type * as THREE from "three";
 import * as ext from "./exterior";
+import * as pres from "./presence";
 import * as tex from "./textures";
 import { propsOf, type JobReply, type JobRequest, type PackedTexture } from "../core/texProtocol";
 
@@ -17,6 +18,7 @@ type Generator = (...args: never[]) => unknown;
 const MODULES: Record<string, Record<string, Generator>> = {
   tex: tex as unknown as Record<string, Generator>,
   ext: ext as unknown as Record<string, Generator>,
+  pres: pres as unknown as Record<string, Generator>,
 };
 
 function isTexture(v: unknown): v is THREE.Texture {

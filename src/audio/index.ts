@@ -11,16 +11,19 @@
  * to run an AudioContext otherwise) — the visual side calls it on pointer lock.
  */
 import { Quaternion, Vector3, type Camera } from "three";
-import { BACK_BAR, COUNTER, DOOR, FAN, REGISTER, ROOM, WINDOW } from "../scene/layout";
+import { BACK_BAR, COUNTER, DOOR, FAN, PASS_THROUGH, REGISTER, ROOM, WINDOW } from "../scene/layout";
 import { AudioEngine, type Vec3 } from "./AudioEngine";
 import { AirConditioner } from "./ambience/AirConditioner";
 import { CeilingFan } from "./ambience/CeilingFan";
 import { CoffeeWarmer } from "./ambience/CoffeeWarmer";
+import { Kitchen } from "./ambience/Kitchen";
 import { Radio } from "./ambience/Radio";
 import { RoomTone } from "./ambience/RoomTone";
 import type { AmbientLayer } from "./Layer";
 import { CoffeeSfx } from "./sfx/Coffee";
 import { DoorSfx } from "./sfx/Door";
+import { OpenablesSfx } from "./sfx/Openables";
+import { PlayerSfx } from "./sfx/Player";
 
 export type { Vec3 } from "./AudioEngine";
 export { AudioEngine } from "./AudioEngine";
@@ -44,6 +47,9 @@ export interface DinerAudioPositions {
   openings?: Vec3[];
   /** Default mug position for pourCoffee / mugClink. */
   mug?: Vec3;
+  /** System 9: the kitchen behind the pass-through — sink (dishes, tap) and radio (murmur) emitters. */
+  kitchenSink?: Vec3;
+  kitchenRadio?: Vec3;
 }
 
 export interface DinerAudioOptions {
@@ -58,8 +64,25 @@ export interface DinerSfx {
   pourCoffee(durationSeconds?: number, at?: Vec3): void;
   mugClink(at?: Vec3): void;
   doorOpen(): void;
-  /** 0 = shut, 1 = wide open. Crossfades the exterior heat wall in over `rampSeconds` (default 0.1) and holds. */
+  /** The leaf meeting the frame (latch). setOutside(0) after an opening fires it by itself. */
+  doorClose(): void;
+  /**
+   * 0 = shut, 1 = wide open. Equal-power crossfade: the exterior heat wall in, the interior bed
+   * down 3 dB. Per-frame calls (no `rampSeconds`) follow the leaf through a 0.25 s swell /
+   * 0.07 s cut; with `rampSeconds` it is a linear ramp. Holds.
+   */
   setOutside(amount: number, rampSeconds?: number): void;
+  /** System 9: the player's landing after a hop; `strength` 0..1 from the impact speed. */
+  footfall(strength?: number): void;
+  /** System 9: drinking from the mug (liquid draw + swallow, at the listener). */
+  sip(): void;
+  /** System 9 openables: cabinet magnetic catch (release / close) and its soft stop, at the door. */
+  cabinetCatch(at: Vec3, phase: "release" | "close"): void;
+  cabinetStop(at: Vec3): void;
+  /** System 9 kitchen swing door: palm push, each pass through the frame (`speed` 0..1), the settle. */
+  kitchenDoorPush(at: Vec3): void;
+  kitchenDoorPass(at: Vec3, speed?: number): void;
+  kitchenDoorSettle(at: Vec3): void;
 }
 
 export interface DinerAudio {
@@ -75,6 +98,8 @@ export interface DinerAudio {
   readonly layers: readonly AmbientLayer[];
   readonly door: DoorSfx | null;
   readonly coffee: CoffeeSfx | null;
+  readonly playerSfx: PlayerSfx | null;
+  readonly openablesSfx: OpenablesSfx | null;
 }
 
 /** Emitter positions derived from the floor plan (metres). */
@@ -92,6 +117,9 @@ export function defaultPositions(): Required<DinerAudioPositions> {
     doorWidth: DOOR.width - 2 * DOOR.jamb,
     openings: [...WINDOW.centersX.map((x) => ({ x, y: windowY, z: ROOM.zFront })), door],
     mug: { x: 0.5, y: COUNTER.height + 0.05, z: COUNTER.topFrontZ - 0.2 },
+    // Just behind the pass-through opening (that is where the kitchen reaches the room).
+    kitchenSink: { x: PASS_THROUGH.centerX - 0.45, y: PASS_THROUGH.sill + 0.3, z: ROOM.zBack - 0.35 },
+    kitchenRadio: { x: PASS_THROUGH.centerX + 0.4, y: PASS_THROUGH.sill + 0.35, z: ROOM.zBack - 0.5 },
   };
 }
 
@@ -100,12 +128,13 @@ class DinerAudioImpl implements DinerAudio {
   layers: AmbientLayer[] = [];
   door: DoorSfx | null = null;
   coffee: CoffeeSfx | null = null;
+  playerSfx: PlayerSfx | null = null;
+  openablesSfx: OpenablesSfx | null = null;
   readonly sfx: DinerSfx;
   private readonly pos: Required<DinerAudioPositions>;
   private readonly opts: DinerAudioOptions;
   private volume = 1;
   private pendingOutside = 0;
-  private starting: Promise<void> | null = null;
   private readonly tmpPos = new Vector3();
   private readonly tmpFwd = new Vector3();
   private readonly tmpUp = new Vector3();
@@ -118,10 +147,18 @@ class DinerAudioImpl implements DinerAudio {
       pourCoffee: (d = 3.5, at) => this.coffee?.pourCoffee(d, at),
       mugClink: (at) => this.coffee?.mugClink(at),
       doorOpen: () => this.door?.doorOpen(),
+      doorClose: () => this.door?.doorClose(),
       setOutside: (a, ramp) => {
         this.pendingOutside = a;
         this.door?.setOutside(a, ramp);
       },
+      footfall: (s) => this.playerSfx?.footfall(s),
+      sip: () => this.playerSfx?.sip(),
+      cabinetCatch: (at, phase) => this.openablesSfx?.cabinetCatch(at, phase),
+      cabinetStop: (at) => this.openablesSfx?.cabinetStop(at),
+      kitchenDoorPush: (at) => this.openablesSfx?.kitchenDoorPush(at),
+      kitchenDoorPass: (at, s) => this.openablesSfx?.kitchenDoorPass(at, s),
+      kitchenDoorSettle: (at) => this.openablesSfx?.kitchenDoorSettle(at),
     };
   }
 
@@ -129,20 +166,22 @@ class DinerAudioImpl implements DinerAudio {
     return this.engine !== null;
   }
 
+  /**
+   * Idempotent. The graph is built synchronously on the first call (whether or
+   * not that call came from a gesture — a context created early simply sits
+   * suspended with its schedulers primed at t = 0); every call, first or later,
+   * then asks the context to resume, which the browser honours as soon as the
+   * page has had a real gesture. Rev 3: the build used to wait on the first
+   * resume() — in Chromium that promise pends until a gesture arrives, so a
+   * premature first call postponed the whole build.
+   */
   start(): Promise<void> {
-    if (this.starting) {
-      // Built already; if the first call wasn't a real gesture the context is
-      // still suspended, so every later call retries the resume.
-      return this.starting.then(() => this.engine?.resume());
-    }
-    this.starting = (async () => {
+    if (!this.engine) {
       const engine = new AudioEngine({
         context: this.opts.context,
         seed: this.opts.seed,
         masterDb: this.opts.masterDb ?? DEFAULT_MASTER_DB,
       });
-      // Non-fatal: the graph is built regardless and the next start() retries.
-      await engine.resume().catch(() => undefined);
       const p = this.pos;
       this.layers = [
         new AirConditioner(engine, p.ac),
@@ -150,16 +189,20 @@ class DinerAudioImpl implements DinerAudio {
         new Radio(engine, p.radio),
         new CoffeeWarmer(engine, p.coffeeWarmer),
         new RoomTone(engine, { openings: p.openings }),
+        new Kitchen(engine, p.kitchenSink, p.kitchenRadio),
       ];
       this.coffee = new CoffeeSfx(engine, p.mug);
       this.door = new DoorSfx(engine, p.door, p.doorWidth);
       this.door.setOutside(this.pendingOutside);
+      this.playerSfx = new PlayerSfx(engine);
+      this.openablesSfx = new OpenablesSfx(engine);
       engine.setMasterVolume(this.volume);
       // Prime the schedulers so the first second isn't empty.
       engine.tick();
       this.engine = engine;
-    })();
-    return this.starting;
+    }
+    // Non-fatal: a rejected/pending resume just means the next call (the next gesture) retries.
+    return this.engine.resume().catch(() => undefined);
   }
 
   update(camera: Camera): void {

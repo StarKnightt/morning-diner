@@ -142,6 +142,43 @@ export function slabGeometry(pts: XZ[], o: SlabOptions): [THREE.BufferGeometry, 
   return [slab, band, grooves];
 }
 
+/**
+ * Decal atlas regions (textures.ts doorDecals, 2048²), as [u0, v0, u1, v1] with v up
+ * (canvas row 0 is v = 1). Each region has the aspect of the quad it dresses, so the
+ * artwork fills it edge to edge. Shared by Door.ts and Shell.ts.
+ */
+const A = 2048;
+const px = (x0: number, y0: number, x1: number, y1: number) => [x0 / A, 1 - y1 / A, x1 / A, 1 - y0 / A] as const;
+export const DECAL = {
+  /** Flip sign, street face: OPEN. 300 × 200 mm card. */
+  open: px(0, 0, 1024, 683),
+  /** Flip sign, room face: SORRY WE'RE CLOSED. Same card. */
+  closed: px(1024, 0, 2048, 683),
+  /** Hours vinyl, 200 × 260 mm. */
+  hours: px(0, 683, 800, 1723),
+  /** PUSH sticker, 120 × 50 mm. */
+  push: px(800, 683, 1760, 1083),
+  /** Card-acceptance sticker, 85 × 55 mm. */
+  cards: px(800, 1083, 1480, 1523),
+  /** Window-film edge, one square light. */
+  film: px(1480, 1083, 2048, 1651),
+};
+
+/**
+ * `w` × `h` quad in the xy plane (facing +z) whose UVs cover one atlas region.
+ * `mirrorU` flips the artwork left-to-right: vinyl applied to the inside of a pane so
+ * it reads from the street is seen mirrored from the room.
+ */
+export function atlasQuad(w: number, h: number, r: readonly [number, number, number, number], mirrorU = false): THREE.PlaneGeometry {
+  const g = new THREE.PlaneGeometry(w, h);
+  const uv = g.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) {
+    const u = mirrorU ? 1 - uv.getX(i) : uv.getX(i);
+    uv.setXY(i, r[0] + u * (r[2] - r[0]), r[1] + uv.getY(i) * (r[3] - r[1]));
+  }
+  return g;
+}
+
 /** Axis-aligned rectangle as plan points, from min/max corners. */
 export function rectXZ(x0: number, z0: number, x1: number, z1: number): XZ[] {
   return [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];

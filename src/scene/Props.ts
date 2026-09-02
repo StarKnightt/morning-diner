@@ -13,10 +13,13 @@ import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { makeRng } from "../core/rng";
 import { BACK_BAR, BOOTH, COUNTER, PROPS, ROOM, WINDOW } from "./layout";
+import type { ContactDisc } from "./Lighting";
 
 export interface PropsResult {
   pourMug: THREE.Mesh;
   coffeePot: THREE.Group;
+  /** Contact-occlusion rings under the mugs and saucers, for Lighting.ts buildContactShadows. */
+  contactDiscs: ContactDisc[];
 }
 
 const V2 = (x: number, y: number) => new THREE.Vector2(x, y);
@@ -77,7 +80,7 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
       g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
       add(g, mat);
     };
-    const steel = pal.stainlessBrushed;
+    const steel = pal.stainlessTouched; // brushed stainless with fingerprints (System 5)
     // Shell: end panels, bottom, and the long faces as open frames (top rail + two stiles)
     box(steel, -W / 2, 0.003, -D / 2, -W / 2 + t, H - 0.004, D / 2);
     box(steel, W / 2 - t, 0.003, -D / 2, W / 2, H - 0.004, D / 2);
@@ -121,6 +124,12 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
       slot.absarc(-sw + sh, yc, sh, Math.PI / 2, (3 * Math.PI) / 2, false);
       plate.holes.push(slot);
       const pg = new THREE.ExtrudeGeometry(plate, { depth: 0.001, bevelEnabled: false, curveSegments: 10 });
+      {
+        // Extrude UVs are in metres (a 0.1 × 0.18 m corner of the map): normalise so the
+        // faceplate shows one full fingerprint canvas like the box faces do.
+        const uv = pg.attributes.uv as THREE.BufferAttribute;
+        for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) + hw) / (2 * hw), (uv.getY(i) - y0) / (y1 - y0));
+      }
       if (s < 0) pg.rotateY(Math.PI);
       pg.translate(0, 0, s > 0 ? zf - 0.001 : zf + 0.001);
       add(pg, steel);
@@ -260,11 +269,17 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     }
   }
   const mugPoses: THREE.Matrix4[] = [];
-  const mugAt = (x: number, y: number, z: number, yaw: number, inverted: boolean) => {
+  const contactDiscs: ContactDisc[] = [];
+  const mugAt = (x: number, y: number, z: number, yaw: number, inverted: boolean, onSaucer = false) => {
     const m = new THREE.Matrix4().makeRotationY(yaw);
     if (inverted) m.premultiply(new THREE.Matrix4().makeRotationX(Math.PI)).setPosition(x, y + MUG_H, z);
     else m.setPosition(x, y, z);
     mugPoses.push(m);
+    // Contact occlusion (System 4 rev 2): inverted, the Ø 82 rim sits on the surface and the
+    // shade spreads ≈ 35 mm out from it; upright, the Ø 63 foot ring. Inside the ring the
+    // disc is hidden by the mug itself. On a saucer the saucer's own ring stands in (a disc
+    // at the well's level would sit inside the flared rim).
+    if (!onSaucer) contactDiscs.push(inverted ? { x, y, z, r0: 0.041, r1: 0.078, ao: 0.6 } : { x, y, z, r0: 0.031, r1: 0.062, ao: 0.6 });
   };
   // Seven spare mugs inverted straight onto the mat: two staggered rows, one slot left
   // empty, ±15 mm scatter and any handle angle, so the mat does not read as a grid.
@@ -286,7 +301,9 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     const s = saucerGeo.clone();
     s.translate(x, COUNTER.height, PROPS.saucerZ);
     b.add(s, pal.ceramic);
-    mugAt(x, COUNTER.height + 0.009, PROPS.saucerZ, Math.PI * (0.9 + rng() * 0.3), true);
+    // The saucer's flared rim stands 18 mm over the counter: shade under the flare and out.
+    contactDiscs.push({ x, y: COUNTER.height, z: PROPS.saucerZ, r0: 0.05, r1: 0.12, ao: 0.45 });
+    mugAt(x, COUNTER.height + 0.009, PROPS.saucerZ, Math.PI * (0.9 + rng() * 0.3), true, true);
   }
   for (const [geo, mat, name] of [[mugGeo, pal.ceramic, "mugs"], [footGeo, pal.bisque, "mug-feet"]] as const) {
     const im = new THREE.InstancedMesh(geo, mat, mugPoses.length);
@@ -305,6 +322,7 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
   const pourFoot = new THREE.Mesh(footGeo, pal.bisque);
   pourMug.add(pourFoot);
   parent.add(pourMug);
+  contactDiscs.push({ x: PROPS.pourMug.x, y: yBar, z: PROPS.pourMug.z, r0: 0.031, r1: 0.062, ao: 0.6 });
 
   /* ---------------- BUNN VPR-class brewer + decanter ---------------- */
   const coffeePot = new THREE.Group();
@@ -336,8 +354,8 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     b.add(plate, pal.blackPowder);
     // Body: matte black powder-coated tower, 203 deep, with brushed stainless side panels (VPR)
     b.rbox(pal.blackPowder, [x0 + 0.003, yBar + 0.05, zBack], [x1 - 0.003, yHead, zBody], 0.004, 3);
-    b.box(pal.stainlessBrushed, [x0, yBar + 0.05, zBack + 0.004], [x0 + 0.003, yHead - 0.004, zBody - 0.004]);
-    b.box(pal.stainlessBrushed, [x1 - 0.003, yBar + 0.05, zBack + 0.004], [x1, yHead - 0.004, zBody - 0.004]);
+    b.box(pal.stainlessTouched, [x0, yBar + 0.05, zBack + 0.004], [x0 + 0.003, yHead - 0.004, zBody - 0.004]);
+    b.box(pal.stainlessTouched, [x1 - 0.003, yBar + 0.05, zBack + 0.004], [x1, yHead - 0.004, zBody - 0.004]);
     // Hood: light brushed stainless wrap, overhanging the warmer, with a black front control
     // band and a black fill lid at the back; the tower under it stays powder-black.
     b.rbox(pal.stainlessCool, [x0, yHead, zBack], [x1, yTop, zBack + 0.3], 0.005, 3);
@@ -383,7 +401,7 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
       ],
       64,
     );
-    const glassMesh = new THREE.Mesh(glass, pal.glassClear);
+    const glassMesh = new THREE.Mesh(glass, pal.glassCarafe); // scratched, dishwasher-etched (System 5)
     glassMesh.name = "coffeePot:glass";
     // Coffee to 55 % as an opaque dark body: fills the inner profile with a meniscus curling up at the wall
     const fillY = 0.098;
@@ -393,9 +411,10 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     );
     const coffeeMesh = new THREE.Mesh(coffee, pal.coffee);
     coffeeMesh.name = "coffeePot:coffee";
-    // Tide-line stain just above the fill, inside the glass
-    const stain = new THREE.CylinderGeometry(R - 0.0035, R - 0.0033, 0.014, 64, 1, true);
-    stain.translate(0, fillY + 0.0085, 0);
+    // Tide-line stain above the fill, inside the glass: 22 mm band whose alpha map puts the
+    // dense line ~3 mm above the meniscus and thins upward (the level of earlier, fuller pots).
+    const stain = new THREE.CylinderGeometry(R - 0.0036, R - 0.0032, 0.022, 64, 1, true);
+    stain.translate(0, fillY + 0.0135, 0);
     const stainMesh = new THREE.Mesh(stain, pal.coffeeStain);
     // Black spout collar and 25 mm handle bonded to the body
     const collar = new THREE.CylinderGeometry(0.0655, 0.062, 0.03, 48, 1, true);
@@ -497,5 +516,5 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
   }
 
   b.build(parent, { name: "props" });
-  return { pourMug, coffeePot };
+  return { pourMug, coffeePot, contactDiscs };
 }

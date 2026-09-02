@@ -26,13 +26,23 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
   // Vertex colours darken/polish the wood 8 % within 0.2 m of the aisle-end grip points.
   const capSlab = (pts: XZ[], grips: XZ[]) => {
     const [slab] = slabGeometry(pts, { radius: 0.008, y0: cap.y0, thickness: cap.y1 - cap.y0, bevel: cap.bullnose, curveSegments: 3 });
-    const p = slab.attributes.position;
+    const p = slab.attributes.position, nrm = slab.attributes.normal;
     const col = new Float32Array(p.count * 3);
     for (let i = 0; i < p.count; i++) {
       let d = 1e9;
       for (const [gx, gz] of grips) d = Math.min(d, Math.hypot(p.getX(i) - gx, p.getZ(i) - gz));
-      const k = 1 - 0.08 * (1 - THREE.MathUtils.smoothstep(d, 0.05, 0.22));
-      col[i * 3] = k; col[i * 3 + 1] = k; col[i * 3 + 2] = k;
+      let k = 1 - 0.08 * (1 - THREE.MathUtils.smoothstep(d, 0.05, 0.22));
+      // Edge wear (System 5): the bullnose arrises — vertices whose normal is neither flat
+      // nor upright — have had the stain rubbed back toward bare wood: up to 9 % lighter,
+      // patchy along the run (hash of position) and heaviest at the aisle end where sleeves drag.
+      const ny = Math.abs(nrm.getY(i));
+      const arris = ny > 0.2 && ny < 0.94 ? 1 : 0;
+      if (arris) {
+        const h = Math.sin(p.getX(i) * 37.1 + p.getZ(i) * 53.7) * 0.5 + 0.5;
+        // Rev 2: 9 % → 20 % and warmer (the stain goes, the yellow wood shows).
+        k *= 1 + 0.2 * (0.45 + 0.55 * h) * (0.5 + 0.5 * (1 - THREE.MathUtils.smoothstep(d, 0.05, 0.5)));
+      }
+      col[i * 3] = k; col[i * 3 + 1] = k * (arris ? 0.99 : 1); col[i * 3 + 2] = k * (arris ? 0.955 : 1);
     }
     slab.setAttribute("color", new THREE.BufferAttribute(col, 3));
     b.add(slab, pal.capWood);
@@ -42,7 +52,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
     b.box(pal.laminateScuffed, [x0, y0, z0], [x1, y0 + 0.13, z1]);
   };
 
-  for (const cx of WINDOW.centersX) {
+  WINDOW.centersX.forEach((cx, ti) => {
     /* ---- table ---- */
     {
       const zT0 = zInner + table.inset;
@@ -56,8 +66,13 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
         bandProud: 0.0015,
         grooves: 3,
       });
+      // Extrude UVs are world metres: with the 1.8 m booth pitch and 1.2 m laminate canvas,
+      // tables 1/3/5 sampled the same boomerangs. Offset each top so every table is a
+      // different sheet (and a different set of scratches / cup rings).
+      const tuv = slab.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < tuv.count; i++) tuv.setXY(i, tuv.getX(i) + ti * 0.37, tuv.getY(i) + ti * 0.53);
       b.add(slab, pal.formica);
-      if (band) b.add(band, pal.formicaEdge);
+      if (band) b.add(band, pal.formicaEdgeBrushed);
       if (grooves) b.add(grooves, pal.alumGroove);
       // Pedestal on the table centroid: cast bell base Ø 470 (40 mm rim rising to a Ø 150 boss),
       // chrome column, 360 mm spider plate under the top.
@@ -77,7 +92,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       );
       void bellRim; void bossH;
       bell.translate(cx, 0, pz);
-      b.add(bell, pal.darkMetal);
+      b.add(bell, pal.castBaseDusty); // rev 2: dust film + kick marks at floor contact
       const colH = table.top - table.thickness - 0.02 - collarTop;
       const col = new THREE.CylinderGeometry(columnR, columnR, colH, 28);
       col.translate(cx, collarTop + colH / 2, pz);
@@ -86,16 +101,23 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       // inside the T-mould, plus the 5 mm dark-steel spider plate screwed flush to it.
       const yU = table.top - table.thickness;
       b.rbox(pal.darkSeal, [cx - table.width / 2 + 0.012, yU - 0.0015, zT0 + 0.012], [cx + table.width / 2 - 0.012, yU + 0.0005, zOuter - 0.012], 0.001);
+      // Spider plate, arms and hub share the bells' castBaseDusty bucket (v pinned to the clean
+      // part of its map) so the tables add no darkMetal bucket — +0 draw calls for the dust.
+      const clean = (g: THREE.BufferGeometry): THREE.BufferGeometry => {
+        const uv = g.attributes.uv as THREE.BufferAttribute;
+        for (let i = 0; i < uv.count; i++) uv.setY(i, 0.9);
+        return g;
+      };
       const plate = new THREE.CylinderGeometry(0.15, 0.15, 0.005, 40);
       plate.translate(cx, yU - 0.004, pz);
-      b.add(plate, pal.darkMetal);
+      b.add(clean(plate), pal.castBaseDusty);
       for (let k = 0; k < 4; k++) {
         const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
         const arm = new THREE.BoxGeometry(spider / 2 - columnR, 0.024, 0.04);
         arm.translate((spider / 2 + columnR) / 2, 0, 0);
         arm.rotateY(a);
         arm.translate(cx, yU - 0.0185, pz);
-        b.add(arm, pal.darkMetal);
+        b.add(clean(arm), pal.castBaseDusty);
         // Pan-head screw through the plate at each arm
         const screw = new THREE.CylinderGeometry(0.006, 0.0065, 0.003, 12);
         screw.translate(cx + Math.cos(a) * 0.125, yU - 0.008, pz - Math.sin(a) * 0.125);
@@ -103,7 +125,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       }
       const hub = new THREE.CylinderGeometry(columnR + 0.012, columnR + 0.012, 0.03, 28);
       hub.translate(cx, yU - 0.0215, pz);
-      b.add(hub, pal.darkMetal);
+      b.add(clean(hub), pal.castBaseDusty);
       b.collider([cx - table.width / 2, 0, zT0], [cx + table.width / 2, table.top, zOuter]);
     }
 
@@ -177,7 +199,19 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
         const dirX = (s * lean) / faceLen, dirY = (back.top - yb0) / faceLen;
         const t = 0.02 + panelH / 2;
         m.setPosition(X(back.frontX) + dirX * t + s * 0.003, yb0 + dirY * t, zMid);
-        b.add(panel, pal.vinylRedCrazed, m);
+        if (ti === 1) {
+          // The second booth's backs have cracked along the welts (System 5): the material's
+          // crack band lives at u ≈ 0, so u becomes the distance from the nearest cord (the
+          // 0.5 mm pebble grain does not mind being mirrored at the channel crowns).
+          const pp = panel.attributes.position as THREE.BufferAttribute, puv = panel.attributes.uv as THREE.BufferAttribute;
+          for (let i = 0; i < pp.count; i++) {
+            const x = pp.getX(i);
+            let dmin = 1;
+            for (const vx of valleys) dmin = Math.min(dmin, Math.abs(x - vx));
+            puv.setX(i, dmin);
+          }
+          b.add(panel, pal.vinylRedWeltCracked, m);
+        } else b.add(panel, pal.vinylRed, m); // rev 2: crazing is booth 2's alone
         // 6 mm welt cord sewn ON every seam: centre 1 mm above the crown tangent line
         // (crowns at 20 mm), so it carries its own highlight and throws a line shadow
         // both sides (baked into the panel's vertex colour). Ends tuck under the seams.
@@ -193,7 +227,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       roll.rotateX(Math.PI / 2);
       roll.translate(rollX, back.top, zMid);
       metricUv(roll);
-      b.add(plainColor(roll), pal.vinylRedCrazed);
+      b.add(plainColor(roll), ti === 1 ? pal.vinylRedCrazed : pal.vinylRed); // rev 2: only booth 2's roll top has crazed
       const seamZ = (x: number, y: number, r: number) => piping([new THREE.Vector3(x, y, zInner + 0.008), new THREE.Vector3(x, y, zMid), new THREE.Vector3(x, y, zOuter - 0.008)], r, false);
       // 6 mm piped seam where the channels dive under the head roll, proud of the junction
       b.add(plainColor(seamZ(X(back.frontX + lean * 0.94) - s * 0.021, back.top - 0.046, 0.003), 1.15), pal.vinylRed);
@@ -207,7 +241,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       b.box(pal.edgeBand, [X(seat.front - 0.02) - 0.0011, kick, zEnd0 - 0.0003], [X(seat.front - 0.02) + 0.0011, cap.y0, zInner]);
       b.collider([lo(seat.front - 0.05, divider.x0), 0, cz0], [hi(seat.front - 0.05, divider.x0), cap.y1, zOuter]);
     }
-  }
+  });
 
   /* ---- dividers between back-to-back benches, with one T-shaped cap each ---- */
   const dividerBody = (x0: number, x1: number) => {

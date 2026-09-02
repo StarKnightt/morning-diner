@@ -44,11 +44,14 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       grooves: 4,
       curveSegments: 8,
     });
-    b.add(slab, pal.formicaCounter);
-    if (band) b.add(band, pal.formicaEdge);
+    b.add(slab, pal.formicaCounterWorn);
+    if (band) b.add(band, pal.formicaEdgeBrushed);
     if (grooves) b.add(grooves, pal.alumGroove);
-    // Laminate sheet seams every 3.6 m across the top
-    for (let sx = xMin + 3.6; sx < xMax; sx += 3.6) b.box(pal.alumGroove, [sx - 0.0006, height - 0.002, dieBack + 0.02], [sx + 0.0006, height + 0.0008, topFrontZ - 0.03]);
+    // Laminate sheet seams every 3.6 m across the top: a tight 0.8 mm line, perpendicular to
+    // the front edge, slightly LIGHTER than the sheet (the seam filler and the pale core show;
+    // rev 1's dark groove read as a black hairline). Satin aluminium H-strip: shares the
+    // T-mould's bucket rather than adding one.
+    for (let sx = xMin + 3.6; sx < xMax; sx += 3.6) b.box(pal.formicaEdgeBrushed, [sx - 0.0004, height - 0.002, dieBack + 0.02], [sx + 0.0004, height + 0.0003, topFrontZ - 0.03]);
     // 100 mm stainless backsplash lip along the service edge of the top
     b.rbox(pal.stainless, [xMin, height - 0.004, dieBack - 0.006], [xMax + 0.006, height + 0.1, dieBack + 0.014], 0.003);
 
@@ -72,10 +75,17 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     // Footrail: 36 mm chrome tube 130 mm off the die face at 230 mm AFF, brackets every 1.2 m.
     const tubeZ = dieFront + footrest.gap + footrest.tubeR;
     const tubeX = lDieX1 + footrest.gap + footrest.tubeR; // corner of the L
-    const rail = new THREE.CylinderGeometry(footrest.tubeR, footrest.tubeR, tubeX - (xMin + 0.05), 20);
+    // Cylinder UVs run v 0→1 over the whole length: scale to 0.5 m per repeat so the
+    // scuff map (System 5, chromeScuffed) is at true scale along the 8 m of rail.
+    const scaleV = (g: THREE.BufferGeometry, len: number) => {
+      const uv = g.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * (len / 0.5));
+      return g;
+    };
+    const rail = scaleV(new THREE.CylinderGeometry(footrest.tubeR, footrest.tubeR, tubeX - (xMin + 0.05), 20), tubeX - (xMin + 0.05));
     rail.rotateZ(Math.PI / 2);
     rail.translate((xMin + 0.05 + tubeX) / 2, footrest.y, tubeZ);
-    b.add(rail, pal.chrome);
+    b.add(rail, pal.chromeScuffed);
     // Near end: elbow and a return into the die face rather than a bare cut
     const endElbow = new THREE.SphereGeometry(footrest.tubeR, 16, 12);
     endElbow.translate(xMin + 0.05, footrest.y, tubeZ);
@@ -95,10 +105,10 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       b.rbox(pal.chrome, [x - 0.02, footrest.y - 0.032, tubeZ - 0.014], [x + 0.02, footrest.y + 0.004, tubeZ + 0.014], 0.005);
     }
     // L-return footrest along z
-    const rail2 = new THREE.CylinderGeometry(footrest.tubeR, footrest.tubeR, tubeZ - lReturnZEnd - 0.05, 20);
+    const rail2 = scaleV(new THREE.CylinderGeometry(footrest.tubeR, footrest.tubeR, tubeZ - lReturnZEnd - 0.05, 20), tubeZ - lReturnZEnd - 0.05);
     rail2.rotateX(Math.PI / 2);
     rail2.translate(tubeX, footrest.y, (lReturnZEnd + 0.05 + tubeZ) / 2);
-    b.add(rail2, pal.chrome);
+    b.add(rail2, pal.chromeScuffed);
     const elbow = new THREE.SphereGeometry(footrest.tubeR, 16, 12);
     elbow.translate(tubeX, footrest.y, tubeZ);
     b.add(elbow, pal.chrome);
@@ -138,6 +148,11 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     const base = new THREE.LatheGeometry(baseProfile, 56);
     // Footring: torus Ø 0.42 at 290 mm AFF, 20 mm tube, fixed to a collar by four spokes.
     const footring = new THREE.TorusGeometry(footringR, STOOL.footringTube, 14, 56);
+    {
+      // Torus u runs once around the 1.3 m ring: ×3 puts the scuff canvas at ~0.45 m per repeat.
+      const uv = footring.attributes.uv as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * 3);
+    }
     footring.rotateX(Math.PI / 2);
     footring.translate(0, footringY, 0);
     const collar = new THREE.CylinderGeometry(columnR + 0.012, columnR + 0.012, 0.04, 28);
@@ -198,7 +213,7 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
 
     const chromes = [pal.chrome, pal.chromeWorn, pal.chromeWorn2];
     const baseParts: Array<[THREE.BufferGeometry, THREE.Material | null]> = [
-      [base, null], [footring, null], [collar, null], [spokes[0], null], [spokes[1], null], [spokes[2], null], [spokes[3], null],
+      [base, null], [footring, pal.chromeScuffed], [collar, null], [spokes[0], null], [spokes[1], null], [spokes[2], null], [spokes[3], null],
     ];
     const seatParts: Array<[THREE.BufferGeometry, THREE.Material | null]> = [
       [swivel, pal.darkMetal], [cushion, pal.vinylRed], [rimSeam, pal.vinylRed], [seatWelt, pal.vinylRed], [junction, pal.vinylRed], [seatBand, null],
@@ -276,7 +291,7 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     const { zFront, depth, height, xMin, xMax, coffeeX } = BACK_BAR;
     const zBack = zFront - depth;
     const kickH = 0.1, topT = 0.03;
-    const openings = [BACK_BAR.cooler, BACK_BAR.drawers];
+    const openings = [BACK_BAR.cooler, BACK_BAR.drawers, BACK_BAR.cabinet]; // the cabinet bay's carcass + doors: Openables.ts (System 9)
     const yTop = height - topT - 0.02;
     // Die with two equipment bays
     punchedWall(
@@ -287,7 +302,7 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       openings.map(([a0, a1]) => ({ a0, a1, y0: kickH, y1: yTop })),
       (x0, x1, y0, y1) => b.box(pal.laminateCabinet, [x0, y0, zBack], [x1, y1, zFront], { metric: true }),
     );
-    for (const [a0, a1] of openings) {
+    for (const [a0, a1] of [BACK_BAR.cooler, BACK_BAR.drawers]) {
       // Stainless face frame; the bay is backed 60 mm deep so nothing reads as a hole
       b.box(pal.stainless, [a0 - 0.005, kickH, zBack], [a1 + 0.005, yTop, zFront - 0.06]);
       b.rbox(pal.stainless, [a0 - 0.02, kickH - 0.005, zFront - 0.02], [a0 + 0.01, yTop, zFront + 0.004], 0.002);

@@ -193,7 +193,8 @@ export class Radio extends AmbientLayer {
     cabinet.Q.value = 0.7;
     set.connect(cabinet);
     const level = ctx.createGain();
-    level.gain.value = dbToGain((opts.levelDb ?? -32) + CAL_DB);
+    // Rev 3 live-mix calibration: −34 dBFS ⇒ ≈ −33 LUFS at 1 m (gated on speech). Was −32.
+    level.gain.value = dbToGain((opts.levelDb ?? -34) + CAL_DB);
     cabinet.connect(level);
     engine.attach(level, position, this.bus);
   }
