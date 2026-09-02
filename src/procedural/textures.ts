@@ -1100,7 +1100,9 @@ export function vinylCrazeAtlas(size: number, metres: number, layout: VinylCraze
     const reg: Region = { u0: 0.001, u1: P.w - 0.001, v0: P.v0 + 0.001, v1: P.v0 + P.h - 0.001 };
     P.valleys.forEach((vx, vi) => {
       const gs = 7 + pi * 13 + vi * 1.7;
-      seam(reg, vx, P.v0, vx, P.v0 + P.h, 0.004, [1, -1], 0.9, 0.028, gs);
+      // not every seam has gone: the middle of the bench (where people lean) worst, 0.3–1
+      const mid = 1 - Math.abs(vx / P.w - 0.5) * 1.2;
+      seam(reg, vx, P.v0, vx, P.v0 + P.h, 0.004, [1, -1], 0.3 + 0.7 * mid * (0.4 + 0.6 * rng()), 0.028, gs);
       // one or two long cracks running parallel to the cord 5–9 mm out, in stretches
       for (const side of [1, -1]) {
         if (rng() < 0.45) continue;
@@ -1184,10 +1186,18 @@ export function vinylCrazeAtlas(size: number, metres: number, layout: VinylCraze
 /**
  * Formica 6942 "Skylark" boomerang laminate on a plain cream field. Each shape is
  * a genuine boomerang bent 100–130°, tapered from the elbow to rounded tips (drawn
- * as a chain of discs along the centre line). Two size classes — large 30–38 mm tip
- * to tip and small 16–21 mm — three tones at low contrast, ~15 % of the shapes drawn
- * outline-only, random rotation, ~3.5 per 100 cm² (≈ 8 % cover), none touching. One canvas = `metres` (use ≥ 1.2 m so a
- * whole table shows no repeat).
+ * as a chain of discs along the centre line). Rev 3: two size classes — large 20–30 mm
+ * tip to tip and small 10–16 mm — four tones at low contrast, ~6 per 100 cm² with a
+ * third of them overlapping a neighbour (the print's tones cross), ~12 % outline-only,
+ * random rotation. One canvas = `metres` (use ≥ 1.2 m so a whole table shows no repeat).
+ *
+ * Use (rev 3, albedo + roughness from one generator so the marks coincide): a milky,
+ * featureless wipe haze in broad irregular patches (roughness 0.3 → 0.55, albedo 6 %
+ * toward grey-white; dithered — the rev 2 gradient quantised into contour lines that
+ * rendered as a fingerprint under the sun), a few hundred micro-scratches 5–60 mm at
+ * random angles weighted to one wiping direction, two dark gouges, and cup rings as
+ * partial arcs with a sharp dense outer edge fading inward over 3 mm. Roughness never
+ * below 0.28 (specular aliasing under the sun at 0.13).
  */
 export function formicaBoomerang(size: number, metres: number, seed: number): TextureSet {
   const { c, ctx } = canvas(size, size);
@@ -1205,9 +1215,9 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
       img.data[o] *= 1 + n; img.data[o + 1] *= 1 + n; img.data[o + 2] *= 1 + n;
     }
   ctx.putImageData(img, 0, 0);
-  const tones = ["#CBBB9F", "#A3A8AC", "#FBF9F4"];
+  const tones = ["#CBBB9F", "#A3A8AC", "#FBF9F4", "#B9AD9A"];
   const areaCm2 = metres * metres * 1e4;
-  const target = Math.round(areaCm2 * 0.04);
+  const target = Math.round(areaCm2 * 0.06);
   const placed: Array<[number, number, number]> = [];
   const torusDist = (ax: number, ay: number, bx: number, by: number) => {
     let dx = Math.abs(ax - bx), dy = Math.abs(ay - by);
@@ -1216,21 +1226,24 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
   };
   const wraps = [[0, 0], [size, 0], [-size, 0], [0, size], [0, -size], [size, size], [-size, -size], [size, -size], [-size, size]];
   let attempts = 0;
-  while (placed.length < target && attempts < 60000) {
+  while (placed.length < target && attempts < 90000) {
     attempts++;
     const x = rng() * size, y = rng() * size;
-    const big = rng() < 0.6;
-    // Large class: arm 15–19 mm (30–38 mm tip to tip with caps); small: 7–9 mm (16–21 mm).
-    const arm = (big ? 15 + rng() * 4 : 7 + rng() * 2) * pxPerMm;
-    const reach = arm + 4 * pxPerMm;
-    if (placed.some(([px, py, pr]) => torusDist(x, y, px, py) < reach + pr + 6 * pxPerMm)) continue;
+    const big = rng() < 0.55;
+    // Large class: arm 10–14 mm (20–30 mm tip to tip with caps); small: 4.5–7 mm (10–16 mm).
+    const arm = (big ? 10 + rng() * 4 : 4.5 + rng() * 2.5) * pxPerMm;
+    const reach = arm + 3 * pxPerMm;
+    // A third may overlap a neighbour (the print's tones cross); the rest keep a 4 mm gap.
+    const overlap = rng() < 0.33;
+    if (!overlap && placed.some(([px, py, pr]) => torusDist(x, y, px, py) < reach + pr + 4 * pxPerMm)) continue;
+    if (overlap && placed.some(([px, py, pr]) => torusDist(x, y, px, py) < (reach + pr) * 0.35)) continue;
     placed.push([x, y, reach]);
     const half = THREE.MathUtils.degToRad(50 + rng() * 15); // arm half-angle (100–130° included)
-    const wMax = (big ? 3.4 + rng() * 1.0 : 2.2 + rng() * 0.5) * pxPerMm; // elbow half-width
+    const wMax = (big ? 2.4 + rng() * 0.8 : 1.6 + rng() * 0.5) * pxPerMm; // elbow half-width
     const rot = rng() * Math.PI * 2;
-    const outline = rng() < 0.15;
+    const outline = rng() < 0.12;
     const tone = tones[Math.floor(rng() * tones.length)];
-    const steps = 48;
+    const steps = 40;
     // Two straight arms from the elbow (origin) with a rounded knee: the middle 30 % of
     // the centre line is a quadratic blend through the elbow point.
     const T1: [number, number] = [arm * Math.cos(half), arm * Math.sin(half)];
@@ -1261,7 +1274,7 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
       if (px < -arm * 2 || px > size + arm * 2 || py < -arm * 2 || py > size + arm * 2) continue;
       ctx.fillStyle = tone;
       draw(px, py, 0);
-      if (outline) { ctx.fillStyle = "#EDE6D6"; draw(px, py, 1.1 * pxPerMm); } // 1.1 mm outline stroke
+      if (outline) { ctx.fillStyle = "#EDE6D6"; draw(px, py, 0.9 * pxPerMm); } // 0.9 mm outline stroke
     }
   }
   // Gold flecks in the print: soft 1.5 mm dots at 0.3/cm² (rev 2: the 1-texel hard dots at
@@ -1269,70 +1282,89 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
   ctx.fillStyle = "rgba(216,194,138,0.55)";
   for (let k = 0; k < areaCm2 * 0.3; k++) { ctx.beginPath(); ctx.arc(rng() * size, rng() * size, 0.75 * pxPerMm, 0, Math.PI * 2); ctx.fill(); }
 
-  // Use (rev 2, in the albedo — the roughness alone never read): wipe haze — the last rag's
-  // sweeps left a faint greyer film in long arcs; two or three cup rings (coffee residue,
-  // usually incomplete); fine scratches, light where the print's clear coat scattered, one
-  // or two dark where something dug in.
-  const wipe = makeFbm(seed + 5, 6, 3);
-  const rimg = rctx.createImageData(size, size);
-  const arcs: Array<[number, number, number, number, number]> = [];
-  for (let k = 0; k < 4; k++) arcs.push([rng() * size, size * (0.3 + rng() * 0.7), size * (0.3 + rng() * 0.4), rng() * Math.PI * 2, 0.6 + rng() * 0.9]);
-  ctx.lineCap = "round";
-  for (const [ax, ay, ar, a0, sweep] of arcs) {
-    for (let p = 0; p < 5; p++) {
-      ctx.strokeStyle = `rgba(150,146,140,${0.035 + rng() * 0.03})`;
-      ctx.lineWidth = (8 + rng() * 16) * pxPerMm;
-      ctx.beginPath();
-      ctx.arc(ax, ay, ar + (p - 2) * 14 * pxPerMm, a0, a0 + sweep);
-      ctx.stroke();
-    }
-  }
-  const rings: Array<[number, number, number, number]> = [];
-  for (let k = 0; k < 3; k++) {
-    const rx = size * (0.15 + rng() * 0.7), ry = size * (0.15 + rng() * 0.7), rr = (34 + rng() * 10) * pxPerMm;
-    rings.push([rx, ry, rr, rng() * Math.PI * 2]);
-    const a0 = rng() * Math.PI * 2, gap = rng() < 0.7 ? 0.5 + rng() * 1.2 : 0;
-    ctx.strokeStyle = "rgba(118,86,48,0.16)";
-    ctx.lineWidth = 3.5 * pxPerMm;
-    ctx.beginPath(); ctx.arc(rx, ry, rr, a0 + gap, a0 + Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = "rgba(118,86,48,0.28)"; // the dried outer edge is denser
-    ctx.lineWidth = 0.9 * pxPerMm;
-    ctx.beginPath(); ctx.arc(rx, ry, rr + 1.6 * pxPerMm, a0 + gap + 0.1, a0 + Math.PI * 2 - 0.1); ctx.stroke();
-  }
-  ctx.lineCap = "butt";
-  const scr: Array<[number, number, number, number]> = [];
-  for (let k = 0; k < 11; k++) {
-    const sx = rng() * size, sy = rng() * size, len = (40 + rng() * 180) * pxPerMm, ang = rng() * Math.PI;
-    const dark = k < 2;
-    ctx.strokeStyle = dark ? "rgba(70,60,50,0.5)" : `rgba(255,255,255,${0.3 + rng() * 0.25})`;
-    ctx.lineWidth = dark ? 1.1 : 0.9;
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + Math.cos(ang) * len, sy + Math.sin(ang) * len); ctx.stroke();
-    scr.push([sx, sy, sx + Math.cos(ang) * len, sy + Math.sin(ang) * len]);
-  }
+  /* ---- use ---- */
+  // Haze: where the last rag left a film, the clear coat is dulled — broad irregular patches
+  // (fbm at ~0.2–0.4 m, isotropic, no coherent direction) — and where years of sleeves and
+  // rags have rubbed, a general soft dulling. Micro-scratches: 1-texel streaks.
+  const hazeN = makeFbm(seed + 5, 5, 3);
+  const grainN = makeFbm(seed + 7, 256, 1);
+  const rough = new Float32Array(size * size);
+  const hazeF = new Float32Array(size * size);
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
-      const n = wipe(x / size, (y / size) * 0.15) - 0.5;
-      let r = 0.18 + n * 0.1;
-      for (const [rx, ry, rr] of rings) { const dd = Math.abs(Math.hypot(x - rx, y - ry) - rr); if (dd < 2.5 * pxPerMm) r += 0.3 * (1 - dd / (2.5 * pxPerMm)); }
-      const v = Math.min(255, Math.max(0, r * 255));
-      const o = (y * size + x) * 4;
+      const i = y * size + x;
+      const h = smoothstep(0.42, 0.66, hazeN(x / size, y / size));
+      hazeF[i] = h;
+      rough[i] = 0.3 + 0.24 * h + (grainN(x / size, y / size) - 0.5) * 0.02;
+    }
+  // Scratches (roughness up, albedo a touch lighter — the clear coat scatters); angles weighted
+  // to one wiping direction ± 35° with a quarter fully random. Two dark gouges.
+  const wipeDir = rng() * Math.PI;
+  const scratches: Array<[number, number, number, number, number, boolean]> = [];
+  for (let k = 0; k < 320; k++) {
+    const sx = rng() * size, sy = rng() * size;
+    const len = (5 + rng() * rng() * 55) * pxPerMm;
+    const ang = rng() < 0.75 ? wipeDir + (rng() - 0.5) * 1.2 : rng() * Math.PI;
+    scratches.push([sx, sy, sx + Math.cos(ang) * len, sy + Math.sin(ang) * len, 0.25 + rng() * 0.45, k < 2]);
+  }
+  const linePts = (x0: number, y0: number, x1: number, y1: number): Array<[number, number]> => {
+    const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 0.7));
+    return Array.from({ length: n + 1 }, (_, k) => [x0 + ((x1 - x0) * k) / n, y0 + ((y1 - y0) * k) / n] as [number, number]);
+  };
+  for (const [x0, y0, x1, y1, a, dark] of scratches) strokeField(rough, size, linePts(x0, y0, x1, y1), dark ? 0.35 : 0.3 * a, dark ? 1.6 : 1);
+  // Cup rings: coffee residue dries from the outside in — a sharp dense outer edge (the
+  // tide line) fading inward over ~3 mm; partial arcs (the cup was lifted before it dried).
+  const rings: Array<[number, number, number, number, number]> = [];
+  for (let k = 0; k < 3; k++) {
+    const rx = size * (0.15 + rng() * 0.7), ry = size * (0.15 + rng() * 0.7), rr = (34 + rng() * 10) * pxPerMm;
+    const a0 = rng() * Math.PI * 2, sweep = 3.5 + rng() * 2.6; // 200–350°
+    rings.push([rx, ry, rr, a0, sweep]);
+  }
+  const rimg = rctx.createImageData(size, size);
+  const rg = makeRng(seed + 11);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x, o = i * 4;
+      let r = rough[i];
+      for (const [rx, ry, rr, a0, sweep] of rings) {
+        const d = Math.hypot(x - rx, y - ry) - rr; // + outside
+        let ang = Math.atan2(y - ry, x - rx) - a0;
+        ang = ((ang % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        if (ang > sweep) continue;
+        if (d > -3 * pxPerMm && d < 0.6 * pxPerMm) r += 0.3 * (d > -0.8 * pxPerMm ? 1 : 0.4 * (1 + d / (3 * pxPerMm)));
+      }
+      // dither: ±0.6/255 breaks the 8-bit contours that drew rev 2's fingerprint
+      const v = Math.min(255, Math.max(0, r * 255 + (rg() - 0.5) * 1.2));
       rimg.data[o] = v; rimg.data[o + 1] = v; rimg.data[o + 2] = v; rimg.data[o + 3] = 255;
     }
   rctx.putImageData(rimg, 0, 0);
-  // The same haze arcs and scratches in the roughness (lighter = duller), so the albedo marks
-  // and the gloss breaks coincide — one map pair, one UV offset per table (Booths.ts).
-  rctx.lineCap = "round";
-  for (const [ax, ay, ar, a0, sweep] of arcs) {
-    rctx.strokeStyle = "rgba(255,255,255,0.14)";
-    rctx.lineWidth = 60 * pxPerMm;
-    rctx.beginPath(); rctx.arc(ax, ay, ar, a0, a0 + sweep); rctx.stroke();
+  // Albedo side of the same marks.
+  const aimg = ctx.getImageData(0, 0, size, size);
+  const ad = aimg.data;
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x, o = i * 4;
+      const h = hazeF[i] * 0.06; // milky film: toward grey-white
+      ad[o] = ad[o] * (1 - h) + 214 * h; ad[o + 1] = ad[o + 1] * (1 - h) + 210 * h; ad[o + 2] = ad[o + 2] * (1 - h) + 204 * h;
+      for (const [rx, ry, rr, a0, sweep] of rings) {
+        const d = Math.hypot(x - rx, y - ry) - rr;
+        if (d < -3.2 * pxPerMm || d > 0.7 * pxPerMm) continue;
+        let ang = Math.atan2(y - ry, x - rx) - a0;
+        ang = ((ang % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        if (ang > sweep) continue;
+        const k = d > -0.8 * pxPerMm ? 0.32 : 0.14 * (1 + d / (3 * pxPerMm));
+        ad[o] = ad[o] * (1 - k) + 118 * k; ad[o + 1] = ad[o + 1] * (1 - k) + 86 * k; ad[o + 2] = ad[o + 2] * (1 - k) + 48 * k;
+      }
+    }
+  ctx.putImageData(aimg, 0, 0);
+  for (const [x0, y0, x1, y1, a, dark] of scratches) {
+    ctx.strokeStyle = dark ? "rgba(70,60,50,0.5)" : `rgba(255,255,255,${(0.2 * a).toFixed(3)})`;
+    ctx.lineWidth = dark ? 1.1 : 0.9;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
   }
-  rctx.lineCap = "butt";
-  rctx.strokeStyle = "rgba(255,255,255,0.6)";
-  rctx.lineWidth = 1;
-  for (const [sx, sy, ex, ey] of scr) { rctx.beginPath(); rctx.moveTo(sx, sy); rctx.lineTo(ex, ey); rctx.stroke(); }
   return { map: finish(c, true, 8), roughnessMap: finish(rc, false, 8) };
 }
+
 
 export interface WoodSet {
   map: THREE.Texture;
@@ -1698,10 +1730,17 @@ function strokeField(f: Float32Array, size: number, pts: Array<[number, number]>
 export function laminateWear(size: number, metres: number, base: number, seed: number, rings: number): { map: THREE.Texture; roughnessMap: THREE.Texture } {
   const rng = makeRng(seed);
   const pxPerM = size / metres;
-  const wipe = makeFbm(seed + 5, 6, 3);
+  // Rev 3: isotropic haze patches (the rev 2 wipe field was stretched 6.7:1 along v and its
+  // slow gradient quantised into contour bands), a fine grain, and a ±0.6/255 dither.
+  const wipe = makeFbm(seed + 5, 5, 3);
+  const grainN = makeFbm(seed + 9, 256, 1);
+  const dith = makeRng(seed + 13);
   const f = new Float32Array(size * size);
   for (let y = 0; y < size; y++)
-    for (let x = 0; x < size; x++) f[y * size + x] = base + (wipe(x / size, (y / size) * 0.15) - 0.5) * 0.08;
+    for (let x = 0; x < size; x++) {
+      const h = smoothstep(0.44, 0.64, wipe(x / size, y / size));
+      f[y * size + x] = base - 0.02 + h * 0.1 + (grainN(x / size, y / size) - 0.5) * 0.02 + (dith() - 0.5) * (1.2 / 255);
+    }
   const arcs = Math.round(260 * metres * metres);
   for (let a = 0; a < arcs; a++) {
     const cx = rng() * size, cy = rng() * size, r = (0.03 + rng() * 0.17) * pxPerM;
