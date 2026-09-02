@@ -7,6 +7,9 @@
  *
  * Input: E (also F, or a click while the pointer is locked). A centre-bottom
  * hint fades in when a target is within reach and inside the look cone.
+ * System 9: Q stands up (E again when seated does too — the seated target is
+ * "Stand"); the player's Shift / Space are refused mid-interaction via
+ * `player.blocked` (sit transitions, a pour, a drink, the door swing).
  * Debug/capture API on `window.__interact` — see debug.ts.
  */
 import * as THREE from "three";
@@ -105,9 +108,19 @@ export function initInteractions(ctx: InteractionContext): Interactions {
   }
 
   const onKey = (e: KeyboardEvent): void => {
-    if (!KEYS.has(e.code) || e.repeat) return;
+    if (e.repeat) return;
+    if (e.code === "KeyQ") {
+      if (sit.seated) sit.standUp();
+      return;
+    }
+    if (!KEYS.has(e.code)) return;
     interact();
   };
+
+  // Sprint / jump gate (FirstPerson reads it every frame). Sit transitions disable the
+  // controller outright; this covers the pour and standing in the door's swing.
+  player.blocked = () => pour.state === "pouring" || door.inSwing;
+  player.onLand = (strength) => audio.sfx.footfall(strength);
   const onMouse = (e: MouseEvent): void => {
     if (e.button !== 0 || document.pointerLockElement !== renderer.domElement) return;
     interact();

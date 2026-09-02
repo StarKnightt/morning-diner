@@ -52,8 +52,14 @@
         margin-top: 26px; font-size: 13px; letter-spacing: 0.2em; text-transform: uppercase;
         color: #efe4cf; opacity: 0; transition: opacity 0.6s ease;
       }
+      #loader .keys {
+        margin-top: 14px; font-size: 11px; letter-spacing: 0.08em;
+        color: rgba(233, 220, 195, 0.5); opacity: 0; transition: opacity 0.6s ease 0.3s;
+      }
+      #loader .keys b { font-weight: 500; color: rgba(239, 228, 207, 0.85); }
       #loader.enter .bar, #loader.enter .row { opacity: 0; }
       #loader.enter .enter-hint { opacity: 1; animation: loader-pulse 2.4s ease-in-out infinite; }
+      #loader.enter .keys { opacity: 1; }
       #loader .error { margin-top: 20px; font-size: 12px; color: #d9a08a; white-space: pre-wrap; text-align: left; }
       @keyframes loader-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
       @media (prefers-reduced-motion: reduce) { #loader.enter .enter-hint { animation: none; } }
@@ -66,6 +72,7 @@
         <div class="bar"><div class="fill"></div></div>
         <div class="row"><span class="stage">Opening up…</span><span class="pct">0%</span></div>
         <div class="enter-hint" aria-hidden="true">Click to enter</div>
+        <div class="keys" aria-hidden="true"><b>WASD</b> walk &nbsp;·&nbsp; <b>Shift</b> hurry &nbsp;·&nbsp; <b>Space</b> hop &nbsp;·&nbsp; <b>E</b> interact &nbsp;·&nbsp; <b>Q</b> stand up</div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>

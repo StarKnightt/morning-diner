@@ -21,6 +21,7 @@ import { RoomTone } from "./ambience/RoomTone";
 import type { AmbientLayer } from "./Layer";
 import { CoffeeSfx } from "./sfx/Coffee";
 import { DoorSfx } from "./sfx/Door";
+import { PlayerSfx } from "./sfx/Player";
 
 export type { Vec3 } from "./AudioEngine";
 export { AudioEngine } from "./AudioEngine";
@@ -66,6 +67,8 @@ export interface DinerSfx {
    * 0.07 s cut; with `rampSeconds` it is a linear ramp. Holds.
    */
   setOutside(amount: number, rampSeconds?: number): void;
+  /** System 9: the player's landing after a hop; `strength` 0..1 from the impact speed. */
+  footfall(strength?: number): void;
 }
 
 export interface DinerAudio {
@@ -81,6 +84,7 @@ export interface DinerAudio {
   readonly layers: readonly AmbientLayer[];
   readonly door: DoorSfx | null;
   readonly coffee: CoffeeSfx | null;
+  readonly playerSfx: PlayerSfx | null;
 }
 
 /** Emitter positions derived from the floor plan (metres). */
@@ -106,6 +110,7 @@ class DinerAudioImpl implements DinerAudio {
   layers: AmbientLayer[] = [];
   door: DoorSfx | null = null;
   coffee: CoffeeSfx | null = null;
+  playerSfx: PlayerSfx | null = null;
   readonly sfx: DinerSfx;
   private readonly pos: Required<DinerAudioPositions>;
   private readonly opts: DinerAudioOptions;
@@ -128,6 +133,7 @@ class DinerAudioImpl implements DinerAudio {
         this.pendingOutside = a;
         this.door?.setOutside(a, ramp);
       },
+      footfall: (s) => this.playerSfx?.footfall(s),
     };
   }
 
@@ -162,6 +168,7 @@ class DinerAudioImpl implements DinerAudio {
       this.coffee = new CoffeeSfx(engine, p.mug);
       this.door = new DoorSfx(engine, p.door, p.doorWidth);
       this.door.setOutside(this.pendingOutside);
+      this.playerSfx = new PlayerSfx(engine);
       engine.setMasterVolume(this.volume);
       // Prime the schedulers so the first second isn't empty.
       engine.tick();

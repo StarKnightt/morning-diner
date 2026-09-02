@@ -961,6 +961,16 @@ src/audio/wiring.ts   createDinerAudio() with the warmer at the brewer's lower p
 
 Controls: E (F, or click under pointer lock) on the highlighted target. Reach:
 benches 1.4 m, mug 1.25 m, door 1.4 m; look cone 22–30° half-angle.
+System 9 keys (`src/player/FirstPerson.ts`, feature 5): **WASD / arrows** walk 1.4 m/s;
+**Shift** walk fast (2.6 m/s, 0.2 s blend in/out, same 0.15 / 0.12 s accel/decel *times*,
+head-bob 1.8 → 2.4 Hz phase and 1.4 → 2.2 cm p-p with speed); **Space** a hop (0.32 m apex,
+g = 9.81, 0.51 s in the air, 2 cm landing dip over 0.15 s + `sfx.footfall`; one hop per
+press, no bunny-hop on a held key); **E** the prompt action (interact / sit / pour / open —
+"Stand" when seated); **Q** stand up. Shift and Space are refused while seated (controller
+disabled by Sit) and mid-interaction (`player.blocked()`: pouring, or standing in the door
+swing while the leaf cycles); a sprint in progress blends out. The hop and the bob are camera
+offsets only — `position.y`, the colliders and `setPose()` never see them, and both are
+exactly 0 at rest. The loader shows the keys under "Click to enter".
 
 Debug / capture API (`src/interactions/debug.ts`, on `window`):
 
@@ -971,7 +981,7 @@ Debug / capture API (`src/interactions/debug.ts`, on `window`):
 | `__interact("stand" \| "resume" \| "reset")` | stand up / unfreeze / everything back to rest |
 | `__interactPose("sit-seated" \| "pour-mid" \| "pour-full" \| "door-open")` | state + camera for `tools/shoot.mjs` |
 | `__interactions` | the live object: `.sit.state`, `.pour.state`, `.door.progress`, `.door.angleDeg`, `.target`, `.audio.state()`, `.startAudio()` |
-| `__player` | the `FirstPerson` controller (harness feel checks: `.position`, `.camera`, `.setPose`) |
+| `__player` | the `FirstPerson` controller (harness feel checks: `.position`, `.camera`, `.setPose`, `.keys` (a `Set` of key codes — add `"KeyW"` / `"ShiftLeft"` / `"Space"` and call `.update(dt)`), `.speed`, `.sprintAmount`, `.inAir`, `.jumpHeight`, `.blocked`) |
 
 Poses (`tools/shoot.mjs --tag=sys7 --poses=sit-seated,pour-mid,pour-full,door-open`,
 `--port=` to run beside another worktree's harness): `sit-seated` = booth 2,
