@@ -92,6 +92,17 @@ const POSES = {
   "pour-mid": { interact: "pour-mid" },
   "pour-full": { interact: "pour-full" },
   "door-open": { interact: "door-open" },
+  // System 9 — implied presence props (src/scene/Presence.ts), each from about a metre.
+  "sys9-apron": { x: -1.45, y: 1.6, z: -1.7, yaw: 352, pitch: 6 },
+  "sys9-cardigan": { x: -2.0, y: 1.3, z: 1.3, yaw: 34, pitch: -27 },
+  "sys9-plate": { x: -1.0, y: 1.35, z: 1.75, yaw: 165, pitch: -35 },
+  "sys9-cup": { x: -3.4, y: 1.35, z: 0.7, yaw: 29, pitch: -16 },
+  // System 9 — openables at rest and open (Openables.ts; the open poses go through __interactPose).
+  "sys9-cabinet": { x: -1.55, y: 1.35, z: -0.7, yaw: 8, pitch: -30 },
+  "sys9-cabinet-open": { interact: "cabinet-open" },
+  "sys9-kitchen-door": { x: -4.6, y: 1.5, z: -1.3, yaw: 23, pitch: -18 },
+  "sys9-kitchen-door-open": { interact: "kitchen-door-open" },
+  "sys9-kitchen-door-back": { interact: "kitchen-door-back" },
 };
 const NAMES = ONLY.length ? Object.keys(POSES).filter((p) => ONLY.includes(p)) : Object.keys(POSES);
 
