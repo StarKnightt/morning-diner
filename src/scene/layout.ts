@@ -116,7 +116,8 @@ export const BACK_BAR = {
 /** System 2 tabletop and back-counter props. */
 export const PROPS = {
   /** Table sets (dispenser + sugar + S&P) on the counter at every second stool, toward the back edge. */
-  napkinCounterX: [-4.44, -3.22, -2.0, -0.78],
+  /** One set per three stools, centred between a stool pair: 9 stools → 3 sets. */
+  napkinCounterX: [-4.135, -2.305, -0.475],
   napkinCounterZ: -0.3,
   /** Stool positions that get an inverted mug on a saucer. */
   saucerStoolX: [-3.22, -0.78],

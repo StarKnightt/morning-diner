@@ -60,6 +60,17 @@ const POSES = {
   // Close-ups for prop judgement: 0.6 m from the third booth's caddy set; 0.7 m from the decanter + pour mug.
   "macro-table": { x: -0.68, y: 0.98, z: 2.68, yaw: 136, pitch: -17 },
   "macro-warmer": { x: -1.42, y: 1.22, z: -1.68, yaw: 15, pitch: -18 },
+  // System 3 — windows, blinds, exterior. yaw 180 looks straight out through the window wall (+z).
+  // Seated at the third booth, eye-line through the slats.
+  window: { x: -1.1, y: 1.15, z: 2.35, yaw: 180, pitch: 0 },
+  // Standing a metre inside the door, looking out through the door glass at the sedan.
+  "door-glass": { x: 4.9, z: 2.15, yaw: 181, pitch: -11 },
+  // 30 cm from the second window's slats, on the centre ladder.
+  "blind-macro": { x: -2.78, y: 1.45, z: 2.97, yaw: 168, pitch: -6 },
+  // From the aisle through the third window: pickup, stall row, wall, desert, mesa, sky.
+  "lot-wide": { x: -1.35, z: 0.9, yaw: 180, pitch: -2 },
+  // Second booth's table where the slat stripes land.
+  stripes: { x: -3.35, y: 1.3, z: 1.85, yaw: 158, pitch: -32 },
 };
 const NAMES = ONLY.length ? Object.keys(POSES).filter((p) => ONLY.includes(p)) : Object.keys(POSES);
 

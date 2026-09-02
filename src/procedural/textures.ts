@@ -246,10 +246,10 @@ export function vinylSurface(size: number, metres: number, crazed: boolean): Vin
 
 /**
  * Formica 6942 "Skylark" boomerang laminate on a plain cream field. Each shape is
- * a genuine boomerang: a circular arc bent 70–110°, 25–50 mm tip to tip (±30 %),
- * tapered from ~8 mm at the elbow to rounded 3 mm tips (drawn as a chain of
- * discs along the arc). Three tones at low contrast, random rotation, ~3.5 per
- * 100 cm² (≈ 10 % cover), none touching. One canvas = `metres` (use ≥ 1.2 m so a
+ * a genuine boomerang bent 100–130°, tapered from the elbow to rounded tips (drawn
+ * as a chain of discs along the centre line). Two size classes — large 30–38 mm tip
+ * to tip and small 16–21 mm — three tones at low contrast, ~15 % of the shapes drawn
+ * outline-only, random rotation, ~3.5 per 100 cm² (≈ 8 % cover), none touching. One canvas = `metres` (use ≥ 1.2 m so a
  * whole table shows no repeat).
  */
 export function formicaBoomerang(size: number, metres: number, seed: number): TextureSet {
@@ -270,9 +270,8 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
   ctx.putImageData(img, 0, 0);
   const tones = ["#CBBB9F", "#A3A8AC", "#FBF9F4"];
   const areaCm2 = metres * metres * 1e4;
-  const target = Math.round(areaCm2 * 0.035);
-  const placed: Array<[number, number]> = [];
-  const minD = 42 * pxPerMm;
+  const target = Math.round(areaCm2 * 0.04);
+  const placed: Array<[number, number, number]> = [];
   const torusDist = (ax: number, ay: number, bx: number, by: number) => {
     let dx = Math.abs(ax - bx), dy = Math.abs(ay - by);
     dx = Math.min(dx, size - dx); dy = Math.min(dy, size - dy);
@@ -283,13 +282,17 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
   while (placed.length < target && attempts < 60000) {
     attempts++;
     const x = rng() * size, y = rng() * size;
-    if (placed.some(([px, py]) => torusDist(x, y, px, py) < minD)) continue;
-    placed.push([x, y]);
-    const arm = (14 + rng() * 12) * pxPerMm; // elbow to tip, 14–26 mm (28–52 mm tip to tip)
+    const big = rng() < 0.6;
+    // Large class: arm 15–19 mm (30–38 mm tip to tip with caps); small: 7–9 mm (16–21 mm).
+    const arm = (big ? 15 + rng() * 4 : 7 + rng() * 2) * pxPerMm;
+    const reach = arm + 4 * pxPerMm;
+    if (placed.some(([px, py, pr]) => torusDist(x, y, px, py) < reach + pr + 6 * pxPerMm)) continue;
+    placed.push([x, y, reach]);
     const half = THREE.MathUtils.degToRad(50 + rng() * 15); // arm half-angle (100–130° included)
-    const wMax = (3.6 + rng() * 1.2) * pxPerMm; // elbow half-width
+    const wMax = (big ? 3.4 + rng() * 1.0 : 2.2 + rng() * 0.5) * pxPerMm; // elbow half-width
     const rot = rng() * Math.PI * 2;
-    ctx.fillStyle = tones[Math.floor(rng() * tones.length)];
+    const outline = rng() < 0.15;
+    const tone = tones[Math.floor(rng() * tones.length)];
     const steps = 48;
     // Two straight arms from the elbow (origin) with a rounded knee: the middle 30 % of
     // the centre line is a quadratic blend through the elbow point.
@@ -302,20 +305,26 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
       const a: [number, number] = [T1[0] * 0.3, T1[1] * 0.3], c: [number, number] = [T2[0] * 0.3, T2[1] * 0.3];
       return [(1 - k) * (1 - k) * a[0] + k * k * c[0], (1 - k) * (1 - k) * a[1] + k * k * c[1]];
     };
-    for (const [ox, oy] of wraps) {
-      const px = x + ox, py = y + oy;
-      if (px < -arm * 2 || px > size + arm * 2 || py < -arm * 2 || py > size + arm * 2) continue;
+    const draw = (px: number, py: number, shrink: number) => {
       ctx.beginPath();
       for (let k = 0; k <= steps; k++) {
         const t = k / steps;
         const [lx, ly] = centre(t);
-        const w = wMax * (0.42 + 0.58 * (1 - Math.abs(2 * t - 1)) ** 0.5);
+        const w = wMax * (0.42 + 0.58 * (1 - Math.abs(2 * t - 1)) ** 0.5) - shrink;
+        if (w <= 0.3) continue;
         const gx = px + lx * Math.cos(rot) - ly * Math.sin(rot);
         const gy = py + lx * Math.sin(rot) + ly * Math.cos(rot);
         ctx.moveTo(gx + w, gy);
         ctx.arc(gx, gy, w, 0, Math.PI * 2);
       }
       ctx.fill();
+    };
+    for (const [ox, oy] of wraps) {
+      const px = x + ox, py = y + oy;
+      if (px < -arm * 2 || px > size + arm * 2 || py < -arm * 2 || py > size + arm * 2) continue;
+      ctx.fillStyle = tone;
+      draw(px, py, 0);
+      if (outline) { ctx.fillStyle = "#EDE6D6"; draw(px, py, 1.1 * pxPerMm); } // 1.1 mm outline stroke
     }
   }
   ctx.fillStyle = "#D8C28A";
@@ -536,6 +545,22 @@ export function brushedRoughness(size: number, base: number, seed: number): THRE
     }
   ctx.putImageData(img, 0, 0);
   return finish(c, false, 8);
+}
+
+/** Fine granular roughness (sugar, salt): per-texel speckle ±amp around base. */
+export function speckleRoughness(size: number, base: number, amp: number, seed: number): THREE.Texture {
+  const { c, ctx } = canvas(size, size);
+  const rng = makeRng(seed);
+  const img = ctx.createImageData(size, size);
+  for (let i = 0; i < size * size; i++) {
+    const v = Math.min(255, Math.max(0, (base + (rng() - 0.5) * 2 * amp) * 255));
+    const o = i * 4;
+    img.data[o] = v; img.data[o + 1] = v; img.data[o + 2] = v; img.data[o + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const t = finish(c, false, 4);
+  t.repeat.set(6, 6);
+  return t;
 }
 
 /** Coarse asphalt for the lot placeholder. */

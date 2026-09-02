@@ -176,7 +176,7 @@ export function channelPanel(w: number, h: number, pitch: number, depth: number,
   for (let k = 0; k < n; k++) bounds.push(bounds[k] + (raw[k] / sum) * w);
   const valleys = bounds.slice(1, -1);
   const segX = n * 18, segY = 64;
-  const valleyDrop = 0.006;
+  const valleyDrop = 0.005; // fabric sits 5 mm under the crown at the cord: a 1–2 mm dip below the cord's underside
   const g = new THREE.PlaneGeometry(w, h, segX, segY);
   const p = g.attributes.position as THREE.BufferAttribute;
   const uv = g.attributes.uv as THREE.BufferAttribute;
@@ -187,8 +187,9 @@ export function channelPanel(w: number, h: number, pitch: number, depth: number,
     while (k < n - 1 && x > bounds[k + 1]) k++;
     const cw = bounds[k + 1] - bounds[k];
     const u = Math.min(1, Math.max(0, (x - bounds[k]) / cw)); // 0..1 across this channel
-    // Crown: broad rounded top with a steep foot so the flanks rise to meet the cord.
-    const pleat = Math.sin(Math.PI * u) ** 0.35;
+    // Crown: a rounded pillow (sin^0.9) — the old sin^0.35 was flat across 80 % of the
+    // channel and the field read as a plane between the cords.
+    const pleat = Math.sin(Math.PI * u) ** 0.9;
     const env = smooth(0, 0.06, 0.5 - Math.abs(y) / h) * smooth(0, 0.03, 0.5 - Math.abs(x) / w);
     // Gathers where the channel is tucked under the roll seam (top) and the seat seam (bottom).
     const top = h / 2 - y, bot = y + h / 2;

@@ -10,27 +10,39 @@ export interface LightingResult {
   sun: THREE.DirectionalLight;
 }
 
-export function buildLighting(scene: THREE.Scene): LightingResult {
-  // Sun: 8 AM, ~35° elevation, coming in from the parking-lot side (+z), a
-  // little from the door end (+x) so window piers throw long angled stripes.
+/**
+ * Placeholder sun: 8 AM, 35° elevation, 38° off the window normal toward the door
+ * end. Unit vector pointing FROM the scene TOWARD the sun; System 3's sky dome
+ * and blind tilt read it from here so the window relationship stays consistent.
+ * (REFERENCE §1 has the Flagstaff numbers System 4 will swap in: el 31.1°, az 82°.)
+ */
+export function sunDirection(): THREE.Vector3 {
   const el = THREE.MathUtils.degToRad(35);
   const az = THREE.MathUtils.degToRad(38);
-  const dir = new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+  return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+}
+
+export function buildLighting(scene: THREE.Scene): LightingResult {
+  const dir = sunDirection();
   const sun = new THREE.DirectionalLight(0xfff1dc, 5.0);
   sun.position.copy(dir).multiplyScalar(30).add(new THREE.Vector3(0, 1.2, 0));
   sun.target.position.set(0, 1.2, 0);
   sun.castShadow = true;
   sun.shadow.mapSize.set(4096, 4096);
   const cam = sun.shadow.camera;
-  cam.left = -9;
-  cam.right = 9;
-  cam.top = 7;
-  cam.bottom = -7;
+  // Frustum fitted to the room (every interior receiver must stay inside it, or it
+  // renders sunlit) plus the first stall row of the lot so the two parked vehicles
+  // cast onto the asphalt: 13.4 × 10.4 m over 4096² → 3.3 × 2.5 mm texels, which
+  // resolves the 11 mm dark / 14 mm light blind stripes (24.8 mm pitch on the floor).
+  cam.left = -6.7;
+  cam.right = 6.7;
+  cam.top = 4.7;
+  cam.bottom = -5.7;
   cam.near = 10;
-  cam.far = 55;
+  cam.far = 58;
   sun.shadow.bias = -0.0002;
-  sun.shadow.normalBias = 0.02; // 4.4 mm texels over 18 m: 20 mm keeps sunlit planes acne-free
-  sun.shadow.radius = 2;
+  sun.shadow.normalBias = 0.014; // 3.3 mm texels: 14 mm keeps sunlit planes acne-free
+  sun.shadow.radius = 1;
   scene.add(sun, sun.target);
 
   // `?nofill` renders the sun alone — a diagnostic for checking where direct

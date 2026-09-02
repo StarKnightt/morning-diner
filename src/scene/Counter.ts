@@ -155,7 +155,7 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     swivel.translate(0, seatHeight - st - 0.01, 0);
     // Seat cushion (3.5"): vinyl rim band below a 1" chrome band (2 mm shadow gap under it), then
     // the upholstered top with a 6 mm welt cord around the perimeter and a 25 mm domed crown.
-    const bandY0 = 0.03, bandY1 = 0.0554, crown = 0.025;
+    const bandY0 = 0.03, bandY1 = 0.0554, crown = st - (bandY1 + 0.022); // 90 − 77.4 → 12.6 mm crown over the roll; total dome from the band 22.6 mm
     const seatProfile = [
       new THREE.Vector2(0, 0),
       new THREE.Vector2(r - 0.03, 0),
@@ -167,12 +167,12 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       new THREE.Vector2(r - 0.002, bandY1 + 0.002),
       new THREE.Vector2(r, bandY1 + 0.006), // welt roll
       new THREE.Vector2(r - 0.002, bandY1 + 0.011),
-      new THREE.Vector2(r - 0.006, bandY1 + 0.012),
-      new THREE.Vector2(r - 0.012, st - crown + 0.002),
-      new THREE.Vector2(r - 0.05, st - crown + 0.012),
-      new THREE.Vector2(r - 0.1, st - crown + 0.019),
-      new THREE.Vector2(r - 0.15, st - 0.001),
-      new THREE.Vector2(0, st),
+      // 10 mm soft roll above the welt, then the crown: 18 mm dome with a shoulder (x^1.8)
+      ...[0.15, 0.35, 0.6, 0.85, 1.0].map((k) => {
+        const a = (k * Math.PI) / 2;
+        return new THREE.Vector2(r - 0.004 - 0.01 * (1 - Math.cos(a)), bandY1 + 0.012 + 0.01 * Math.sin(a));
+      }),
+      ...[0.9, 0.78, 0.64, 0.48, 0.3, 0.12, 0].map((f) => new THREE.Vector2((r - 0.014) * f, st - crown + crown * (1 - f ** 1.8))),
     ];
     const cushion = plainColor(new THREE.LatheGeometry(seatProfile, 56));
     cushion.translate(0, seatHeight - st, 0);

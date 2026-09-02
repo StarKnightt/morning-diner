@@ -89,10 +89,19 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   // Glass panel
   const g = new THREE.PlaneGeometry(gx1 - gx0, gy1 - gy0);
   g.translate(leafW / 2, (gy0 + gy1) / 2, 0);
-  const glass = new THREE.Mesh(g, pal.glass);
+  const glass = new THREE.Mesh(g, pal.glassDoor);
   glass.renderOrder = 10;
   glass.name = "door-glass";
   hinge.add(glass);
+  // Greasy handprints around push-bar height: the roughness map frosts the transmission
+  // behind them; this 1 mm-proud haze decal (same print layout) adds the faint whitish
+  // forward-scatter that makes a print visible against a bright lot.
+  const smudgeGeo = g.clone();
+  smudgeGeo.translate(0, 0, -0.001);
+  const smudge = new THREE.Mesh(smudgeGeo, pal.glassSmudge);
+  smudge.renderOrder = 11;
+  smudge.name = "door-smudge";
+  hinge.add(smudge);
 
   parent.add(hinge);
   return hinge;

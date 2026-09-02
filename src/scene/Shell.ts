@@ -331,14 +331,8 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
 
   /* ---------------- exterior ground: apron slab one 120 mm step below the floor ---------------- */
   {
+    // Sidewalk slab to the kerb line; the lot, kerb and everything beyond is Exterior.ts (System 3).
     b.box(pal.concrete, [-halfX - 1.5, yLow - 0.15, zFront + T], [halfX + 1.5, -0.12, zFront + T + 1.8], { uvScale: 1 });
-    const g = new THREE.PlaneGeometry(90, 90);
-    g.rotateX(-Math.PI / 2);
-    g.translate(0, yLow, 0);
-    const lot = new THREE.Mesh(g, pal.asphalt);
-    lot.receiveShadow = true;
-    lot.name = "lot";
-    parent.add(lot);
   }
 
   // Glass last: one transparent mesh for all panes.

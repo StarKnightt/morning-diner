@@ -5,6 +5,7 @@
  */
 import * as THREE from "three";
 import * as tex from "../procedural/textures";
+import * as ext from "../procedural/exterior";
 
 export interface Palette {
   wallPaint: THREE.MeshStandardMaterial;
@@ -57,6 +58,12 @@ export interface Palette {
   alum: THREE.MeshStandardMaterial;
   alumBright: THREE.MeshStandardMaterial;
   glass: THREE.MeshPhysicalMaterial;
+  glassDoor: THREE.MeshPhysicalMaterial;
+  glassSmudge: THREE.MeshBasicMaterial;
+  slat: THREE.MeshStandardMaterial;
+  slatRail: THREE.MeshStandardMaterial;
+  cord: THREE.MeshStandardMaterial;
+  wand: THREE.MeshPhysicalMaterial;
   laminateWood: THREE.MeshStandardMaterial;
   kickPanel: THREE.MeshStandardMaterial;
   tileBacking: THREE.MeshStandardMaterial;
@@ -66,7 +73,6 @@ export interface Palette {
   voidBlack: THREE.MeshBasicMaterial;
   kitchenDim: THREE.MeshStandardMaterial;
   darkGlass: THREE.MeshStandardMaterial;
-  asphalt: THREE.MeshStandardMaterial;
   concrete: THREE.MeshStandardMaterial;
   acUnit: THREE.MeshStandardMaterial;
   stainless: THREE.MeshPhysicalMaterial;
@@ -84,7 +90,6 @@ export function createPalette(maxAnisotropy: number): Palette {
   const wallTex = tex.paintedWall("#e9e2d2", 1024, 11);
   const extWallTex = tex.paintedWall("#d9cfbd", 1024, 12, 0.08);
   const tileTex = tex.acousticTile(512);
-  const asphaltTex = tex.asphalt(1024);
   const concreteTex = tex.concrete(1024);
 
   const floor = new THREE.MeshStandardMaterial({
@@ -105,8 +110,6 @@ export function createPalette(maxAnisotropy: number): Palette {
     metalness: 0,
   });
 
-  const asphalt = new THREE.MeshStandardMaterial({ map: asphaltTex.map, roughness: 0.95, metalness: 0 });
-  asphaltTex.map.repeat.set(12, 12);
   const concrete = new THREE.MeshStandardMaterial({ map: concreteTex.map, roughness: 0.9, metalness: 0 });
   concreteTex.map.repeat.set(4, 1);
 
@@ -312,7 +315,7 @@ export function createPalette(maxAnisotropy: number): Palette {
     orangeBand: new THREE.MeshStandardMaterial({ color: 0xb85a1e, roughness: 0.5, metalness: 0 }),
     pilotRed: new THREE.MeshStandardMaterial({ color: 0xff2a1a, roughness: 0.4, metalness: 0, emissive: 0xff2010, emissiveIntensity: 3 }),
     napkin: new THREE.MeshStandardMaterial({ color: 0xf4f2ec, roughness: 0.95, metalness: 0 }),
-    sugar: new THREE.MeshStandardMaterial({ color: 0xfaf7f0, roughness: 0.95, metalness: 0 }),
+    sugar: new THREE.MeshStandardMaterial({ color: 0xf1ede4, roughnessMap: tex.speckleRoughness(256, 0.86, 0.1, 71), roughness: 1, metalness: 0 }),
     salt: new THREE.MeshStandardMaterial({ color: 0xd2d7de, roughness: 1, metalness: 0 }), // faint grey-blue so it separates from the pale sill AND from the sugar
     napkinFold: new THREE.MeshStandardMaterial({ color: 0xbdb8ae, roughness: 1, metalness: 0 }),
     darkSeal: new THREE.MeshStandardMaterial({ color: 0x2a221c, roughness: 0.7, metalness: 0 }),
@@ -324,16 +327,50 @@ export function createPalette(maxAnisotropy: number): Palette {
     darkMetal: new THREE.MeshStandardMaterial({ color: 0x3a3836, roughness: 0.5, metalness: 0.6 }),
     alum: new THREE.MeshStandardMaterial({ color: 0x4f4841, roughness: 0.45, metalness: 0.55 }),
     alumBright: new THREE.MeshStandardMaterial({ color: 0xb4b8bc, roughness: 0.38, metalness: 0.7 }),
+    // Window glass (System 3): clear 6 mm float — T 0.88, IOR 1.52, faint green-grey body
+    // tint, 4 %/surface Fresnel reflection of the room probe, dust haze that thickens
+    // toward the lower edge and corners (roughness map 0.008–0.045, REFERENCE §4).
+    // transmission stays 1 and the 12 % loss lives in `color`: any transmission < 1
+    // leaves a lit diffuse skin over the pane that reads as a milky veil (rev 1 lesson).
     glass: new THREE.MeshPhysicalMaterial({
-      color: 0xdfe8ea,
-      roughness: 0.02,
+      color: 0xe2ebe6,
+      roughness: 1,
+      roughnessMap: ext.glassDust(1024, 3320, false),
       metalness: 0,
-      transparent: true,
-      opacity: 0.14,
+      transmission: 1,
+      ior: 1.52,
+      thickness: 0.006,
+      attenuationColor: new THREE.Color(0.7, 0.86, 0.8),
+      attenuationDistance: 0.6,
       envMapIntensity: 1,
+      specularIntensity: 1,
       side: THREE.DoubleSide,
-      depthWrite: false,
     }),
+    // Door glass: same pane with palm/finger smudges around push-bar height.
+    glassDoor: new THREE.MeshPhysicalMaterial({
+      color: 0xe2ebe6,
+      roughness: 1,
+      roughnessMap: ext.glassDust(1024, 3321, true),
+      metalness: 0,
+      transmission: 1,
+      ior: 1.52,
+      thickness: 0.006,
+      attenuationColor: new THREE.Color(0.7, 0.86, 0.8),
+      attenuationDistance: 0.6,
+      envMapIntensity: 1,
+      specularIntensity: 1,
+      side: THREE.DoubleSide,
+    }),
+    glassSmudge: new THREE.MeshBasicMaterial({ color: 0xf4f2ec, transparent: true, opacity: 0.12, alphaMap: ext.handprintAlpha(1024, 3321), depthWrite: false, side: THREE.DoubleSide }),
+    // 1" venetian slats: baked-enamel aluminium, alabaster (238,232,218) slightly yellowed,
+    // 20–30 GU → roughness ~0.45 (dielectric paint, F0 4 %), dust streaks on the up-face.
+    slat: (() => {
+      const d = ext.slatDust(1024, 3322);
+      return new THREE.MeshStandardMaterial({ map: d.map, roughnessMap: d.roughnessMap, roughness: 1, metalness: 0.04, envMapIntensity: 0.4, side: THREE.DoubleSide });
+    })(),
+    slatRail: new THREE.MeshStandardMaterial({ color: 0xe6dfcc, roughness: 0.42, metalness: 0.25 }),
+    cord: new THREE.MeshStandardMaterial({ color: 0xd9d2c0, roughness: 0.95, metalness: 0 }),
+    wand: new THREE.MeshPhysicalMaterial({ color: 0xdfe3e2, roughness: 0.12, metalness: 0, transmission: 0.6, ior: 1.49, thickness: 0.006 }),
     laminateWood: new THREE.MeshStandardMaterial({ color: 0x6b4a2e, roughness: 0.5, metalness: 0 }),
     kickPanel: new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.6, metalness: 0.3 }),
     tileBacking: new THREE.MeshStandardMaterial({ color: 0x5a5650, roughness: 1, metalness: 0 }),
@@ -354,7 +391,6 @@ export function createPalette(maxAnisotropy: number): Palette {
     // Nothing lights the kitchen box, so a little emissive stands in for its own ambient: dark, not black.
     kitchenDim: new THREE.MeshStandardMaterial({ color: 0x4a4744, roughness: 0.95, metalness: 0, emissive: 0x3a3632, emissiveIntensity: 0.55 }),
     darkGlass: new THREE.MeshStandardMaterial({ color: 0x1c1b1a, roughness: 0.15, metalness: 0.4 }),
-    asphalt,
     concrete,
     acUnit: new THREE.MeshStandardMaterial({ color: 0xd8d6cf, roughness: 0.6, metalness: 0.2 }),
     stainless,

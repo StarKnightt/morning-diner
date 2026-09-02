@@ -6,11 +6,13 @@ import * as THREE from "three";
 import { createPalette, type Palette } from "../core/materials";
 import type { Collider } from "../core/merge";
 import { buildEnvironment } from "../procedural/environment";
+import { buildBlinds } from "./Blinds";
 import { buildBooths } from "./Booths";
 import { buildCeiling } from "./Ceiling";
 import { buildCounter } from "./Counter";
 import { buildDoor } from "./Door";
-import { buildLighting } from "./Lighting";
+import { buildExterior } from "./Exterior";
+import { buildLighting, sunDirection } from "./Lighting";
 import { buildProps } from "./Props";
 import { buildShell } from "./Shell";
 import { FAN } from "./layout";
@@ -36,6 +38,8 @@ export class Diner {
     const ceiling = buildCeiling(this.group, this.palette);
     this.door = buildDoor(this.group, this.palette);
     const props = buildProps(this.group, this.palette);
+    buildBlinds(this.group, this.palette);
+    const exterior = buildExterior(this.group, this.palette, sunDirection());
     this.pourMug = props.pourMug;
     this.coffeePot = props.coffeePot;
     this.fanRotor = ceiling.fanRotor;
@@ -45,6 +49,10 @@ export class Diner {
     this.sun = buildLighting(scene).sun;
 
     scene.background = new THREE.Color(0x9cc0ea);
+    // Atmospheric perspective for the desert: linear fog to the sky's horizon colour from
+    // 45 m (nothing inside the building or the lot is within reach) to 260 m, so the dirt
+    // plane, scrub and ridge dissolve into the sky instead of meeting it on a hard line.
+    scene.fog = new THREE.Fog(new THREE.Color(0.9, 0.915, 0.93), 45, 260);
 
     // Reflection environment: a one-time CubeCamera capture of the real interior
     // from counter height between the stools, PMREM-filtered. The chrome then
@@ -86,6 +94,8 @@ export class Diner {
       const floorMat = floorMesh?.material;
       if (floorMesh) floorMesh.material = plainFloor;
       const propEnv = probe(-1.7, 1.15, -1.9);
+      // Lot probe: sky, facade and asphalt for the vehicles' paint, glass and chrome.
+      const lotEnv = probe(1.0, 1.4, 8.0);
       if (floorMesh && floorMat) floorMesh.material = floorMat;
       plainFloor.dispose();
       vinyls.forEach((v, i) => v.color.copy(saved[i]));
@@ -93,6 +103,10 @@ export class Diner {
       scene.environment = roomEnv;
       for (const m of [this.palette.glassClear, this.palette.glassFluted, this.palette.coffee, this.palette.coffeeStain, this.palette.ceramic, this.palette.bisque, this.palette.chromeSoft, this.palette.sugar, this.palette.salt]) {
         m.envMap = propEnv;
+        m.needsUpdate = true;
+      }
+      for (const m of exterior.envMaterials) {
+        (m as THREE.MeshStandardMaterial).envMap = lotEnv;
         m.needsUpdate = true;
       }
       pmrem.dispose();
