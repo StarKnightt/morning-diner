@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Morning Diner — audio harness</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; padding: 20px; background: #0d0d0d; color: #ddd; font: 14px system-ui, sans-serif; }
+      h1 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+      p.hint { margin: 0 0 14px; color: #888; }
+      .grid { display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start; }
+      .panel { background: #161616; border: 1px solid #262626; border-radius: 6px; padding: 14px; }
+      button { background: #262626; color: #eee; border: 1px solid #333; border-radius: 4px; padding: 6px 12px; cursor: pointer; }
+      button:hover { background: #333; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      #start { font-size: 16px; padding: 10px 22px; background: #2a9d8f; border-color: #2a9d8f; color: #000; }
+      .row { display: grid; grid-template-columns: 22px 50px 1fr 80px; gap: 8px; align-items: center; padding: 4px 0; }
+      .row button { padding: 2px 6px; font-size: 12px; }
+      .row .lvl { text-align: right; font: 12px ui-monospace, monospace; color: #9a9; }
+      .sfx { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+      label.slider { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+      canvas { display: block; width: 100%; border-radius: 4px; }
+      #status { color: #888; font: 12px ui-monospace, monospace; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>Morning Diner — audio harness</h1>
+    <p class="hint">
+      Development page only. Click Start (browsers need a gesture), then solo/mute layers, fire the one-shots, and
+      click the plan to move the listener (wheel / Q / E to turn).
+    </p>
+    <div class="grid">
+      <div class="panel">
+        <button id="start">Start audio</button>
+        <div id="status">idle</div>
+        <div id="layers" style="margin-top: 12px"></div>
+        <button id="all" style="margin-top: 6px">all on</button>
+        <div class="sfx">
+          <button id="pour">pourCoffee(3.5)</button>
+          <button id="clink">mugClink()</button>
+          <button id="door">doorOpen()</button>
+        </div>
+        <label class="slider">outside <input id="outside" type="range" min="0" max="100" value="0" /></label>
+        <label class="slider">master <input id="volume" type="range" min="0" max="100" value="100" /></label>
+      </div>
+      <div>
+        <div class="panel"><canvas id="meter" width="900" height="56"></canvas></div>
+        <div class="panel" style="margin-top: 20px"><canvas id="plan" width="900" height="460"></canvas></div>
+      </div>
+    </div>
+    <script type="module" src="/src/audio/harness/page.ts"></script>
+  </body>
+</html>
