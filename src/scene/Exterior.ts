@@ -116,7 +116,10 @@ function buildSky(sunDir: THREE.Vector3): THREE.Mesh {
  */
 function buildHorizon(parent: THREE.Group): void {
   const haze = new THREE.Color(0.86, 0.87, 0.89);
-  const ring = (R: number, segs: number, rock: THREE.Color, baseFade: number, hMax: number, name: string, profile: (a: number, u: number) => number) => {
+  // Foot of each range: alluvial fans, not a ruler line — the base wanders ±footAmp (m) with
+  // low-frequency noise (the rev 4 bases were dead level where they met the flat).
+  const footNoise = makeFbm(7104, 10, 2);
+  const ring = (R: number, segs: number, rock: THREE.Color, baseFade: number, hMax: number, footAmp: number, name: string, profile: (a: number, u: number) => number) => {
     const pos: number[] = [], col: number[] = [], idx: number[] = [];
     const tmp = new THREE.Color();
     for (let i = 0; i <= segs; i++) {
@@ -125,7 +128,8 @@ function buildHorizon(parent: THREE.Group): void {
       const x = Math.sin(a) * R, z = Math.cos(a) * R;
       const h = Math.max(0.3, profile(a, u));
       const fade = baseFade + 0.12 * (1 - Math.min(1, h / hMax));
-      pos.push(x, -0.35, z, x, h - 0.35, z);
+      const foot = -0.35 + footAmp * (footNoise(u * 1.7 + R * 0.01, 0.4) - 0.5) * 2;
+      pos.push(x, Math.min(foot, h - 0.65), z, x, h - 0.35, z);
       tmp.copy(rock).lerp(haze, Math.min(1, fade + 0.12)); // foot is hazier than the top
       col.push(tmp.r, tmp.g, tmp.b);
       tmp.copy(rock).lerp(haze, fade);
@@ -156,7 +160,7 @@ function buildHorizon(parent: THREE.Group): void {
   };
   // Near: 2–8 m broken hills + the mesa left of centre (a in radians, 0 = +z, straight out the windows).
   const nearBase = makeFbm(7101, 24, 2), nearRidge = ridged(7111, 90, 3);
-  ring(118, 1440, new THREE.Color(0.33, 0.29, 0.27), 0.22, 9, "horizon", (a, u) => {
+  ring(118, 1440, new THREE.Color(0.33, 0.29, 0.27), 0.22, 9, 0.7, "horizon", (a, u) => {
     const deg = THREE.MathUtils.radToDeg(a);
     const mesaL = deg > -62 && deg < -24 ? 1 : 0;
     const mesaEdge = mesaL ? Math.min(1, Math.min(deg + 62, -24 - deg) / 6) : 0;
@@ -166,10 +170,10 @@ function buildHorizon(parent: THREE.Group): void {
   });
   // Mid: a taller range with serrated crest lines.
   const midBase = makeFbm(7102, 14, 2), midRidge = ridged(7122, 60, 3);
-  ring(150, 1440, new THREE.Color(0.41, 0.38, 0.37), 0.44, 22, "horizon-mid", (_a, u) => 5 + 11 * midBase(u * 1.0 + 0.2, 0.55) + 6 * Math.pow(midRidge(u, 0.2), 1.4));
+  ring(150, 1440, new THREE.Color(0.41, 0.38, 0.37), 0.44, 22, 1.2, "horizon-mid", (_a, u) => 5 + 11 * midBase(u * 1.0 + 0.2, 0.55) + 6 * Math.pow(midRidge(u, 0.2), 1.4));
   // Far: the tallest, a ghost in the haze.
   const farBase = makeFbm(7103, 9, 2), farRidge = ridged(7133, 40, 3);
-  ring(188, 1200, new THREE.Color(0.5, 0.48, 0.49), 0.62, 34, "horizon-far", (_a, u) => 10 + 16 * farBase(u * 1.3 + 0.7, 0.2) + 8 * Math.pow(farRidge(u, 0.3), 1.3));
+  ring(188, 1200, new THREE.Color(0.5, 0.48, 0.49), 0.62, 34, 2.0, "horizon-far", (_a, u) => 10 + 16 * farBase(u * 1.3 + 0.7, 0.2) + 8 * Math.pow(farRidge(u, 0.3), 1.3));
 }
 
 /* ------------------------------------------------------------------------------------------
@@ -938,6 +942,13 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
   for (const sx of [-1, 1]) { // rubber bumper guards, a mirrored pair flanking the plate
     rbox(mats.rubber, [sx * 0.3 - 0.035, 0.44, -0.16], [sx * 0.3 + 0.035, 0.59, -0.1], 0.012);
     rbox(mats.rubber, [sx * 0.3 - 0.035, 0.44, L + 0.1], [sx * 0.3 + 0.035, 0.59, L + 0.16], 0.012);
+    // Bumper end returns: the bar wraps the corner onto the flank (the plan taper leaves the
+    // body 4 cm inside the bar's end at the nose — rev 4 showed that as a dark recess).
+    const xo = sx * (bw / 2), xi = sx * (hw - 0.05);
+    rbox(mats.chrome, [Math.min(xo, xi), 0.45, -0.1], [Math.max(xo, xi), 0.58, 0.34], 0.03);
+    rbox(mats.chrome, [Math.min(xo, xi), 0.45, L - 0.34], [Math.max(xo, xi), 0.58, L + 0.1], 0.03);
+    // Sedan: amber turn signals in the valance under the bumper ends
+    if (spec.lamps === "rect2") rbox(mats.amber, [sx * 0.72 - 0.11, 0.375, -0.03], [sx * 0.72 + 0.11, 0.435, 0.0], 0.008);
   }
   box(spec.plateMat, [-0.1525, 0.455, -0.14], [0.1525, 0.575, -0.13]); // front plate on the bumper
   if (spec.tailgate) {
@@ -1075,8 +1086,9 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
     {
       const g0 = spec.sideGlass[0], g1 = spec.sideGlass[spec.sideGlass.length - 1];
       const st = stations.find((s) => s.z >= (g0.z0 + g1.z1) / 2) ?? stations[0];
-      const y = st.yTop - st.rTop + 0.004, xo = st.hwTop + 0.003;
-      box(mats.chrome, [Math.min(sx * (xo - 0.01), sx * (xo + 0.006)), y - 0.008, g0.z0 - 0.08], [Math.max(sx * (xo - 0.01), sx * (xo + 0.006)), y + 0.008, g1.z1 + 0.1]);
+      // 10 × 10 mm bead, 3 mm proud (rev 4's 16 mm bead 6 mm proud read as a roof "lid")
+      const y = st.yTop - st.rTop + 0.004, xo = st.hwTop + 0.001;
+      box(mats.chrome, [Math.min(sx * (xo - 0.007), sx * (xo + 0.003)), y - 0.005, g0.z0 - 0.08], [Math.max(sx * (xo - 0.007), sx * (xo + 0.003)), y + 0.005, g1.z1 + 0.1]);
     }
     // Door mirror: 150 × 100 × 70 mm painted head on a chrome arm at the A-pillar base, chrome face aft
     {
@@ -1188,22 +1200,36 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
   // Rev 4 to spec: 72" × 8" × 5½" precast bars (1.83 × 0.2 × 0.14), 15 mm chamfers on the
   // top edges, two Ø 20 mm rebar pin holes at ±0.6 m, centred in the stall (≈ 17" clear each
   // side), 0.75 m off the kerb face so a nosed-in bumper overhangs the bar, not the kerb.
-  const stopMat = skyFill(new THREE.MeshStandardMaterial({ map: pal.concrete.map, color: 0xb9b5ac, roughness: 0.92, metalness: 0 }), 0.22);
+  // Rev 5: exposed-aggregate precast texture (1 m tile, metric UVs), 20 mm true chamfers with
+  // no rounded extrusion bevel, and a rubber scuff band on the lot face where tyres kiss it.
+  const stopMat = skyFill(new THREE.MeshStandardMaterial({ map: ext.precast(1024, 3345), color: 0xc4c0b8, roughness: 0.92, metalness: 0 }), 0.22);
   const pinMat = new THREE.MeshStandardMaterial({ color: 0x141312, roughness: 0.9, metalness: 0 });
   pinMat.userData.noCast = true;
+  const scuffMat = new THREE.MeshStandardMaterial({ color: 0x1a1816, roughness: 1, metalness: 0, transparent: true, opacity: 0.4, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  scuffMat.userData.noCast = true;
   for (let i = 0; i < stallLinesX.length - 1; i++) {
     if (i % 2 === 1 && rng() < 0.5) continue;
     const cx = (stallLinesX[i] + stallLinesX[i + 1]) / 2 + (rng() - 0.5) * 0.06;
     const z = LOT.kerbZ + LOT.stopZ + (rng() - 0.5) * 0.04;
     const skew = (rng() - 0.5) * 0.03; // a degree or so off square, as they are set by eye
     const sh = new THREE.Shape();
-    sh.moveTo(-0.1, 0); sh.lineTo(0.1, 0); sh.lineTo(0.1, 0.125); sh.lineTo(0.085, 0.14); sh.lineTo(-0.085, 0.14); sh.lineTo(-0.1, 0.125); sh.closePath();
-    const bar = new THREE.ExtrudeGeometry(sh, { depth: 1.83, bevelEnabled: true, bevelThickness: 0.006, bevelSize: 0.006, bevelSegments: 2 });
+    sh.moveTo(-0.1, 0); sh.lineTo(0.1, 0); sh.lineTo(0.1, 0.12); sh.lineTo(0.08, 0.14); sh.lineTo(-0.08, 0.14); sh.lineTo(-0.1, 0.12); sh.closePath();
+    const bar = new THREE.ExtrudeGeometry(sh, { depth: 1.83, bevelEnabled: false });
+    bar.computeVertexNormals();
     bar.rotateY(Math.PI / 2); // extrusion (z) → x; profile x → −z
     bar.translate(-0.915, 0, 0);
     bar.rotateY(skew);
     bar.translate(cx, yLot, z);
     b.add(bar, stopMat);
+    // Tyre scuffs on the lot-side face (+z): two smeared bands at the track width, uneven
+    for (const sx of [-1, 1]) {
+      const w = 0.3 + rng() * 0.25, h0 = 0.03 + rng() * 0.02, h1 = 0.09 + rng() * 0.03;
+      const scuff = new THREE.PlaneGeometry(w, h1 - h0);
+      scuff.translate(sx * (0.62 + rng() * 0.16), (h0 + h1) / 2, 0.1 + 0.0015);
+      scuff.rotateY(skew);
+      scuff.translate(cx, yLot, z);
+      b.add(scuff, scuffMat);
+    }
     for (const px of [-0.6, 0.6]) {
       const pin = new THREE.CylinderGeometry(0.011, 0.011, 0.02, 10);
       pin.translate(px, 0.1365, 0); // top 0.5 mm over the bevelled bar top so the hole reads as a dark disc
@@ -1327,8 +1353,8 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
     length: 5.0, hw: 0.9, sillY: 0.42, beltY: 0.98, wheelR: 0.38, tyreHw: 0.115, wheelZ: [0.86, 3.86], arch: "square",
     top: [
       [0.0, 0.90, 0.85, 0.02], [0.12, 0.94, 0.86, 0.02], [1.26, 0.995, 0.88, 0.02, true], [1.265, 0.95, 0.88, 0.008, true], [1.32, 0.955, 0.88, 0.008],
-      [1.36, 1.02, 0.86, 0.02, true], [1.70, 1.74, 0.79, 0.07, true], [1.80, 1.79, 0.78, 0.08], [2.80, 1.79, 0.78, 0.08],
-      [2.86, 1.74, 0.78, 0.06, true], [2.90, 1.14, 0.88, 0.02, true], [2.92, 1.10, 0.888, 0.012], [4.98, 1.10, 0.888, 0.012], [5.0, 1.09, 0.885, 0.01],
+      [1.36, 1.02, 0.86, 0.02, true], [1.70, 1.74, 0.79, 0.04, true], [1.80, 1.79, 0.78, 0.03], [2.80, 1.79, 0.78, 0.03],
+      [2.86, 1.74, 0.78, 0.03, true], [2.90, 1.14, 0.88, 0.02, true], [2.92, 1.10, 0.888, 0.012], [4.98, 1.10, 0.888, 0.012], [5.0, 1.09, 0.885, 0.01],
     ],
     tailgate: { xIn: 0.815, y0: 0.68, y1: 1.085 }, tailTaper: 0.006,
     sideGlass: [{ z0: 1.52, z1: 2.8, z0Top: 1.86 }],
@@ -1486,45 +1512,67 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
   // Tyre tracks in the dirt behind the wall: a dirt approach from the road to the entrance gap
   // (two wheel ruts 1.9 m apart) and two stray single tracks — darker compacted dirt strips.
   {
-    const trackMat = skyFill(new THREE.MeshStandardMaterial({ map: dirtTex, color: 0xa99f8f, roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }), 0.22);
+    // Feathered: three vertices across (edge, centre, edge) with vertex ALPHA 0 / 1 / 0, so the
+    // compacted strip blends into the dirt instead of two hard-edged ribbons (rev 4). Width
+    // and alpha wander along the track, and the two ruts of a pair share the vehicle's wander
+    // plus their own small one — parallel, not identical.
+    const trackMat = skyFill(new THREE.MeshStandardMaterial({ map: dirtTex, color: 0xa39a8a, roughness: 1, metalness: 0, transparent: true, depthWrite: false, vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }), 0.22);
     trackMat.userData.noCast = true;
-    const rut = (pts: Array<[number, number]>, w: number) => {
-      const pos: number[] = [], nor: number[] = [], uv: number[] = [], idx: number[] = [];
+    const trackParts: THREE.BufferGeometry[] = [];
+    const wobble = makeValueNoise(3363, 32);
+    const rut = (pts: Array<[number, number]>, w: number, seed: number) => {
+      const pos: number[] = [], nor: number[] = [], uv: number[] = [], col: number[] = [], idx: number[] = [];
       for (let i = 0; i < pts.length; i++) {
         const [x, z] = pts[i];
         const [xa, za] = pts[Math.max(0, i - 1)], [xb, zb] = pts[Math.min(pts.length - 1, i + 1)];
         let tx = xb - xa, tz = zb - za;
         const l = Math.hypot(tx, tz) || 1;
         tx /= l; tz /= l;
-        pos.push(x - tz * w / 2, yLot - 0.036, z + tx * w / 2, x + tz * w / 2, yLot - 0.036, z - tx * w / 2);
-        nor.push(0, 1, 0, 0, 1, 0);
-        uv.push(x / 7, z / 7, (x + tz * w) / 7, (z - tx * w) / 7);
-        // Wound (p, p+2, p+1) so the strip faces +y whichever way the path runs — the rev 3
-        // winding faced down and every track was back-face culled (invisible in all frames).
-        if (i < pts.length - 1) { const p = i * 2; idx.push(p, p + 2, p + 1, p + 1, p + 2, p + 3); }
+        const t = i / (pts.length - 1);
+        const ww = w * (0.8 + 0.5 * wobble(t * 9 + seed, seed * 0.7)); // width breathes ±25 %
+        const a = 0.55 + 0.45 * wobble(t * 5 + seed * 1.3, 3 + seed); // compaction varies along
+        for (const k of [-1, 0, 1]) {
+          pos.push(x - tz * ww * 0.5 * k, yLot - 0.036, z + tx * ww * 0.5 * k);
+          nor.push(0, 1, 0);
+          uv.push((x - tz * ww * 0.5 * k) / 7, (z + tx * ww * 0.5 * k) / 7);
+          col.push(1, 1, 1, k === 0 ? a : 0);
+        }
+        // Wound so the strip faces +y whichever way the path runs — the rev 3 winding faced
+        // down and every track was back-face culled (invisible in all frames).
+        if (i < pts.length - 1) { const p = i * 3; idx.push(p, p + 1, p + 3, p + 1, p + 4, p + 3, p + 1, p + 2, p + 4, p + 2, p + 5, p + 4); }
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
       g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+      g.setAttribute("color", new THREE.Float32BufferAttribute(col, 4));
       g.setIndex(idx);
-      b.add(g, trackMat);
+      trackParts.push(g.toNonIndexed());
     };
     const wander = makeValueNoise(3362, 16);
-    const path = (x0: number, z0: number, x1: number, z1: number, amp: number, seedU: number): Array<[number, number]> => {
+    const path = (x0: number, z0: number, x1: number, z1: number, amp: number, seedU: number, ownAmp = 0, ownSeed = 0): Array<[number, number]> => {
       const out: Array<[number, number]> = [];
       for (let i = 0; i <= 24; i++) {
         const t = i / 24;
-        const w = (wander(t * 6 + seedU, seedU) - 0.5) * amp * Math.sin(Math.PI * t);
+        const w = (wander(t * 6 + seedU, seedU) - 0.5) * amp * Math.sin(Math.PI * t) + (wander(t * 11 + ownSeed, ownSeed + 5) - 0.5) * ownAmp;
         out.push([x0 + (x1 - x0) * t + w, z0 + (z1 - z0) * t]);
       }
       return out;
     };
     const gapX = -2.5; // centre of the wall opening (−6 … 1)
     // Same wander seed for both ruts of the pair: one vehicle, two wheels 1.9 m apart, parallel.
-    for (const dx of [-0.95, 0.95]) rut(path(gapX + dx + 1.2, ROAD.z - ROAD.halfW - 1.4, gapX + dx, LOT.wallZ + 0.6, 0.7, 3), 0.32);
-    rut(path(14, ROAD.z - ROAD.halfW - 1.0, 30, LOT.wallZ + 3, 4, 11), 0.3);
-    rut(path(-22, LOT.wallZ + 2.5, -9, ROAD.z - ROAD.halfW - 1.2, 3, 17), 0.3);
+    rut(path(gapX - 0.95 + 1.2, ROAD.z - ROAD.halfW - 1.4, gapX - 0.95, LOT.wallZ + 0.6, 0.7, 3, 0.18, 21), 0.34, 1);
+    rut(path(gapX + 0.95 + 1.2, ROAD.z - ROAD.halfW - 1.4, gapX + 0.95, LOT.wallZ + 0.6, 0.7, 3, 0.18, 29), 0.3, 2);
+    rut(path(14, ROAD.z - ROAD.halfW - 1.0, 30, LOT.wallZ + 3, 4, 11), 0.3, 3);
+    rut(path(-22, LOT.wallZ + 2.5, -9, ROAD.z - ROAD.halfW - 1.2, 3, 17), 0.3, 4);
+    const tracks = new THREE.Mesh(mergeLoose(trackParts), trackMat);
+    {
+      const col: number[] = [];
+      for (const g of trackParts) col.push(...Array.from(g.attributes.color.array as Float32Array));
+      tracks.geometry.setAttribute("color", new THREE.Float32BufferAttribute(col, 4));
+    }
+    tracks.name = "tyre-tracks"; tracks.renderOrder = 1; tracks.frustumCulled = false; tracks.receiveShadow = true;
+    parent.add(tracks);
   }
 
   /* ---------------- frontage road + utility poles behind the wall ---------------- */
@@ -1541,7 +1589,39 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
       g.translate(0, y, z);
       b.add(g, mat);
     };
-    plane(400, ROAD.halfW * 2 + 3.6, yLot - 0.02, ROAD.z, shoulderMat);
+    // Gravel shoulders: graded into the dirt (vertex alpha 1 at the asphalt → 0 at a wandering
+    // outer edge 1.4–2.6 m out), not the rev 4 hard-edged pale band.
+    {
+      shoulderMat.transparent = true; shoulderMat.depthWrite = false; shoulderMat.vertexColors = true;
+      shoulderMat.polygonOffset = true; shoulderMat.polygonOffsetFactor = -1; shoulderMat.polygonOffsetUnits = -1;
+      const edge = makeValueNoise(3364, 32);
+      const pos: number[] = [], nor: number[] = [], uv: number[] = [], col: number[] = [], idx: number[] = [];
+      const n = 100;
+      for (const s of [-1, 1]) {
+        const base = pos.length / 3;
+        for (let i = 0; i <= n; i++) {
+          const x = -200 + (400 * i) / n;
+          const outer = ROAD.halfW + 1.0 + 1.3 * edge(i / 3 + (s > 0 ? 0 : 50), 0.5);
+          for (const [dz, a] of [[ROAD.halfW - 0.05, 1], [ROAD.halfW + 0.45, 0.5], [outer, 0]] as Array<[number, number]>) {
+            pos.push(x, yLot - 0.02, ROAD.z + s * dz); nor.push(0, 1, 0); uv.push(x / 7, (ROAD.z + s * dz) / 7); col.push(1, 1, 1, a);
+          }
+          if (i < n) {
+            const p = base + i * 3;
+            const quad = (q0: number, q1: number, q2: number, q3: number) => (s > 0 ? idx.push(q0, q1, q2, q1, q3, q2) : idx.push(q0, q2, q1, q1, q2, q3));
+            quad(p, p + 1, p + 3, p + 4); quad(p + 1, p + 2, p + 4, p + 5);
+          }
+        }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+      g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+      g.setAttribute("color", new THREE.Float32BufferAttribute(col, 4));
+      g.setIndex(idx);
+      const m = new THREE.Mesh(g, shoulderMat);
+      m.name = "road-shoulders"; m.frustumCulled = false; m.renderOrder = 1; m.receiveShadow = true;
+      parent.add(m);
+    }
     plane(400, ROAD.halfW * 2, yLot - 0.005, ROAD.z, roadMat);
     for (const s of [-1, 1]) plane(400, 0.1, yLot + 0.001, ROAD.z + s * (ROAD.halfW - 0.3), lineMat);
     plane(400, 0.1, yLot + 0.001, ROAD.z, new THREE.MeshStandardMaterial({ color: 0xc9b25a, roughness: 0.9 })); // faded centre line
@@ -1634,18 +1714,23 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
           br.translate(tip.x, tip.y, tip.z);
           v.stems.push(br);
         }
-        // Flat, wide canopy: a ring of squashed clumps around the crown
-        for (let k = 0; k < 7; k++) {
-          const ca = (k / 7) * Math.PI * 2, cr = 0.45 + brng() * 0.35;
-          const leaf = new THREE.IcosahedronGeometry(0.22 + brng() * 0.12, 0);
-          leaf.scale(1.3, 0.45, 1.3);
-          leaf.translate(tip.x + Math.cos(ca) * cr, tip.y + 0.15 + (brng() - 0.5) * 0.15, tip.z + Math.sin(ca) * cr);
+        // Broken crown: 4 clumps at uneven radii and heights, one side bare
+        for (let k = 0; k < 4; k++) {
+          const ca = brng() * Math.PI * 1.4 + a, cr = 0.25 + brng() * 0.5;
+          const leaf = new THREE.IcosahedronGeometry(0.18 + brng() * 0.12, 0);
+          leaf.scale(1.2, 0.55, 1.1);
+          leaf.translate(tip.x + Math.cos(ca) * cr, tip.y + 0.05 + brng() * 0.35, tip.z + Math.sin(ca) * cr);
           v.leaves.push(leaf);
         }
       }
       return v;
     };
-    variants.push(creosote(9, 0.25, 0.95, 3), creosote(6, 0.45, 0.8, 2), creosote(12, 0.18, 1.15, 3), creosote(5, 0.6, 0.7, 4), mesquite(2), mesquite(3));
+    // Rev 5: the two mesquites read as repeated umbrella trees from the road (a flat ring canopy
+    // on a trunk, five copies in `dbg-wall-road`). Now the mix is 6 creosote silhouettes —
+    // leggy, trunkless fans of stems with sparse clumps — and ONE mesquite with a broken,
+    // irregular crown, picked one time in eight and only far out.
+    variants.push(creosote(9, 0.25, 0.95, 3), creosote(6, 0.45, 0.8, 2), creosote(12, 0.18, 1.15, 3), creosote(5, 0.6, 0.7, 4), creosote(7, 0.35, 1.05, 2), creosote(10, 0.5, 0.9, 2));
+    const mesq = mesquite(2);
     const stemMat = skyFill(new THREE.MeshStandardMaterial({ color: 0x4a4038, roughness: 1, metalness: 0 }), 0.2);
     const leafMat = skyFill(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, metalness: 0, vertexColors: true }), 0.0);
     leafMat.emissive.setRGB(0.42, 0.44, 0.3).multiplyScalar(0.22 * 0.45); // sky fill for the mean tone (vertex colour carries the tint)
@@ -1661,7 +1746,7 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
       if (Math.abs(x) < 42 && z < LOT.wallZ + 6 && !edgeKeep(x, z)) continue;
       if (z < ROOM.zBack - 4 && Math.abs(x) < 12) continue;
       if (Math.abs(z - ROAD.z) < ROAD.halfW + 1.5) continue;
-      const v = variants[Math.floor(rng() * variants.length)];
+      const v = r > 45 && rng() < 0.125 ? mesq : variants[Math.floor(rng() * variants.length)];
       const h = 1.0 + rng() * 1.0; // 1–2 m tall (mesquite variants are taller by construction)
       s.set(h * (0.85 + rng() * 0.3), h, h * (0.85 + rng() * 0.3));
       q.setFromAxisAngle(yAxis, rng() * Math.PI * 2);

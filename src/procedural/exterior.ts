@@ -572,6 +572,48 @@ export function desertDirt(size: number, seed: number): THREE.Texture {
   return finish(c, true, 8);
 }
 
+/**
+ * Precast concrete (wheel stops): grey cement paste with exposed aggregate — 2–6 mm dark and
+ * pale stones at ~900 per 0.25 m², a few 1–2 cm pits, and a faint yellow-brown rebar-rust
+ * bleed. Tile = 1 m; the bars are UV-mapped in metres.
+ */
+export function precast(size: number, seed: number): THREE.Texture {
+  const { c, ctx } = canvas(size, size);
+  const rng = makeRng(seed);
+  const fbm = makeFbm(seed + 3, 5, 3);
+  const grain = makeFbm(seed + 4, 200, 2);
+  const img = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const u = x / size, v = y / size;
+      const n = (fbm(u, v) - 0.5) * 0.14 + (grain(u, v) - 0.5) * 0.1;
+      const o = (y * size + x) * 4;
+      img.data[o] = 172 * (1 + n); img.data[o + 1] = 168 * (1 + n); img.data[o + 2] = 160 * (1 + n * 1.05); img.data[o + 3] = 255;
+    }
+  ctx.putImageData(img, 0, 0);
+  // Aggregate: dark basalt / pale quartz stones, slightly oval
+  const px = size / 1000; // px per mm at 1 m tile
+  for (let i = 0; i < 3600; i++) {
+    const r = (1 + rng() * 2) * px, dark = rng() < 0.6;
+    const t = dark ? 60 + rng() * 40 : 190 + rng() * 40;
+    ctx.fillStyle = `rgba(${t | 0},${(t * 0.97) | 0},${(t * 0.92) | 0},${0.55 + rng() * 0.35})`;
+    ctx.beginPath(); ctx.ellipse(rng() * size, rng() * size, r * (0.8 + rng() * 0.6), r, rng() * Math.PI, 0, Math.PI * 2); ctx.fill();
+  }
+  // Pits and a rust bleed
+  for (let i = 0; i < 24; i++) {
+    const r = (4 + rng() * 8) * px;
+    ctx.fillStyle = `rgba(70,66,60,${0.35 + rng() * 0.3})`;
+    ctx.beginPath(); ctx.arc(rng() * size, rng() * size, r, 0, Math.PI * 2); ctx.fill();
+  }
+  for (let i = 0; i < 3; i++) {
+    const x = rng() * size, y = rng() * size, r = (40 + rng() * 60) * px;
+    const gr = ctx.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, "rgba(150,105,60,0.35)"); gr.addColorStop(1, "rgba(150,105,60,0)");
+    ctx.fillStyle = gr; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  return finish(c, true, 8);
+}
+
 /** CMU block wall: 400 × 200 mm blocks with recessed mortar joints; tiles every 3.2 × 0.8 m (8 × 4 blocks). */
 export function blockWall(size: number, seed: number): { map: THREE.Texture; roughnessMap: THREE.Texture } {
   const w = size, h = size / 4;

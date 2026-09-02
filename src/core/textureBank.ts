@@ -50,6 +50,7 @@ const SHAPES: Record<string, Record<string, Shape>> = {
     handprintAlpha: "direct",
     slatDust: ["roughnessMap", "map"],
     desertDirt: "direct",
+    precast: "direct",
     blockWall: ["map", "roughnessMap"],
     contactShadowAlpha: "direct",
   },
@@ -76,6 +77,7 @@ const LABELS: Record<string, string> = {
   handprintAlpha: "handprints",
   slatDust: "blind slats",
   desertDirt: "desert dirt",
+  precast: "precast concrete",
   blockWall: "block wall",
   contactShadowAlpha: "contact shadows",
 };
