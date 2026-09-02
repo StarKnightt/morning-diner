@@ -1,24 +1,25 @@
 /**
- * System 9 — implied presence. No figures: the things a person leaves in the
- * two minutes they are out of the room.
+ * System 9 — implied presence (rev 2). No figures: the things a person leaves in the two
+ * minutes they are out of the room.
  *
- *   apron      the waitress's cotton-canvas waist apron on a chrome hook beside the
- *              pass-through jamb, gathered at the waistband, six pleats opening to the
- *              hem, a gaping patch pocket, two ties hanging past the hem
- *   cardigan   a rust knit cardigan dropped over the seat of the fifth stool: a mound
- *              over the cushion, a flap falling over the front edge in folds, one sleeve
- *              hanging to the footring with its ribbed cuff, three shell buttons
- *   plate      booth 2, aisle end: a plate with a toast crust, a dried yolk smear, a fork
- *              across the rim, a few crumbs; the folded newspaper beside it
- *   cup        a mug on a saucer at stool 3 with two centimetres of coffee left and a
- *              lipstick mark on the rim
+ *   apron   the waitress's cotton waist apron on a chrome hook beside the pass-through: a
+ *           fabric loop over the hook, the waistband bunched under it in overlapping panels,
+ *           the skirt gathered under the band and falling in four heavy folds of unequal
+ *           width to a hem barely wider than the shoulder; a patch pocket with a stitch line,
+ *           one tie hanging past the hem, the other tucked back into the band
+ *   plate   booth 2, aisle end: a diner plate with a rolled rim and a shallow well, a
+ *           stainless fork across it (bowed handle, tapering tines), a scatter of toast
+ *           flakes, and a thin dried-yolk film with the tine drag through it
+ *   cup     a mug on a saucer at stool 3: a dreg of coffee, the residue ring above it, an
+ *           upper-lip lipstick print on the outer rim, the saucer's well and foot ring, a
+ *           contact shadow under the cup
  *
- * Every soft surface is a lofted grid (`loft`): catenary-ish pleats along one axis,
- * amplitude growing with the fall, so the folds read as cloth under gravity and not
- * as a wavy sheet. Cloth, paper and food share one atlas material (procedural/
- * presence.ts) — the only new bucket; everything else (ceramic, stainless, chrome,
- * coffee, vinyl for the lipstick) is appended to the scene's existing merged meshes
- * through the shared `statics` builder (core/mergeInto.ts) at no draw-call cost.
+ * Rev 1's cardigan, toast crust, yolk polygon and newspaper were cut on the critic's frames:
+ * a prop a viewer clocks as procedural is worse than no prop. Cloth, tile and the decals
+ * share one atlas (procedural/presence.ts). Opaque cloth is the `presence` bucket; the
+ * alpha decals (lipstick, yolk film, residue ring, contact shadow) are `presenceDecal`, one
+ * transparent mesh. Everything in a palette material (ceramic, stainless, chrome, coffee) is
+ * appended to the scene's existing merged meshes by core/mergeInto.ts.
  */
 import * as THREE from "three";
 import type { Palette } from "../core/materials";
@@ -28,47 +29,76 @@ import * as presMod from "../procedural/presence";
 import { PRESENCE_UV } from "../procedural/presence";
 import { BOOTH, COUNTER, PASS_THROUGH, PROPS, ROOM, STOOL, WINDOW } from "./layout";
 
-type UvRect = readonly [number, number, number, number];
+export type UvRect = readonly [number, number, number, number];
 const V2 = (x: number, y: number) => new THREE.Vector2(x, y);
+const V3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const smooth = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
-export interface PresenceResult {
-  /** The atlas material (for the debug HUD / material counts). */
-  material: THREE.MeshStandardMaterial;
-  /** Where the props sit, for the `sys9-*` capture poses. */
-  points: { apron: THREE.Vector3; cardigan: THREE.Vector3; plate: THREE.Vector3; cup: THREE.Vector3 };
+export interface PresenceMaterials {
+  cloth: THREE.MeshStandardMaterial;
+  decal: THREE.MeshStandardMaterial;
 }
 
-export function buildPresence(statics: MergedBuilder, pal: Palette, bank?: TextureBank): PresenceResult {
+export interface PresenceResult {
+  /** The atlas materials (for the debug HUD / material counts). */
+  material: THREE.MeshStandardMaterial;
+  materials: PresenceMaterials;
+  /** Where the props sit, for the `sys9-*` capture poses. */
+  points: { apron: THREE.Vector3; plate: THREE.Vector3; cup: THREE.Vector3 };
+}
+
+export function presenceMaterials(pal: Palette, bank?: TextureBank): PresenceMaterials {
   const pres = bank ? bank.proxy(presMod, "pres") : presMod;
   const set = pres.presenceAtlas(1024);
   const cloth = new THREE.MeshStandardMaterial({
     map: set.map,
     roughnessMap: set.roughnessMap,
     normalMap: set.normalMap,
-    normalScale: new THREE.Vector2(0.7, 0.7),
+    normalScale: new THREE.Vector2(0.6, 0.6),
     roughness: 1,
     metalness: 0,
     side: THREE.DoubleSide,
+    envMapIntensity: pal.napkin.envMapIntensity,
   });
   cloth.name = "presence";
+  // Alpha decals over glazed ceramic: lipstick, dried yolk, the residue ring, contact shadow.
+  const decal = new THREE.MeshStandardMaterial({
+    map: set.map,
+    roughnessMap: set.roughnessMap,
+    normalMap: set.normalMap,
+    normalScale: new THREE.Vector2(0.5, 0.5),
+    roughness: 1,
+    metalness: 0,
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -2,
+    side: THREE.DoubleSide,
+    envMapIntensity: pal.ceramic.envMapIntensity,
+  });
+  decal.name = "presenceDecal";
+  decal.userData.noCast = true;
+  return { cloth, decal };
+}
 
-  const apron = buildApron(statics, pal, cloth);
-  const cardigan = buildCardigan(statics, pal, cloth);
-  const plate = buildPlateAndPaper(statics, pal, cloth);
-  const cup = buildLipstickCup(statics, pal, cloth);
-  return { material: cloth, points: { apron, cardigan, plate, cup } };
+export function buildPresence(statics: MergedBuilder, pal: Palette, mats: PresenceMaterials): PresenceResult {
+  const apron = buildApron(statics, pal, mats.cloth);
+  const plate = buildPlate(statics, pal, mats);
+  const cup = buildLipstickCup(statics, pal, mats);
+  return { material: mats.cloth, materials: mats, points: { apron, plate, cup } };
 }
 
 /* ------------------------------------------------------------------------------------ */
-/* Lofts                                                                                  */
+/* Geometry helpers                                                                       */
 /* ------------------------------------------------------------------------------------ */
 
 /**
  * rows × cols grid surface. `P(t, s, out)` gives the point for t (0 top/start … 1) and
  * s (0 … 1 across); UVs fill `rect` (u along s, v along 1 − t). Indexed, smooth normals.
  */
-function loft(rows: number, cols: number, P: (t: number, s: number, out: THREE.Vector3) => void, rect: UvRect, uvRepeat: [number, number] = [1, 1]): THREE.BufferGeometry {
+export function loft(rows: number, cols: number, P: (t: number, s: number, out: THREE.Vector3) => void, rect: UvRect, uvRepeat: [number, number] = [1, 1]): THREE.BufferGeometry {
   const pos = new Float32Array(rows * cols * 3);
   const uv = new Float32Array(rows * cols * 2);
   const p = new THREE.Vector3();
@@ -100,40 +130,195 @@ function loft(rows: number, cols: number, P: (t: number, s: number, out: THREE.V
 }
 
 /** Triangle wave 0..1..0 with period 2 (so a repeat of 3 gives 1.5 back-and-forth passes). */
-function tri(x: number): number {
-  const f = x % 2;
+export function tri(x: number): number {
+  const f = ((x % 2) + 2) % 2;
   return f <= 1 ? f : 2 - f;
 }
 
-/** Map a geometry's UVs into an atlas region by face orientation: caps (|n·axis| > 0.7) by their plane, sides into `edge`. */
-function uvByNormal(g: THREE.BufferGeometry, axis: THREE.Vector3, cap: UvRect, edge: UvRect, capScale: number | [number, number]): void {
-  const [scaleX, scaleY] = typeof capScale === "number" ? [capScale, capScale] : capScale;
-  const pos = g.attributes.position, nrm = g.attributes.normal;
-  const uv = new Float32Array(pos.count * 2);
-  const n = new THREE.Vector3(), p = new THREE.Vector3();
-  const ex = new THREE.Vector3(), ey = new THREE.Vector3();
-  // A basis in the cap plane.
-  ex.set(1, 0, 0);
-  if (Math.abs(axis.dot(ex)) > 0.9) ex.set(0, 0, 1);
-  ex.sub(axis.clone().multiplyScalar(ex.dot(axis))).normalize();
-  ey.crossVectors(axis, ex);
-  g.computeBoundingBox();
-  const bb = g.boundingBox!;
-  const c = bb.getCenter(new THREE.Vector3());
-  for (let i = 0; i < pos.count; i++) {
-    n.fromBufferAttribute(nrm, i);
-    p.fromBufferAttribute(pos, i).sub(c);
-    if (Math.abs(n.dot(axis)) > 0.7) {
-      const u = 0.5 + (p.dot(ex) / scaleX) * 0.5, v = 0.5 + (p.dot(ey) / scaleY) * 0.5;
-      uv[i * 2] = cap[0] + Math.min(1, Math.max(0, u)) * (cap[2] - cap[0]);
-      uv[i * 2 + 1] = cap[1] + Math.min(1, Math.max(0, v)) * (cap[3] - cap[1]);
-    } else {
-      const u = 0.5 + 0.5 * Math.sin(Math.atan2(p.dot(ey), p.dot(ex)) * 3);
-      uv[i * 2] = edge[0] + u * (edge[2] - edge[0]);
-      uv[i * 2 + 1] = edge[1] + (0.5 + p.dot(axis) * 20) * (edge[3] - edge[1]);
+/**
+ * A flat tape or a bar along a polyline: a closed tube with a rounded-rectangle section,
+ * `halfW(t)` across (along the side vector) and `halfH(t)` thick (along the normal), capped.
+ * `up` seeds the frame (the tape's face normal at t = 0); the frame is transported along the
+ * path so the tape can twist by `twist(t)` radians. UVs: u round the section, v along.
+ */
+export function ribbon(
+  path: THREE.Vector3[],
+  halfW: (t: number) => number,
+  halfH: (t: number) => number,
+  up: THREE.Vector3,
+  rect: UvRect,
+  opts: { twist?: (t: number) => number; ring?: number; uvRepeat?: [number, number]; power?: number } = {},
+): THREE.BufferGeometry {
+  const n = path.length, ring = opts.ring ?? 12, power = opts.power ?? 3;
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  const T = new THREE.Vector3(), S = new THREE.Vector3(), N = new THREE.Vector3(), tmp = new THREE.Vector3();
+  const rep = opts.uvRepeat ?? [1, 1];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const a = path[Math.max(0, i - 1)], b = path[Math.min(n - 1, i + 1)];
+    T.subVectors(b, a).normalize();
+    // Parallel transport: the previous normal (or `up` at the start) projected off the tangent;
+    // the side vector completes a right-handed (S, N, T) frame.
+    if (i === 0) N.copy(up);
+    N.addScaledVector(T, -N.dot(T));
+    if (N.lengthSq() < 1e-8) N.set(0, 1, 0).addScaledVector(T, -T.y);
+    if (N.lengthSq() < 1e-8) N.set(1, 0, 0).addScaledVector(T, -T.x);
+    N.normalize();
+    S.crossVectors(N, T).normalize();
+    const tw = opts.twist ? opts.twist(t) : 0;
+    if (tw !== 0) {
+      const c = Math.cos(tw), s = Math.sin(tw);
+      tmp.copy(S).multiplyScalar(c).addScaledVector(N, s);
+      N.multiplyScalar(c).addScaledVector(S, -s);
+      S.copy(tmp);
+    }
+    const w = halfW(t), h = halfH(t);
+    for (let k = 0; k <= ring; k++) {
+      const ang = (k / ring) * Math.PI * 2;
+      // Superellipse (rounded rectangle) section.
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const ex = Math.sign(ca) * Math.pow(Math.abs(ca), 2 / power), ey = Math.sign(sa) * Math.pow(Math.abs(sa), 2 / power);
+      tmp.copy(path[i]).addScaledVector(S, ex * w).addScaledVector(N, ey * h);
+      pos.push(tmp.x, tmp.y, tmp.z);
+      uv.push(rect[0] + tri((k / ring) * rep[0]) * (rect[2] - rect[0]), rect[1] + tri(t * rep[1]) * (rect[3] - rect[1]));
     }
   }
+  const stride = ring + 1;
+  for (let i = 0; i < n - 1; i++)
+    for (let k = 0; k < ring; k++) {
+      const a = i * stride + k, b = a + 1, c = a + stride, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  // Caps: a centre vertex fanned to the end rings.
+  for (const end of [0, n - 1]) {
+    const ci = pos.length / 3;
+    pos.push(path[end].x, path[end].y, path[end].z);
+    uv.push((rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2);
+    for (let k = 0; k < ring; k++) {
+      const a = end * stride + k, b = a + 1;
+      if (end === 0) idx.push(ci, b, a);
+      else idx.push(ci, a, b);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/** Sample a polyline (Vector3) into `n` points with Catmull-Rom smoothing. */
+export function curve(pts: THREE.Vector3[], n: number, tension = 0.5): THREE.Vector3[] {
+  const c = new THREE.CatmullRomCurve3(pts, false, "catmullrom", tension);
+  return c.getPoints(n - 1);
+}
+
+/** LatheGeometry with the seam normals welded (the duplicated seam column otherwise shades as a crease). */
+export function lathe(points: THREE.Vector2[], segments: number): THREE.LatheGeometry {
+  const g = new THREE.LatheGeometry(points, segments);
+  const nrm = g.attributes.normal as THREE.BufferAttribute;
+  const m = points.length;
+  const a = new THREE.Vector3(), b = new THREE.Vector3();
+  for (let j = 0; j < m; j++) {
+    const i0 = j, i1 = segments * m + j;
+    a.fromBufferAttribute(nrm, i0);
+    b.fromBufferAttribute(nrm, i1);
+    a.add(b).normalize();
+    nrm.setXYZ(i0, a.x, a.y, a.z);
+    nrm.setXYZ(i1, a.x, a.y, a.z);
+  }
+  return g;
+}
+
+/** Map every vertex's UV into `rect` by its (x, z) footprint over `size` metres (for flat things). */
+function uvByPlan(g: THREE.BufferGeometry, rect: UvRect, size: number): void {
+  const pos = g.attributes.position;
+  g.computeBoundingBox();
+  const c = g.boundingBox!.getCenter(new THREE.Vector3());
+  const uv = new Float32Array(pos.count * 2);
+  for (let i = 0; i < pos.count; i++) {
+    const u = clamp01(0.5 + (pos.getX(i) - c.x) / size), v = clamp01(0.5 + (pos.getZ(i) - c.z) / size);
+    uv[i * 2] = rect[0] + u * (rect[2] - rect[0]);
+    uv[i * 2 + 1] = rect[1] + v * (rect[3] - rect[1]);
+  }
   g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+}
+
+/**
+ * An axis-aligned rectangle (corners `a`, `b`, equal along the axis of `normal`) cut into
+ * `size`-metre cells, each cell UV'd to the whole atlas `rect` (a sub-rectangle of an atlas
+ * cannot wrap, so the repeat is in the mesh). Partial last cells get a partial rect. Used for
+ * the kitchen slice's wall and floor tile (Openables.ts).
+ */
+export function tiledRect(a: readonly [number, number, number], b: readonly [number, number, number], normal: THREE.Vector3, size: number, rect: UvRect): THREE.BufferGeometry {
+  const lo = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.min(a[2], b[2])];
+  const hi = [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.max(a[2], b[2])];
+  const n = normal;
+  const iN = Math.abs(n.x) > 0.5 ? 0 : Math.abs(n.y) > 0.5 ? 1 : 2;
+  // u runs along the horizontal in-plane axis (x, else z), v along the other (y for walls, z for floors).
+  const iu = iN === 0 ? 2 : 0;
+  const iv = iN === 1 ? 2 : 1;
+  const wu = hi[iu] - lo[iu], wv = hi[iv] - lo[iv];
+  const nu = Math.max(1, Math.ceil(wu / size - 1e-6)), nv = Math.max(1, Math.ceil(wv / size - 1e-6));
+  const pos: number[] = [], uv: number[] = [], nrm: number[] = [], idx: number[] = [];
+  const rw = rect[2] - rect[0], rh = rect[3] - rect[1];
+  const p = [0, 0, 0];
+  p[iN] = lo[iN];
+  let flip = false;
+  for (let i = 0; i < nu; i++) {
+    const u0 = lo[iu] + i * size, u1 = Math.min(hi[iu], u0 + size);
+    for (let j = 0; j < nv; j++) {
+      const v0 = lo[iv] + j * size, v1 = Math.min(hi[iv], v0 + size);
+      const base = pos.length / 3;
+      for (const [uu, vv] of [[u0, v0], [u1, v0], [u1, v1], [u0, v1]]) {
+        p[iu] = uu;
+        p[iv] = vv;
+        pos.push(p[0], p[1], p[2]);
+        uv.push(rect[0] + ((uu - u0) / size) * rw, rect[1] + ((vv - v0) / size) * rh);
+        nrm.push(n.x, n.y, n.z);
+      }
+      if (i === 0 && j === 0) {
+        // Winding: (v1−v0)×(v2−v0) must point along the normal.
+        const ax = pos[3] - pos[0], ay = pos[4] - pos[1], az = pos[5] - pos[2];
+        const bx = pos[6] - pos[0], by = pos[7] - pos[1], bz = pos[8] - pos[2];
+        const cx = ay * bz - az * by, cy = az * bx - ax * bz, cz = ax * by - ay * bx;
+        flip = cx * n.x + cy * n.y + cz * n.z < 0;
+      }
+      if (flip) idx.push(base, base + 2, base + 1, base, base + 3, base + 2);
+      else idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+
+/**
+ * Map a geometry's existing 0..1 UVs (a PlaneGeometry) into an atlas rect, optionally only a
+ * v-band of it (for a slice of the troffer lens texture).
+ */
+export function uvIntoRect(g: THREE.BufferGeometry, rect: UvRect, vBand: readonly [number, number] = [0, 1]): THREE.BufferGeometry {
+  const uv = g.attributes.uv as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) {
+    const u = uv.getX(i), v = vBand[0] + uv.getY(i) * (vBand[1] - vBand[0]);
+    uv.setXY(i, rect[0] + u * (rect[2] - rect[0]), rect[1] + v * (rect[3] - rect[1]));
+  }
+  return g;
+}
+
+/** Deterministic PRNG (mulberry32). */
+function rng(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(s ^ (s >>> 15), s | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 /* ------------------------------------------------------------------------------------ */
@@ -141,273 +326,347 @@ function uvByNormal(g: THREE.BufferGeometry, axis: THREE.Vector3, cap: UvRect, e
 /* ------------------------------------------------------------------------------------ */
 
 function buildApron(s: MergedBuilder, pal: Palette, cloth: THREE.Material): THREE.Vector3 {
-  // Hook on the wall strip between the pass-through jamb and the brewer, at 1.92 m.
+  // Hook on the wall strip left of the pass-through jamb, clear of the brewer, at 1.92 m.
   const wallZ = ROOM.zBack;
-  const hx = PASS_THROUGH.centerX - PASS_THROUGH.width / 2 - PASS_THROUGH.jamb - 0.08; // ≈ −1.325
+  const hx = PASS_THROUGH.centerX - PASS_THROUGH.width / 2 - PASS_THROUGH.jamb - 0.2; // ≈ −1.445
   const hy = 1.92;
   const R = PRESENCE_UV.cotton;
+  const plain: UvRect = [R[0] + 0.02, R[3] - 0.045, R[0] + 0.46, R[3] - 0.005]; // clean canvas strip (under the band on the skirt)
 
-  // Chrome hook: a rose on the wall and a J-hook standing 40 mm out.
-  const rose = new THREE.CylinderGeometry(0.018, 0.02, 0.006, 20);
-  rose.rotateX(Math.PI / 2);
-  rose.translate(hx, hy, wallZ + 0.003);
-  s.add(rose, pal.chrome);
-  const shank = new THREE.CylinderGeometry(0.005, 0.005, 0.045, 12);
-  shank.rotateX(Math.PI / 2);
-  shank.translate(hx, hy, wallZ + 0.0285);
-  s.add(shank, pal.chrome);
-  const hook = new THREE.TorusGeometry(0.014, 0.005, 10, 20, Math.PI);
-  hook.rotateY(Math.PI / 2);
-  hook.translate(hx, hy + 0.014, wallZ + 0.05);
-  s.add(hook, pal.chrome);
+  /* ---- chrome hook: rose, shank out of the wall, quarter turn up, tip with a ball ---- */
+  {
+    const rose = new THREE.CylinderGeometry(0.018, 0.02, 0.006, 24);
+    rose.rotateX(Math.PI / 2);
+    rose.translate(hx, hy, wallZ + 0.003);
+    s.add(rose, pal.chrome);
+    const shank = new THREE.CylinderGeometry(0.005, 0.005, 0.04, 14);
+    shank.rotateX(Math.PI / 2);
+    shank.translate(hx, hy, wallZ + 0.026);
+    s.add(shank, pal.chrome);
+    const bend = new THREE.TorusGeometry(0.012, 0.005, 10, 16, Math.PI / 2);
+    // Quarter ring in the y–z plane: local (R,0,0) → (0,−R,0) [shank end], local (0,R,0) → (0,0,+R) [tip start].
+    bend.rotateZ(-Math.PI / 2);
+    bend.rotateY(-Math.PI / 2);
+    bend.translate(hx, hy + 0.012, wallZ + 0.046);
+    s.add(bend, pal.chrome);
+    const tip = new THREE.CylinderGeometry(0.005, 0.005, 0.024, 14);
+    tip.translate(hx, hy + 0.024, wallZ + 0.058);
+    s.add(tip, pal.chrome);
+    const ball = new THREE.SphereGeometry(0.0065, 14, 10);
+    ball.translate(hx, hy + 0.037, wallZ + 0.058);
+    s.add(ball, pal.chrome);
+  }
 
-  // Skirt: waistband gathered on the hook, 6 pleats opening toward the hem 0.44 m down. The
-  // cloth falls nearly straight (a hung apron spreads only ~1.7×), heavier on the right
-  // where the pocket is, so the hem is not a symmetric bell.
-  const fall = 0.44, wTop = 0.13, wHem = 0.34;
-  const skirt = (t: number, sx: number, out: THREE.Vector3, lift = 0) => {
-    const w = wTop + (wHem - wTop) * Math.pow(smooth(t), 0.6);
-    const x = hx + (sx - 0.5) * w + 0.035 * t * t - 0.012 * t * Math.sin(sx * Math.PI);
-    // Pleats: six across, deepening with the fall; a finer gather at the band; hem swings out.
-    const amp = 0.03 * Math.pow(t, 0.8);
-    const gather = 0.006 * (1 - t) * Math.sin(sx * Math.PI * 16 + 0.3);
-    const pleat = amp * (0.55 + 0.45 * Math.sin(sx * Math.PI * 6 + 0.4)) + amp * 0.35 * Math.sin(sx * Math.PI * 11 + 1.7) + amp * 0.5 * Math.sin(sx * Math.PI * 2.3 + 0.9);
-    const z = wallZ + 0.055 + gather + pleat + 0.03 * t * t + lift;
-    const y = hy - 0.012 - t * fall + 0.009 * t * Math.sin(sx * Math.PI * 6 + 0.4) - 0.012 * t * Math.sin(sx * Math.PI);
-    out.set(x, y, z);
-  };
-  s.add(loft(28, 49, (t, sx, o) => skirt(t, sx, o), R), cloth);
-  // Waistband: a doubled strip over the top 35 mm, 3 mm proud.
-  s.add(loft(4, 49, (t, sx, o) => skirt(t * 0.08, sx, o, 0.003), R), cloth);
-  // Patch pocket, right of centre, its mouth gaping 10 mm.
-  s.add(
-    loft(10, 14, (t, sx, o) => {
-      const tt = 0.36 + t * 0.36, ss = 0.56 + sx * 0.33;
-      const gape = 0.011 * (1 - t) * Math.sin(sx * Math.PI);
-      skirt(tt, ss, o, 0.004 + gape);
-    }, R),
-    cloth,
-  );
-  // Ties: two 25 mm tapes from the hook, past the hem, with a lazy S.
-  for (const side of [-1, 1]) {
+  /* ---- fabric loop over the shank: a 20 mm tape, legs converging on the band centre ---- */
+  const loopZ = wallZ + 0.04; // rides the shank's outer third
+  const bandTop = hy - 0.058, bandH = 0.028, bandBot = bandTop - bandH;
+  {
+    const pts: THREE.Vector3[] = [];
+    // Up the left leg, over the shank (inner radius 6 mm → tape centre 7 mm), down the right leg.
+    const legB = bandTop + 0.004, legT = hy - 0.001;
+    for (let i = 0; i <= 6; i++) pts.push(V3(hx - 0.011 + 0.004 * (i / 6), legB + (legT - legB) * (i / 6), loopZ + 0.001 * Math.sin(i)));
+    for (let i = 1; i < 8; i++) {
+      const a = Math.PI - (i / 8) * Math.PI;
+      pts.push(V3(hx + 0.007 * Math.cos(a), hy + 0.007 * Math.sin(a), loopZ));
+    }
+    for (let i = 0; i <= 6; i++) pts.push(V3(hx + 0.007 + 0.003 * (i / 6), legT - (legT - legB) * (i / 6), loopZ + 0.0012 * Math.cos(i)));
+    s.add(ribbon(curve(pts, 40, 0.4), () => 0.01, () => 0.0011, V3(0, 0, 1), plain, { ring: 10, uvRepeat: [0.4, 2] }), cloth);
+  }
+
+  /* ---- waistband bunched under the loop: overlapping flat panels with tilted fold edges ---- */
+  // The 0.7 m band cannot hang 0.11 m wide without folding: five panels shingle across the
+  // bunch, each a flat 28 mm strip 2.5 mm thick, tilted a few degrees off vertical, stepping
+  // back in z so the fold edges read as stacked cloth. The skirt's top edge hides under them.
+  const bunchX0 = hx - 0.058, bunchX1 = hx + 0.058;
+  const panels: Array<{ x0: number; x1: number; z: number; tilt: number; bow: number }> = [
+    { x0: bunchX0, x1: bunchX0 + 0.034, z: 0.056, tilt: -0.14, bow: 0.002 },
+    { x0: bunchX0 + 0.026, x1: bunchX0 + 0.058, z: 0.06, tilt: 0.1, bow: 0.003 },
+    { x0: bunchX0 + 0.05, x1: bunchX0 + 0.078, z: 0.0635, tilt: -0.06, bow: 0.0025 },
+    { x0: bunchX0 + 0.07, x1: bunchX0 + 0.098, z: 0.0595, tilt: 0.16, bow: 0.002 },
+    { x0: bunchX0 + 0.09, x1: bunchX1, z: 0.055, tilt: -0.1, bow: 0.0015 },
+  ];
+  for (const p of panels) {
+    const w = p.x1 - p.x0;
     s.add(
-      loft(22, 3, (t, sx, o) => {
-        const x = hx + side * (0.075 + 0.02 * Math.sin(t * Math.PI * 1.4 + side)) + (sx - 0.5) * 0.025;
-        const y = hy + 0.01 - t * 0.6;
-        const z = wallZ + 0.03 + 0.006 * Math.sin(t * Math.PI * 3 + side) + 0.01 * t;
+      loft(5, 9, (t, u, o) => {
+        const y = bandTop - t * bandH;
+        const x = p.x0 + u * w + p.tilt * (0.5 - t) * bandH; // tilted edges
+        const z = wallZ + p.z + p.bow * Math.sin(u * Math.PI) - 0.001 * Math.abs(t - 0.5);
         o.set(x, y, z);
-      }, R, [0.05, 1]),
+      }, plain, [0.35, 0.35]),
       cloth,
     );
+    // The panel's thickness: a rolled top and bottom edge.
+    for (const yy of [bandTop, bandBot]) {
+      const edge: THREE.Vector3[] = [];
+      for (let i = 0; i <= 6; i++) {
+        const u = i / 6;
+        const tt = yy === bandTop ? 0 : 1;
+        edge.push(V3(p.x0 + u * w + p.tilt * (0.5 - tt) * bandH, yy, wallZ + p.z + p.bow * Math.sin(u * Math.PI) - 0.0016));
+      }
+      s.add(ribbon(edge, () => 0.0013, () => 0.0013, V3(0, 0, 1), plain, { ring: 8, uvRepeat: [0.2, 0.3] }), cloth);
+    }
   }
-  return new THREE.Vector3(hx, hy - 0.2, wallZ + 0.06);
+
+  /* ---- skirt: gathered under the band, four heavy folds of unequal width, hem barely wider than the shoulder ---- */
+  const fall = 0.34;
+  const skirtTop = bandBot + 0.006; // tucked 6 mm under the band
+  const folds = [
+    { s: 0.11, w: 0.11, a: 0.03 },
+    { s: 0.37, w: 0.15, a: 0.036 },
+    { s: 0.6, w: 0.09, a: 0.024 },
+    { s: 0.84, w: 0.13, a: 0.032 },
+  ];
+  const gathers = [
+    { f: 9.3, ph: 0.4, a: 0.0045 },
+    { f: 14.1, ph: 2.1, a: 0.0032 },
+    { f: 22.7, ph: 4.4, a: 0.0018 },
+    { f: 6.1, ph: 1.3, a: 0.0028 },
+  ];
+  const halfW = (t: number) => 0.056 + 0.084 * smooth(t / 0.32) + 0.014 * t;
+  // Front-face relief of the skirt (metres out of the wall plane) at (t, u).
+  const relief = (t: number, u: number) => {
+    let z = 0;
+    const open = 0.35 + 0.65 * smooth(t / 0.35), relax = 1 - 0.2 * t;
+    for (const f of folds) z += f.a * open * relax * Math.exp(-Math.pow(Math.abs(u - f.s) / f.w, 1.7));
+    const gDecay = 1 - 0.7 * smooth(t / 0.55);
+    for (const g of gathers) z += g.a * gDecay * Math.sin(u * Math.PI * 2 * g.f + g.ph + 0.9 * Math.sin(t * 5 + g.ph));
+    return z;
+  };
+  const skirt = (t: number, u: number, out: THREE.Vector3, lift = 0) => {
+    const w = halfW(t);
+    // Folds also bunch the cloth sideways: shift x toward each fold's crest a little.
+    let dx = 0;
+    for (const f of folds) dx += 0.25 * f.a * (0.4 + 0.6 * t) * Math.tanh((u - f.s) / f.w) * Math.exp(-Math.pow(Math.abs(u - f.s) / (2 * f.w), 2));
+    const x = hx + (u - 0.5) * 2 * w + 0.006 * t * t - dx;
+    const z = wallZ + 0.03 + relief(t, u) + 0.018 * smooth(t / 0.5) + lift;
+    // Hem dips a few millimetres where the folds hang heavier.
+    const dip = 0.006 * t * (0.5 * Math.sin(u * Math.PI * 2.7 + 0.6) + 0.5 * Math.sin(u * Math.PI * 5.3 + 2.2));
+    const y = skirtTop - t * fall - dip;
+    return out.set(x, y, z);
+  };
+  s.add(loft(40, 72, (t, u, o) => skirt(t, u, o), R), cloth);
+  // Hem: a rolled 5 × 3 mm edge along the bottom; the side selvedges 3 × 2 mm.
+  {
+    const hem: THREE.Vector3[] = [];
+    for (let i = 0; i <= 40; i++) hem.push(skirt(1, i / 40, new THREE.Vector3(), 0));
+    s.add(ribbon(hem, () => 0.0026, () => 0.0016, V3(0, 1, 0), plain, { ring: 8, uvRepeat: [0.4, 4] }), cloth);
+    for (const u of [0, 1]) {
+      const side: THREE.Vector3[] = [];
+      for (let i = 0; i <= 24; i++) side.push(skirt(0.02 + 0.98 * (i / 24), u, new THREE.Vector3(), 0));
+      s.add(ribbon(side, () => 0.0015, () => 0.0011, V3(1, 0, 0), plain, { ring: 8, uvRepeat: [0.3, 3] }), cloth);
+    }
+  }
+  /* ---- patch pocket, right of centre: face proud 4 mm, mouth gaping, top hem doubled, sides closed ---- */
+  {
+    const P = { t0: 0.44, t1: 0.8, s0: 0.55, s1: 0.9 }; // must match the atlas POCKET footprint
+    const face = (t: number, u: number, o: THREE.Vector3) => {
+      const tt = P.t0 + t * (P.t1 - P.t0), uu = P.s0 + u * (P.s1 - P.s0);
+      const gape = 0.011 * (1 - smooth(t / 0.8)) * Math.sin(u * Math.PI);
+      const sag = 0.004 * (1 - t) * Math.sin(u * Math.PI); // the top edge droops at its middle
+      skirt(tt + sag / fall, uu, o, 0.004 + gape);
+    };
+    s.add(loft(12, 14, face, PRESENCE_UV.pocket), cloth);
+    // Side + bottom closure: a strip from the skirt to the pocket face.
+    const edgeLoop = (q: number, o: THREE.Vector3, lift: number) => {
+      // q 0..1 runs down the left side, along the bottom, up the right side.
+      let t: number, u: number;
+      if (q < 0.33) {
+        t = q / 0.33;
+        u = 0;
+      } else if (q < 0.67) {
+        t = 1;
+        u = (q - 0.33) / 0.34;
+      } else {
+        t = 1 - (q - 0.67) / 0.33;
+        u = 1;
+      }
+      const tt = P.t0 + t * (P.t1 - P.t0), uu = P.s0 + u * (P.s1 - P.s0);
+      skirt(tt, uu, o, lift);
+    };
+    s.add(loft(2, 40, (k, q, o) => edgeLoop(q, o, k * 0.004), plain, [3, 0.1]), cloth);
+    // Top hem: doubled cloth, 2.5 mm thick, 18 mm tall, following the gaping mouth.
+    const mouth: THREE.Vector3[] = [];
+    for (let i = 0; i <= 14; i++) {
+      const o = new THREE.Vector3();
+      face(0, i / 14, o);
+      mouth.push(o);
+    }
+    s.add(ribbon(mouth, () => 0.009, () => 0.0014, V3(0, 0, 1), plain, { ring: 8, uvRepeat: [0.3, 1.5] }), cloth);
+  }
+  /* ---- ties: 25 mm tapes. Right one hangs past the hem with a lazy twist; left one is tucked back into the band ---- */
+  {
+    const pts: THREE.Vector3[] = [];
+    const x0 = bunchX1 - 0.02, y0 = bandBot + 0.01;
+    const yEnd = skirtTop - fall - 0.09;
+    for (let i = 0; i <= 10; i++) {
+      const q = i / 10;
+      const y = y0 + (yEnd - y0) * q;
+      const t = clamp01((skirtTop - y) / fall);
+      const u = clamp01(0.5 + 0.045 / (2 * halfW(t))); // skirt u under the tie
+      const front = t <= 1 && y > skirtTop - fall ? relief(t, u) + 0.018 * smooth(t / 0.5) + 0.03 : 0.05;
+      pts.push(V3(x0 + 0.012 * Math.sin(q * Math.PI * 1.3 + 0.4) + 0.01 * q, y, wallZ + front + 0.0035 + 0.004 * Math.sin(q * Math.PI * 2.1)));
+    }
+    s.add(ribbon(curve(pts, 36, 0.5), () => 0.0125, () => 0.0009, V3(0, 0, 1), plain, { ring: 10, twist: (t) => 0.6 * Math.sin(t * Math.PI * 1.4), uvRepeat: [0.5, 6] }), cloth);
+    // Tucked tie: out of the band's left end, a 7 cm hairpin back into the band's bottom edge.
+    const tuck: THREE.Vector3[] = [
+      V3(bunchX0 + 0.01, bandBot + 0.012, wallZ + 0.0575),
+      V3(bunchX0 - 0.004, bandBot - 0.02, wallZ + 0.062),
+      V3(bunchX0 - 0.002, bandBot - 0.052, wallZ + 0.066),
+      V3(bunchX0 + 0.016, bandBot - 0.06, wallZ + 0.067),
+      V3(bunchX0 + 0.03, bandBot - 0.036, wallZ + 0.0665),
+      V3(bunchX0 + 0.034, bandBot - 0.004, wallZ + 0.063),
+    ];
+    s.add(ribbon(curve(tuck, 30, 0.5), () => 0.0125, () => 0.0009, V3(0, 0, 1), plain, { ring: 10, twist: (t) => 0.5 * Math.sin(t * Math.PI), uvRepeat: [0.5, 3] }), cloth);
+  }
+  return new THREE.Vector3(hx, hy - 0.22, wallZ + 0.06);
 }
 
 /* ------------------------------------------------------------------------------------ */
-/* Cardigan                                                                               */
+/* Booth 2: plate, fork, crumbs, yolk film                                                 */
 /* ------------------------------------------------------------------------------------ */
 
-function buildCardigan(s: MergedBuilder, pal: Palette, cloth: THREE.Material): THREE.Vector3 {
-  const cx = STOOL.centersX[4], cz = STOOL.z;
-  const top = STOOL.seatHeight;
-  const seatR = STOOL.seatDiameter / 2;
-  const R = PRESENCE_UV.knit;
-
-  // A folded-over bundle on the cushion: low (a cardigan is 2–3 cm of knit), its outline
-  // pushed out where the body is doubled and pulled in at the armholes, a collar roll
-  // running across it, and the edge rolling over the cushion's welt.
-  const outline = (a: number) => 1 + 0.1 * Math.sin(2 * a + 1.0) + 0.05 * Math.sin(5 * a + 0.4) - 0.06 * Math.max(0, Math.cos(a - 2.6));
-  s.add(
-    loft(12, 48, (t, sa, o) => {
-      const a = sa * Math.PI * 2;
-      const rMax = (seatR + 0.015) * outline(a);
-      const r = t * rMax;
-      const over = smooth((t - 0.86) / 0.14); // 0 on the cushion, 1 past the edge
-      const q = r / (seatR * outline(a));
-      const dome = 0.012 * (1 - q * q) + 0.02;
-      // Collar roll: a ridge across the top, diagonal, 2 cm high, softened.
-      const d = Math.abs((r * Math.cos(a - 0.5)) - 0.03);
-      const roll = 0.018 * Math.exp(-(d * d) / (2 * 0.035 * 0.035)) * (1 - over);
-      const wrinkle = 0.004 * Math.sin(a * 5 + r * 60) + 0.003 * Math.sin(a * 9 - r * 30);
-      const y = top + dome + roll + wrinkle - over * 0.05;
-      o.set(cx + r * Math.cos(a) * (1 + 0.06 * over), y, cz + r * Math.sin(a) * (1 + 0.06 * over));
-    }, R, [2, 1]),
-    cloth,
-  );
-  // Flap: the front falls over the +z / +x quadrant (seen from the aisle), buttons down its middle.
-  const a0 = -0.15, a1 = 1.85;
-  const flapR = (t: number, a: number) => (seatR + 0.015) * outline(a) + 0.012 * t + 0.02 * Math.pow(t, 0.8) * Math.sin(a * 7 + t * 2.5) + 0.006 * t * Math.sin(a * 13);
-  const flapY = (t: number, a: number) => top - 0.015 - t * 0.26 + 0.01 * t * Math.sin(a * 7 + t * 2.5);
-  s.add(
-    loft(16, 30, (t, sa, o) => {
-      const a = a0 + sa * (a1 - a0);
-      const r = flapR(t, a);
-      o.set(cx + r * Math.cos(a), flapY(t, a), cz + r * Math.sin(a));
-    }, R, [1.5, 1]),
-    cloth,
-  );
-  for (let i = 0; i < 3; i++) {
-    const a = (a0 + a1) / 2 - 0.15;
-    const t = 0.25 + i * 0.25;
-    const r = flapR(t, a) + 0.003;
-    const btn = new THREE.CylinderGeometry(0.007, 0.007, 0.0025, 14);
-    btn.rotateZ(Math.PI / 2);
-    btn.rotateY(-a);
-    btn.translate(cx + r * Math.cos(a), flapY(t, a), cz + r * Math.sin(a));
-    s.add(btn, pal.ceramic);
-  }
-  // Sleeve: a tube from the +x edge (beside the flap) to just above the footring, the cuff flared.
-  const sa0 = -0.75;
-  const sx0 = cx + (seatR + 0.005) * Math.cos(sa0), sz0 = cz + (seatR + 0.005) * Math.sin(sa0);
-  s.add(
-    loft(18, 18, (t, sa, o) => {
-      const a = sa * Math.PI * 2;
-      const cxT = sx0 + 0.04 * Math.sin(t * Math.PI * 0.9) + 0.02 * t;
-      const czT = sz0 - 0.04 * Math.sin(t * Math.PI) - 0.02 * t;
-      const cyT = top - 0.01 - t * 0.36;
-      const cuff = smooth((t - 0.85) / 0.15);
-      const rad = 0.047 - 0.012 * t + 0.008 * cuff + 0.003 * Math.sin(a * 3 + t * 9);
-      const squash = 1 - 0.25 * (1 - t); // flattened where it leaves the seat
-      o.set(cxT + rad * Math.cos(a), cyT + 0.004 * Math.sin(a * 2 + t * 6), czT + rad * squash * Math.sin(a));
-    }, R, [1.5, 2]),
-    cloth,
-  );
-  return new THREE.Vector3(cx, top + 0.05, cz);
-}
-
-/* ------------------------------------------------------------------------------------ */
-/* Booth 2: plate, fork, crust, yolk, crumbs, newspaper                                    */
-/* ------------------------------------------------------------------------------------ */
-
-function buildPlateAndPaper(s: MergedBuilder, pal: Palette, cloth: THREE.Material): THREE.Vector3 {
+function buildPlate(s: MergedBuilder, pal: Palette, mats: PresenceMaterials): THREE.Vector3 {
   const bx = WINDOW.centersX[2];
   const tableTop = BOOTH.table.top;
-  const px = bx - 0.14, pz = BOOTH.zInner + 0.4; // the −x bench's place, nearest the aisle (across from the sit pose)
-  // Plate: 250 mm, shallow well, rolled rim.
-  const plate = new THREE.LatheGeometry(
-    [V2(0, 0.004), V2(0.07, 0.004), V2(0.078, 0.001), V2(0.084, 0), V2(0.09, 0.002), V2(0.1, 0.012), V2(0.12, 0.02), V2(0.126, 0.021), V2(0.125, 0.0225), V2(0.118, 0.0215), V2(0.098, 0.0135), V2(0.084, 0.007), V2(0.075, 0.0065), V2(0, 0.0065)],
-    56,
+  const px = bx - 0.14, pz = BOOTH.zInner + 0.4; // the −x bench's place, nearest the aisle
+  // Plate: Ø 237 mm diner china — foot ring, shallow well, 30 mm rim rising to a rolled bead.
+  const wellY = 0.0068;
+  const plate = lathe(
+    [
+      V2(0, 0.003), V2(0.058, 0.003), V2(0.058, 0), V2(0.067, 0), V2(0.067, 0.0035), V2(0.076, 0.0055), V2(0.086, 0.011), V2(0.096, 0.016), V2(0.108, 0.0195), V2(0.115, 0.0225),
+      V2(0.1178, 0.0246), V2(0.1185, 0.0262), V2(0.1176, 0.0276), V2(0.1158, 0.0272), V2(0.1148, 0.0255), V2(0.108, 0.0228), V2(0.097, 0.0196), V2(0.089, 0.0155), V2(0.082, 0.0105), V2(0.074, 0.0078), V2(0.062, wellY), V2(0, wellY),
+    ],
+    72,
   );
   plate.translate(px, tableTop, pz);
   s.add(plate, pal.ceramic);
 
-  // Toast crust: the last quarter of a slice, bitten, standing on its crust edge against the rim.
+  // Fork: stainless, across the plate — tines in the well, handle over the rim, end overhanging.
   {
-    const shape = new THREE.Shape();
-    const ro = 0.052, ri = 0.03;
-    shape.absarc(0, 0, ro, 0.1, 1.85, false);
-    shape.absarc(0, 0, ri, 1.85, 0.1, true);
-    shape.closePath();
-    const crust = new THREE.ExtrudeGeometry(shape, { depth: 0.012, bevelEnabled: true, bevelThickness: 0.002, bevelSize: 0.002, bevelSegments: 2, curveSegments: 18 });
-    uvByNormal(crust, new THREE.Vector3(0, 0, 1), PRESENCE_UV.toast, [PRESENCE_UV.toast[0], PRESENCE_UV.toast[1], PRESENCE_UV.toast[2], PRESENCE_UV.toast[1] + 0.04], 0.06);
-    crust.rotateX(-Math.PI / 2); // lying flat, top up
-    crust.rotateY(0.6);
-    crust.rotateZ(0.12); // propped on the rim
-    crust.translate(px - 0.035, tableTop + 0.008, pz - 0.02);
-    s.add(crust, cloth);
-  }
-  // Dried yolk smear: an irregular blob 0.5 mm over the well, with a drag toward the crust.
-  {
-    const blob = new THREE.Shape();
-    const n = 18;
-    for (let i = 0; i <= n; i++) {
-      const a = (i / n) * Math.PI * 2;
-      const r = 0.028 * (1 + 0.28 * Math.sin(a * 3 + 0.5) + 0.14 * Math.sin(a * 5 + 2) + 0.35 * Math.max(0, Math.cos(a - 0.9)));
-      const x = r * Math.cos(a), y = r * Math.sin(a) * 0.8;
-      if (i === 0) blob.moveTo(x, y);
-      else blob.lineTo(x, y);
-    }
-    const g = new THREE.ShapeGeometry(blob, 12);
-    uvByNormal(g, new THREE.Vector3(0, 0, 1), PRESENCE_UV.yolk, PRESENCE_UV.yolk, 0.04);
-    g.rotateX(-Math.PI / 2);
-    g.translate(px + 0.025, tableTop + 0.0072, pz + 0.012);
-    s.add(g, cloth);
-  }
-  // Fork across the rim, tines on the plate, handle on the table.
-  {
-    const handle = new THREE.BoxGeometry(0.1, 0.003, 0.018);
-    handle.translate(0.05, 0, 0);
-    const neck = new THREE.BoxGeometry(0.03, 0.0025, 0.012);
-    neck.translate(-0.015, 0.001, 0);
-    const head = new THREE.BoxGeometry(0.012, 0.0022, 0.024);
-    head.translate(-0.036, 0.0015, 0);
-    const parts = [handle, neck, head];
-    for (let i = 0; i < 4; i++) {
-      const tine = new THREE.BoxGeometry(0.048, 0.0018, 0.0028);
-      tine.translate(-0.066, 0.0015, -0.0105 + i * 0.007);
-      parts.push(tine);
-    }
-    for (const g of parts) {
-      g.rotateZ(THREE.MathUtils.degToRad(6)); // handle up on the rim
-      g.rotateY(-0.7);
-      g.translate(px + 0.075, tableTop + 0.011, pz + 0.075);
+    const L = 0.185;
+    // Tines rest on the well floor; the handle's underside meets the rim bead ~3.3 cm from its
+    // end (rise 2 cm over 15 cm → 7.5°) and overhangs 2.5 cm.
+    const yaw = -0.85, pitch = THREE.MathUtils.degToRad(7.5);
+    const M = new THREE.Matrix4().makeRotationY(yaw).multiply(new THREE.Matrix4().makeRotationZ(pitch));
+    const tips = V3(px - 0.012, tableTop + wellY + 0.0025, pz - 0.035);
+    M.setPosition(tips);
+    const place = (g: THREE.BufferGeometry) => {
+      g.applyMatrix4(M);
       s.add(g, pal.stainless);
+    };
+    // Handle + neck + head as one bar (x from the head, 0.045, to the end, L): width waisted, bowed up in the middle.
+    const spine: THREE.Vector3[] = [];
+    for (let i = 0; i <= 16; i++) {
+      const q = i / 16, x = 0.045 + q * (L - 0.045);
+      spine.push(V3(x, 0.0035 * Math.sin(q * Math.PI) - 0.002 * (1 - q) * (1 - q), 0));
+    }
+    place(
+      ribbon(
+        spine,
+        (t) => 0.006 + 0.0055 * smooth((t - 0.15) / 0.6) - 0.0025 * Math.exp(-Math.pow((t - 0.12) / 0.1, 2)),
+        (t) => 0.0016 + 0.0004 * t,
+        V3(0, 1, 0),
+        PRESENCE_UV.crumb,
+        { ring: 12, power: 2.4 },
+      ),
+    );
+    // Head: flares from the neck to the tine root.
+    const head: THREE.Vector3[] = [];
+    for (let i = 0; i <= 6; i++) head.push(V3(0.03 + (i / 6) * 0.017, -0.0012 + 0.0008 * (i / 6), 0));
+    place(ribbon(head, (t) => 0.0115 - 0.0045 * t, () => 0.0015, V3(0, 1, 0), PRESENCE_UV.crumb, { ring: 12, power: 2.4 }));
+    // Four tines: tapering, curving up a little at the tips.
+    for (let k = 0; k < 4; k++) {
+      const z = -0.0105 + k * 0.007;
+      const tine: THREE.Vector3[] = [];
+      for (let i = 0; i <= 8; i++) {
+        const q = i / 8; // 0 tip … 1 root
+        tine.push(V3(0.031 * q, -0.0012 + 0.0022 * (1 - q) * (1 - q), z * (0.92 + 0.08 * q)));
+      }
+      place(ribbon(tine, (t) => 0.0009 + 0.0007 * t, (t) => 0.0007 + 0.0005 * t, V3(0, 1, 0), PRESENCE_UV.crumb, { ring: 10, power: 2.2 }));
     }
   }
-  // Crumbs: toast-textured specks on the plate and two on the table.
+
+  // Dried yolk film: a thin feathered smear with the tine drag through it, 0.3 mm over the well.
   {
-    const spots: Array<[number, number, number]> = [[px + 0.01, tableTop + 0.0065, pz - 0.045], [px + 0.05, tableTop + 0.0065, pz - 0.03], [px - 0.06, tableTop + 0.0065, pz + 0.04], [px + 0.16, tableTop, pz + 0.02], [px + 0.2, tableTop, pz - 0.06], [px - 0.01, tableTop + 0.0065, pz + 0.05]];
-    spots.forEach(([x, y, z], i) => {
-      const g = new THREE.BoxGeometry(0.004 + 0.002 * (i % 3), 0.002, 0.003 + 0.002 * ((i + 1) % 3));
-      uvByNormal(g, new THREE.Vector3(0, 1, 0), PRESENCE_UV.toast, PRESENCE_UV.toast, 0.01);
-      g.rotateY(i * 1.1);
-      g.translate(x, y + 0.001, z);
-      s.add(g, cloth);
-    });
+    const g = new THREE.CircleGeometry(0.026, 40);
+    g.rotateX(-Math.PI / 2);
+    g.rotateY(0.7);
+    g.scale(1.15, 1, 0.9);
+    uvByPlan(g, PRESENCE_UV.yolkFilm, 0.05);
+    g.translate(px + 0.018, tableTop + wellY + 0.0003, pz + 0.014);
+    s.add(g, mats.decal);
   }
-  // Newspaper: a tabloid folded in half, three thicknesses, dropped at a slight angle.
+
+  // Crumbs: eleven irregular flakes, random yaw and a slight cant, on the well and the table.
   {
-    const nx = bx - 0.1, nz = BOOTH.zInner + 0.8;
-    const yaw = THREE.MathUtils.degToRad(-14);
-    const page = PRESENCE_UV.newsprint;
-    const edge: UvRect = [page[0], page[1] + 0.01, page[0] + 0.012, page[1] + 0.02]; // blank paper margin
-    const layers: Array<[number, number, number, number]> = [
-      [0.3, 0.2, 0.008, 0],
-      [0.298, 0.196, 0.006, 0.008],
-      [0.296, 0.192, 0.005, 0.014],
+    const r = rng(4242);
+    const spots: Array<[number, number, number]> = [
+      [px + 0.01, wellY, pz - 0.048], [px + 0.052, wellY, pz - 0.02], [px - 0.055, wellY, pz + 0.03], [px - 0.03, wellY, pz - 0.015], [px + 0.04, wellY, pz + 0.045],
+      [px - 0.012, wellY, pz + 0.052], [px + 0.06, wellY, pz + 0.018], [px + 0.02, wellY, pz + 0.033],
+      [px + 0.165, 0, pz + 0.03], [px + 0.2, 0, pz - 0.055], [px - 0.16, 0, pz + 0.08],
     ];
-    layers.forEach(([w, d, h, y0], i) => {
-      const g = new THREE.BoxGeometry(w, h, d);
-      // The front page fills the region: u along the 300 mm, v along the 200 mm (masthead at −z).
-      uvByNormal(g, new THREE.Vector3(0, 1, 0), page, edge, [w / 2, d / 2]);
-      g.translate(0.003 * i, y0 + h / 2, -0.004 * i);
-      g.rotateY(yaw + 0.02 * i);
-      g.translate(nx, tableTop, nz);
-      s.add(g, cloth);
+    spots.forEach(([x, y, z], i) => {
+      const n = 5 + Math.floor(r() * 3);
+      const shape = new THREE.Shape();
+      const rad = 0.0016 + 0.0016 * r();
+      for (let k = 0; k <= n; k++) {
+        const a = (k / n) * Math.PI * 2;
+        const rr = rad * (0.6 + 0.8 * r()) * (1 + 0.3 * Math.cos(a * 2 + i));
+        const X = rr * Math.cos(a) * (1.3 + 0.4 * r()), Y = rr * Math.sin(a);
+        if (k === 0) shape.moveTo(X, Y);
+        else shape.lineTo(X, Y);
+      }
+      const g = new THREE.ExtrudeGeometry(shape, { depth: 0.0008 + 0.0008 * r(), bevelEnabled: false });
+      g.rotateX(-Math.PI / 2);
+      uvByPlan(g, PRESENCE_UV.crumb, 0.008);
+      g.rotateZ((r() - 0.5) * 0.5); // cant
+      g.rotateY(r() * Math.PI * 2);
+      g.translate(x, tableTop + y + 0.0002, z);
+      s.add(g, mats.cloth);
     });
-    // The fold: a half-round along the −x long edge, the paper's own thickness.
-    const fold = new THREE.CylinderGeometry(0.0095, 0.0095, 0.2, 12, 1, false, 0, Math.PI);
-    fold.rotateX(Math.PI / 2);
-    fold.rotateY(Math.PI / 2);
-    uvByNormal(fold, new THREE.Vector3(1, 0, 0), edge, edge, 0.1);
-    fold.translate(-0.15, 0.0095, 0);
-    fold.rotateY(yaw);
-    fold.translate(nx, tableTop, nz);
-    s.add(fold, cloth);
   }
-  return new THREE.Vector3(px - 0.05, tableTop + 0.02, pz + 0.05);
+  return new THREE.Vector3(px - 0.02, tableTop + 0.02, pz + 0.02);
 }
 
 /* ------------------------------------------------------------------------------------ */
 /* Lipstick cup                                                                           */
 /* ------------------------------------------------------------------------------------ */
 
-function buildLipstickCup(s: MergedBuilder, pal: Palette, cloth: THREE.Material): THREE.Vector3 {
+/** Saucer well floor height (the cup's foot sits here). */
+export const SAUCER_WELL = 0.0055;
+/**
+ * Diner saucer profile (r, y): foot ring, a centre well the cup foot sits in (a small ridge at
+ * its edge), flaring to a rolled rim. Shared with the cabinet's saucer stack (Openables.ts).
+ */
+export const SAUCER_PROFILE = [
+  V2(0, 0.003), V2(0.035, 0.003), V2(0.035, 0), V2(0.042, 0), V2(0.042, 0.0035), V2(0.046, 0.005), V2(0.056, 0.0075), V2(0.07, 0.0135), V2(0.0785, 0.0195), V2(0.0793, 0.0215), V2(0.0785, 0.0228),
+  V2(0.077, 0.0222), V2(0.07, 0.0175), V2(0.056, 0.0108), V2(0.046, 0.0087), V2(0.041, 0.0095), V2(0.0375, 0.0095), V2(0.0355, 0.0068), V2(0.033, SAUCER_WELL), V2(0, SAUCER_WELL),
+];
+
+/** Cup body profile (r, y), outside up the wall, over the rim, down inside to the floor. */
+const CUP_PROFILE = [
+  V2(0, 0.003), V2(0.031, 0.003), V2(0.036, 0.006), V2(0.04, 0.014), V2(0.041, 0.024), V2(0.0395, 0.038), V2(0.0385, 0.05), V2(0.039, 0.062), V2(0.0405, 0.074), V2(0.041, 0.082),
+  V2(0.0405, 0.0875), V2(0.0385, 0.089), V2(0.0355, 0.089), V2(0.034, 0.0875), V2(0.0335, 0.084), V2(0.0325, 0.072), V2(0.0315, 0.05), V2(0.032, 0.03), V2(0.03, 0.016), V2(0.026, 0.013), V2(0, 0.013),
+];
+
+function buildLipstickCup(s: MergedBuilder, pal: Palette, mats: PresenceMaterials): THREE.Vector3 {
   const x = STOOL.centersX[2], z = PROPS.saucerZ, y = COUNTER.height;
-  const saucer = new THREE.LatheGeometry(
-    [V2(0, 0.003), V2(0.03, 0.003), V2(0.033, 0), V2(0.045, 0), V2(0.05, 0.005), V2(0.072, 0.014), V2(0.078, 0.018), V2(0.074, 0.019), V2(0.052, 0.011), V2(0.042, 0.008), V2(0, 0.008)],
-    40,
-  );
+  // Saucer: foot ring, a centre well the cup foot sits in (a small ridge at its edge), flaring to a rolled rim.
+  const wellFloor = SAUCER_WELL;
+  const saucer = lathe(SAUCER_PROFILE, 56);
   saucer.translate(x, y, z);
   s.add(saucer, pal.ceramic);
-  const my = y + 0.009;
-  const body = new THREE.LatheGeometry(
-    [
-      V2(0, 0.003), V2(0.031, 0.003), V2(0.036, 0.006), V2(0.04, 0.014), V2(0.041, 0.024), V2(0.0395, 0.038), V2(0.0385, 0.05), V2(0.039, 0.062), V2(0.0405, 0.074), V2(0.041, 0.082),
-      V2(0.0405, 0.0875), V2(0.0385, 0.089), V2(0.0355, 0.089), V2(0.034, 0.0875), V2(0.0335, 0.084), V2(0.0325, 0.072), V2(0.0315, 0.05), V2(0.032, 0.03), V2(0.03, 0.016), V2(0.026, 0.013), V2(0, 0.013),
-    ],
-    48,
-  );
+  const my = y + wellFloor;
+  // Contact shadow in the well, under and just outside the cup's foot.
+  {
+    const g = new THREE.CircleGeometry(0.0345, 36);
+    g.rotateX(-Math.PI / 2);
+    uvByPlan(g, PRESENCE_UV.contactAO, 0.069);
+    g.translate(x, my + 0.00015, z);
+    s.add(g, mats.decal);
+  }
+  const body = lathe(CUP_PROFILE, 56);
   const handle = new THREE.TorusGeometry(0.019, 0.0075, 12, 28, 1.2 * Math.PI);
   handle.rotateZ(-0.6 * Math.PI);
   handle.scale(1, 1.25, 1);
@@ -419,28 +678,71 @@ function buildLipstickCup(s: MergedBuilder, pal: Palette, cloth: THREE.Material)
     s.add(g, pal.ceramic);
   }
   // Foot ring in the cup's own ceramic (the mugs' bisque ring lives on the InstancedMesh — no bucket to join).
-  const foot = new THREE.LatheGeometry([V2(0.024, 0.0002), V2(0.026, 0), V2(0.031, 0), V2(0.0315, 0.003), V2(0.0235, 0.003), V2(0.024, 0.0002)], 40);
+  const foot = lathe([V2(0.024, 0.0002), V2(0.026, 0), V2(0.031, 0), V2(0.0315, 0.003), V2(0.0235, 0.003), V2(0.024, 0.0002)], 40);
   foot.translate(x, my, z);
   s.add(foot, pal.ceramic);
-  // Two centimetres of coffee left, gone still.
-  const coffee = new THREE.CircleGeometry(0.0318, 40);
+  // A dreg: 4 mm of cold coffee on the floor of the cup.
+  const dregY = 0.013 + 0.004;
+  const coffee = new THREE.CircleGeometry(innerR(dregY) - 0.0002, 40);
   coffee.rotateX(-Math.PI / 2);
-  coffee.translate(x, my + 0.033, z);
+  coffee.translate(x, my + dregY, z);
   s.add(coffee, pal.coffee);
-  // Lipstick: a crescent on the rim opposite the handle, on the outer lip, 1.8 mm thick.
-  const mark = new THREE.TorusGeometry(0.0378, 0.0024, 6, 18, 0.7);
-  mark.scale(1, 0.5, 1); // flattened onto the rim
-  mark.rotateX(-Math.PI / 2);
-  mark.rotateY(yaw + Math.PI - 0.27);
-  mark.translate(x, my + 0.0885, z);
-  // Sampled from the atlas's flat lipstick strip, so the mark rides in the presence bucket.
-  const lu = (PRESENCE_UV.lipstick[0] + PRESENCE_UV.lipstick[2]) / 2, lv = (PRESENCE_UV.lipstick[1] + PRESENCE_UV.lipstick[3]) / 2;
-  const muv = new Float32Array(mark.attributes.position.count * 2);
-  for (let i = 0; i < muv.length; i += 2) {
-    muv[i] = lu;
-    muv[i + 1] = lv;
+  // Residue ring: the tide the coffee left as it went down, on the inside wall above the dreg.
+  s.add(
+    loft(6, 49, (t, u, o) => {
+      const yy = dregY + 0.014 - t * 0.014; // t 0 top … 1 at the surface
+      const rr = innerR(yy) - 0.00025;
+      const a = u * Math.PI * 2;
+      o.set(x + rr * Math.cos(a), my + yy, z + rr * Math.sin(a));
+    }, PRESENCE_UV.residue, [2, 1]),
+    mats.decal,
+  );
+  // Lipstick: an upper-lip print on the outer face of the rim opposite the handle, its top
+  // lapping 1 mm over the lip. A patch that follows the rim profile (arc length along the
+  // outside-up-over-inside polyline), 0.25 mm proud, UV'd to the 24 mm print tile.
+  {
+    const prof = [V2(0.041, 0.066), V2(0.041, 0.082), V2(0.0405, 0.0875), V2(0.0385, 0.089), V2(0.0355, 0.089), V2(0.034, 0.0875), V2(0.0335, 0.084)];
+    const cum = [0];
+    for (let i = 1; i < prof.length; i++) cum.push(cum[i - 1] + prof[i].distanceTo(prof[i - 1]));
+    const total = cum[cum.length - 1];
+    // The print's top (tile v ≈ 0.64) lands 1 mm over the rim top: arc position of (0.0375, 0.089) minus 0.64 × 24 mm.
+    const topArc = cum[3] + 0.001;
+    const arc0 = topArc - 0.64 * 0.024;
+    const sample = (arc: number, out: { r: number; y: number; nr: number; ny: number }) => {
+      const a = Math.min(total - 1e-6, Math.max(0, arc));
+      let i = 1;
+      while (i < cum.length - 1 && cum[i] < a) i++;
+      const f = (a - cum[i - 1]) / (cum[i] - cum[i - 1]);
+      const p0 = prof[i - 1], p1 = prof[i];
+      out.r = p0.x + (p1.x - p0.x) * f;
+      out.y = p0.y + (p1.y - p0.y) * f;
+      // Outward normal of the polyline (rotate the tangent −90°: outside is +r going up).
+      const tx = p1.x - p0.x, ty = p1.y - p0.y, len = Math.hypot(tx, ty);
+      out.nr = ty / len;
+      out.ny = -tx / len;
+    };
+    const smp = { r: 0, y: 0, nr: 0, ny: 0 };
+    const centreA = yaw + Math.PI - 0.27;
+    const span = 0.024 / 0.0405; // 24 mm of arc at the rim radius
+    const g = loft(16, 14, (t, u, o) => {
+      sample(arc0 + (1 - t) * 0.024, smp);
+      const rr = smp.r + 0.00025 * smp.nr, yy = smp.y + 0.00025 * smp.ny;
+      const a = centreA + (u - 0.5) * span;
+      o.set(x + rr * Math.cos(a), my + yy, z + rr * Math.sin(a));
+    }, PRESENCE_UV.lipstick);
+    s.add(g, mats.decal);
   }
-  mark.setAttribute("uv", new THREE.BufferAttribute(muv, 2));
-  s.add(mark, cloth);
   return new THREE.Vector3(x, my + 0.05, z);
+}
+
+/** Inner wall radius of the cup at height `yy` (from the profile's inside leg). */
+function innerR(yy: number): number {
+  const inner = [V2(0.026, 0.013), V2(0.03, 0.016), V2(0.032, 0.03), V2(0.0315, 0.05), V2(0.0325, 0.072), V2(0.0335, 0.084), V2(0.034, 0.0875)];
+  for (let i = 1; i < inner.length; i++) {
+    if (yy <= inner[i].y) {
+      const f = (yy - inner[i - 1].y) / (inner[i].y - inner[i - 1].y);
+      return inner[i - 1].x + (inner[i].x - inner[i - 1].x) * f;
+    }
+  }
+  return inner[inner.length - 1].x;
 }
