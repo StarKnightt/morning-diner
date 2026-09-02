@@ -21,7 +21,6 @@ import { assertSceneGpu, launchOptions, readLaunchRenderer, isSoftwareRenderer }
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const WIDTH = 1920;
 const HEIGHT = 1080;
-const PORT = 5210;
 const READY_TIMEOUT_MS = 90_000;
 const SETTLE_MS = 600;
 
@@ -30,6 +29,8 @@ const arg = (name, fallback) => {
   const hit = argv.find((a) => a.startsWith(`--${name}=`));
   return hit ? hit.slice(name.length + 3) : fallback;
 };
+/** `--port=` lets parallel worktrees shoot at the same time without fighting over 5210. */
+const PORT = Number(arg("port", 5210));
 const TAG = arg("tag", "sys1");
 const QUERY = arg("query", "");
 const ONLY = arg("poses", "").split(",").filter(Boolean);
@@ -71,6 +72,13 @@ const POSES = {
   "lot-wide": { x: -1.35, z: 0.9, yaw: 180, pitch: -2 },
   // Second booth's table where the slat stripes land.
   stripes: { x: -3.35, y: 1.3, z: 1.85, yaw: 158, pitch: -32 },
+  // System 7 — interactions. These call window.__interactPose(name) (src/interactions/debug.ts),
+  // which resets every interaction, seeks the named one to a fixed time, freezes the animation
+  // clocks and places the camera itself (the seated pose IS the camera).
+  "sit-seated": { interact: "sit-seated" },
+  "pour-mid": { interact: "pour-mid" },
+  "pour-full": { interact: "pour-full" },
+  "door-open": { interact: "door-open" },
 };
 const NAMES = ONLY.length ? Object.keys(POSES).filter((p) => ONLY.includes(p)) : Object.keys(POSES);
 
@@ -180,7 +188,16 @@ async function main() {
   for (const name of NAMES) {
     const pose = POSES[name];
     const t0 = Date.now();
-    await page.evaluate((p) => window.__setPose(p), pose);
+    await page.evaluate((p) => {
+      // Interactions back to rest before every frame so an open door or a full mug never leaks into the next pose.
+      window.__interact?.("reset");
+      if (p.interact) {
+        if (!window.__interactPose) throw new Error(`pose needs window.__interactPose (System 7) for "${p.interact}"`);
+        window.__interactPose(p.interact);
+      } else {
+        window.__setPose(p);
+      }
+    }, pose);
     await page.waitForTimeout(SETTLE_MS);
     // A few extra frames so shadows and any lazily compiled program have drawn.
     await page.evaluate(

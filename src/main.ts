@@ -7,6 +7,7 @@
  */
 import * as THREE from "three";
 import { gpuRendererString, installCaptureApi, markSceneReady } from "./capture/pose";
+import { initInteractions } from "./interactions";
 import { FirstPerson } from "./player/FirstPerson";
 import { Diner } from "./scene/Diner";
 
@@ -35,6 +36,8 @@ const camera = new THREE.PerspectiveCamera(37, window.innerWidth / window.innerH
 const diner = new Diner(scene, renderer);
 const player = new FirstPerson(camera, renderer.domElement, diner.colliders);
 installCaptureApi(renderer, scene, camera, player);
+// System 7 (sit / pour / door) + System 6 audio wiring. `interactions.startAudio()` is the gesture hook.
+const interactions = initInteractions({ renderer, scene, camera, player, diner });
 
 window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -62,6 +65,7 @@ renderer.setAnimationLoop((now: number) => {
 
   player.update(dt);
   diner.update(dt);
+  interactions.update(dt);
   renderer.render(scene, camera);
 
   frames++;
