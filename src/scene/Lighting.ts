@@ -73,6 +73,8 @@ export const L_SAT_NITS = 1.2 * Math.pow(2, EV100);
  * (≈ 170 nits) −2.7 EV, the vinyl seat in shade (≈ 140) −2.9 EV.
  */
 export const EXPOSURE = 1 / (L_SAT_NITS * K);
+/** Scene luminance that lands on middle grey (0.18 of L_sat). */
+export const GREY_NITS = 0.18 * L_SAT_NITS;
 /** Tone curve. AgX keeps the clipped red channel of sunlit vinyl red (ACES pulls it to orange). */
 export const TONE_MAPPING: THREE.ToneMapping = THREE.AgXToneMapping;
 /** PCSS needs raw depths, so the maps are plain depth textures (`installPcss` supplies the filter). */

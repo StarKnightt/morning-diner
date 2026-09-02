@@ -10,8 +10,9 @@
  *   window.__stats()                { calls, triangles, renderer }
  *   window.__perf()                 boot timeline: [{ name, ms, dt }] plus texture-worker stats
  */
-import type * as THREE from "three";
+import * as THREE from "three";
 import type { FirstPerson } from "../player/FirstPerson";
+import { GREY_NITS, K } from "../scene/Lighting";
 
 export interface Pose {
   x: number;
@@ -36,6 +37,10 @@ declare global {
     __stats?: () => { calls: number; triangles: number; renderer: string };
     __perf?: () => PerfReport;
     __APP?: { renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera };
+    /** The bundled three module, for in-page HDR probes (a Float render target + readback). */
+    __THREE?: typeof THREE;
+    /** Photometric scale of the scene (System 4): scene units per nit and the nits of middle grey. */
+    __lighting?: { K: number; greyNits: number };
   }
 }
 
@@ -64,6 +69,8 @@ export function installCaptureApi(
   perf: () => PerfReport,
 ): void {
   window.__APP = { renderer, scene, camera };
+  window.__THREE = THREE;
+  window.__lighting = { K, greyNits: GREY_NITS };
   window.__setPose = (p: Pose) => player.setPose(p.x, p.y, p.z, p.yaw, p.pitch);
   window.__stats = () => ({
     calls: renderer.info.render.calls,
