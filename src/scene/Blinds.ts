@@ -230,14 +230,18 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
     // One creased slat per blind (bent by a hand or a mop handle 15–25 cm from one end): the
     // part past the crease twists 14–25° and its tip droops 8–15 mm — a visible discontinuity.
     // Plus one slat that lost its ladder tension and sags 6–10 mm between ladders.
+    // Both sit 66–94 % down the drop (y ≈ 1.05–1.5 m on a 2.53 → 0.92 blind) — random heights,
+    // but always in the band a seated (1.15 m) or standing (1.65 m) eye sees through the glass;
+    // rev 3 put them anywhere and the `window` pose (bottom 25 slats) never caught one.
     const kinks = new Map<number, SlatShape["kink"]>();
-    const kinkK = 2 + Math.floor(rng() * Math.max(1, hanging - 4));
+    const bandK = () => Math.min(hanging - 2, Math.max(2, Math.floor(hanging * (0.66 + rng() * 0.28))));
+    const kinkK = bandK();
     {
       const side = rng() < 0.5 ? -1 : 1;
       kinks.set(kinkK, { x: side * (0.38 + rng() * 0.1), dTilt: THREE.MathUtils.degToRad((rng() < 0.5 ? -1 : 1) * (14 + rng() * 11)), drop: 0.008 + rng() * 0.007 });
     }
-    let sagK = 2 + Math.floor(rng() * Math.max(1, hanging - 4));
-    if (sagK === kinkK) sagK = kinkK + 3 < hanging ? kinkK + 3 : Math.max(0, kinkK - 3);
+    let sagK = bandK();
+    if (Math.abs(sagK - kinkK) < 3) sagK = kinkK + 4 < hanging - 1 ? kinkK + 4 : Math.max(2, kinkK - 4);
     const bigSag = 0.006 + rng() * 0.004;
     const out = { pos: [] as number[], nor: [] as number[], uv: [] as number[], col: [] as number[] };
     const slatAt = (k: number): { y: number; tilt: number } => {

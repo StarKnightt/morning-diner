@@ -592,7 +592,10 @@ function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats:
     const taper = Math.min(1, Math.min(z, L - z) / 0.6);
     const hwB = hw - 0.04 * (1 - taper);
     const yLo = lowAt(z);
-    const st: Station = { z, yLo, yBelt: Math.max(beltY, yLo + 0.05), yTop, hwSill: hwB - 0.035, hwBelt: hwB, hwTop: Math.min(hwTop, hwB - 0.012), rTop, crease: creaseZ.has(z) || e.k !== 1 || !!e.groove };
+    // Belt ring never above the top ring: over the hood/deck (lower than the belt line) it becomes
+    // the fender shoulder 3 cm under the panel edge, otherwise the ring folds outward over the
+    // hood and its underside shows as a 4–9 cm black lip along the far hood edge.
+    const st: Station = { z, yLo, yBelt: Math.min(yTop - 0.03, Math.max(beltY, yLo + 0.05)), yTop, hwSill: hwB - 0.035, hwBelt: hwB, hwTop: Math.min(hwTop, hwB - 0.012), rTop, crease: creaseZ.has(z) || e.k !== 1 || !!e.groove };
     if (e.groove) { st.inset = insetFor(e.groove, st); st.insetPaint = e.groove.span === "bed"; }
     return st;
   });
@@ -1366,7 +1369,7 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
   // Tyre tracks in the dirt behind the wall: a dirt approach from the road to the entrance gap
   // (two wheel ruts 1.9 m apart) and two stray single tracks — darker compacted dirt strips.
   {
-    const trackMat = skyFill(new THREE.MeshStandardMaterial({ map: dirtTex, color: 0x8c8578, roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }), 0.22);
+    const trackMat = skyFill(new THREE.MeshStandardMaterial({ map: dirtTex, color: 0xa99f8f, roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }), 0.22);
     trackMat.userData.noCast = true;
     const rut = (pts: Array<[number, number]>, w: number) => {
       const pos: number[] = [], nor: number[] = [], uv: number[] = [], idx: number[] = [];
@@ -1379,7 +1382,9 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
         pos.push(x - tz * w / 2, yLot - 0.036, z + tx * w / 2, x + tz * w / 2, yLot - 0.036, z - tx * w / 2);
         nor.push(0, 1, 0, 0, 1, 0);
         uv.push(x / 7, z / 7, (x + tz * w) / 7, (z - tx * w) / 7);
-        if (i < pts.length - 1) { const p = i * 2; idx.push(p, p + 1, p + 2, p + 1, p + 3, p + 2); }
+        // Wound (p, p+2, p+1) so the strip faces +y whichever way the path runs — the rev 3
+        // winding faced down and every track was back-face culled (invisible in all frames).
+        if (i < pts.length - 1) { const p = i * 2; idx.push(p, p + 2, p + 1, p + 1, p + 2, p + 3); }
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
@@ -1399,7 +1404,8 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
       return out;
     };
     const gapX = -2.5; // centre of the wall opening (−6 … 1)
-    for (const dx of [-0.95, 0.95]) rut(path(gapX + dx + 1.2, ROAD.z - ROAD.halfW - 1.4, gapX + dx, LOT.wallZ + 0.6, 1.2, 3 + dx), 0.32);
+    // Same wander seed for both ruts of the pair: one vehicle, two wheels 1.9 m apart, parallel.
+    for (const dx of [-0.95, 0.95]) rut(path(gapX + dx + 1.2, ROAD.z - ROAD.halfW - 1.4, gapX + dx, LOT.wallZ + 0.6, 0.7, 3), 0.32);
     rut(path(14, ROAD.z - ROAD.halfW - 1.0, 30, LOT.wallZ + 3, 4, 11), 0.3);
     rut(path(-22, LOT.wallZ + 2.5, -9, ROAD.z - ROAD.halfW - 1.2, 3, 17), 0.3);
   }

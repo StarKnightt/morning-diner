@@ -86,8 +86,8 @@ const POSES = {
   // Macro: 1.2 m from the sedan's front-left wheel; the stop bar in front of the sedan with its nose overhang.
   "dbg-wheel": { x: 2.2, y: 0.8, z: 6.95, yaw: 290, pitch: -34 },
   "dbg-wheelstop": { x: 1.7, y: 0.75, z: 5.2, yaw: 248, pitch: -24 },
-  // Standing on the lot: CMU wall, scrub edge, road, ranges.
-  "dbg-wall-road": { x: -1.35, y: 1.87, z: 6.5, yaw: 180, pitch: -1 },
+  // Standing on the lot in the empty stall between the two cars: CMU wall, scrub edge, road, ranges.
+  "dbg-wall-road": { x: 1.35, y: 1.87, z: 6.5, yaw: 180, pitch: -1 },
   // System 7 — interactions. These call window.__interactPose(name) (src/interactions/debug.ts),
   // which resets every interaction, seeks the named one to a fixed time, freezes the animation
   // clocks and places the camera itself (the seated pose IS the camera).
