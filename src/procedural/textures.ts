@@ -229,7 +229,7 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
       const lenM = kind < 0.15 ? 0.1 + rng() * 0.18 : 0.02 + rng() * 0.08; // a few long skids
       const ang = rng() * Math.PI * 2;
       const bend = kind < 0.4 ? (rng() - 0.5) * 0.3 : (rng() - 0.5) * 2.4; // straight drags vs hooks
-      const wMm = 5 + rng() * rng() * 20; // 5–25 mm, mostly narrow
+      const wMm = 10 + rng() * rng() * 32; // 10–42 mm, mostly narrow (a sole edge is ~12 mm)
       const weight = 0.35 + rng() * 0.65;
       const seed2 = rng() * 10;
       // March along the quadratic with a step of ~1 texel; the core density and the width
@@ -255,10 +255,15 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
             if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
             const dd = Math.hypot(xx - qx, yy - qy) / (widthPx / 2 + 0.5);
             if (dd > 1) continue;
-            // dense core, feathered edge: (1 − d²)^1.5, with a fine grain so it is not a tube
-            const prof = (1 - dd * dd) ** 1.5 * (0.7 + 0.6 * smearN(xx / w * 40, yy / h * 40));
+            // dense core, feathered edge: (1 − d²)^1.5, streaked ALONG the drag (the noise is
+            // sampled in the mark's own frame, stretched 8:1 along it) so it is neither a tube
+            // nor a ladder of cross-stripes. MAX, not sum: successive steps overlap the same
+            // texels and a sum saturates every core to black (rev 3 first pass).
+            const perp = ((xx - qx) * -(eyp - py) + (yy - qy) * (exp_ - px)) / (lenPx || 1);
+            const streak = smearN(t * lenPx * 0.02 + seed2 * 3, perp * 0.16 + seed2);
+            const prof = (1 - dd * dd) ** 1.5 * (0.5 + 1.0 * streak);
             const i = yy * w + xx;
-            T[i] = Math.min(1, T[i] + dens * prof * 0.5);
+            T[i] = Math.max(T[i], Math.min(1, dens * prof));
           }
       }
     }
@@ -293,16 +298,16 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
         // 0.5), blacks abrade to a grey haze. Mop residue near the walls: a dust film that
         // reads lighter on the blacks.
         r += lane * 0.32 - shelter * 0.08;
-        greyMix = lane * (black ? 0.34 : 0.5);
+        greyMix = lane * (black ? 0.4 : 0.62);
         k *= 1 + dust * 0.03 * (black ? 2 : 1);
       }
       if (greyMix > 0) {
-        const gr = 138, gg = 134, gb = 128;
+        const gr = 130, gg = 126, gb = 120;
         d[o] = d[o] * (1 - greyMix) + gr * greyMix; d[o + 1] = d[o + 1] * (1 - greyMix) + gg * greyMix; d[o + 2] = d[o + 2] * (1 - greyMix) + gb * greyMix;
       }
-      // Rubber transfer multiplies (see T above): × 0.25 at full density.
+      // Rubber transfer multiplies (see T above): × 0.42 at full density (a smear, not paint).
       const t = T[i];
-      k *= 1 - 0.75 * t;
+      k *= 1 - 0.58 * t;
       r += t * 0.3;
       d[o] = Math.min(255, d[o] * k); d[o + 1] = Math.min(255, d[o + 1] * k); d[o + 2] = Math.min(255, d[o + 2] * k);
       rough[i] = r;
@@ -329,13 +334,25 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
     const toPx = (wx: number, wz: number): [number, number] => [(wx - wear.originX) / mPerPx, (wz - wear.originZ) / mPerPx];
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    for (const seg of floorCrackSegments(wear)) {
+    floorCrackSegments(wear).forEach((seg, si) => {
       const path = seg.map(([x, z]) => toPx(x, z));
-      ctx.strokeStyle = "rgba(40,34,28,0.18)";
-      ctx.lineWidth = 2.4;
-      ctx.beginPath();
-      path.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)));
-      ctx.stroke();
+      // The proud lip (Shell.ts alternates the side per segment) has a pale worn edge — the wax
+      // scuffed white where feet catch it — and the low side sits in its shadow: a light stroke
+      // offset one texel to the proud side, a dark one to the other, then the grime in the gap.
+      const side = si % 2 === 0 ? -1 : 1;
+      const offs = (o: number) => path.map(([px, py], i) => {
+        const [ax, ay] = path[Math.max(0, i - 1)], [bx, by] = path[Math.min(path.length - 1, i + 1)];
+        const l = Math.hypot(bx - ax, by - ay) || 1;
+        return [px + (-(by - ay) / l) * o * side, py + ((bx - ax) / l) * o * side] as [number, number];
+      });
+      const stroke = (pts: [number, number][], style: string, wdt: number) => {
+        ctx.strokeStyle = style; ctx.lineWidth = wdt; ctx.beginPath();
+        pts.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)));
+        ctx.stroke();
+      };
+      stroke(offs(1.0), "rgba(235,228,215,0.26)", 1.1);
+      stroke(offs(-1.0), "rgba(30,26,22,0.3)", 1.4);
+      stroke(path, "rgba(40,34,28,0.32)", 0.9);
       for (let k = 0; k + 1 < path.length; k++) {
         const [ax, ay] = path[k], [bx, by] = path[k + 1];
         const x0 = Math.max(0, Math.floor(Math.min(ax, bx)) - 2), x1 = Math.min(w - 1, Math.ceil(Math.max(ax, bx)) + 2);
@@ -348,7 +365,7 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
           if (m > 0) { const i = y * w + x; rough[i] = Math.max(rough[i], rough[i] + (0.62 - rough[i]) * m); }
         }
       }
-    }
+    });
   }
   return { map: finish(c, true, anisotropy), roughnessMap: greyFromField(rough, w, h, anisotropy), normalMap: floorGrout(1024, wear?.seed ?? 1234) };
 }

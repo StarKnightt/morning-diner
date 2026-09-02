@@ -77,8 +77,8 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     g1.translate((dx0 + dx1) / 2, 0, (zFront + dz1) / 2);
     const uv1 = g1.attributes.uv as THREE.BufferAttribute, p1 = g1.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < p1.count; i++) uv1.setXY(i, (p1.getX(i) + halfX) / w, (zFront - p1.getZ(i)) / d);
-    // The crack's lips (rev 3): the slab moved and one side of the VCT sits 0.5–0.9 mm proud of
-    // the other, so each side of the dark floor is a 5–7 mm ramp — a lit edge and a shadow edge
+    // The crack's lips (rev 3): the slab moved and one side of the VCT sits 0.9–2.2 mm proud of
+    // the other, so each side of the dark floor is a 4.5 mm ramp — a lit edge and a shadow edge
     // under the sun — merged into the floor mesh (same material, same UVs; +0 draw calls).
     const wear = dinerFloorWear();
     const segs = floorCrackSegments(wear);
@@ -86,9 +86,10 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     const floorUv = (x: number, z: number): [number, number] => [(x + halfX) / w, (zFront - z) / d];
     segs.forEach((seg, si) => {
       if (seg.length < 2) return;
-      const lipW = 0.006;
-      // which side stands proud flips between segments (the slab tilts either way)
-      const hiL = si % 2 === 0 ? 0.0009 : 0.0005, hiR = si % 2 === 0 ? 0.0005 : 0.0009;
+      const lipW = 0.0045;
+      // which side stands proud flips between segments (the slab tilts either way); the floor
+      // map's pale/dark edge strokes (textures.ts) follow the same parity.
+      const hiL = si % 2 === 0 ? 0.0022 : 0.0009, hiR = si % 2 === 0 ? 0.0009 : 0.0022;
       for (const side of [-1, 1]) {
         const pos: number[] = [], nrm: number[] = [], uv: number[] = [], idx: number[] = [];
         const hi = side < 0 ? hiL : hiR;
@@ -98,7 +99,8 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
           const dx = nx - px, dz = nz - pz, l = Math.hypot(dx, dz) || 1;
           const ox = (-dz / l) * side, oz = (dx / l) * side; // unit perpendicular, this side
           const taper = Math.min(1, i / 2, (seg.length - 1 - i) / 2);
-          const h = 0.0003 + (hi - 0.0003) * taper;
+          // wider gap → the tile moved more → the lip stands higher
+          const h = 0.0003 + (hi - 0.0003) * taper * (0.6 + 0.4 * Math.min(1, hw / 0.0014));
           // inner edge (at the dark floor) high, outer edge down on the tile
           pos.push(x + ox * hw, h, z + oz * hw, x + ox * (hw + lipW), 0.0003, z + oz * (lipW + hw));
           const slope = (h - 0.0003) / lipW;
