@@ -101,7 +101,7 @@ export class Diner {
     this.sunLot = lights.sunLot;
     // Interior casters stay out of the lot sun's shadow map: the cone occluder already
     // blacks the whole building out of that light, and this saves ~120 depth draws/frame.
-    installShadowMasks(renderer, this.group, lights);
+    installShadowMasks(renderer, this.group, lights, [this.palette.concrete]);
 
     // Background and fog in the sky's physical scale (Lighting.ts): the horizon colour.
     scene.background = lights.horizon.clone();
@@ -226,6 +226,13 @@ export class Diner {
         const roomSpec = probe(-2.3, 1.3, -0.2);
         const sunIntensity = this.sun.intensity;
         this.sun.intensity = 0;
+        // Rev 3: the lit lenses are not in the dielectrics' probe either. Their direct light is
+        // the six troffer spots (Lighting.ts); a lens seen by the probe is that same light a
+        // second time as ambient (rev 2 critics: "troffer lenses are in it — double counted").
+        // Metals (roomSpec) and the counter laminate keep the lit lens for their reflections.
+        const lens = this.palette.fixtureLens;
+        const lensEmissive = lens.emissiveIntensity;
+        lens.emissiveIntensity = 0;
         // Room probe: over the counter's front edge at 1.3 m. It is the far-field ambient of
         // the whole interior (walls, ceiling, floor, chrome, stools), so it must NOT sit over
         // the aisle sun patches — from there (rev 1: (-2.3, 0.8, 0.95)) the bounce off the
@@ -235,6 +242,7 @@ export class Diner {
         // bounce spots (Lighting.ts), which fall off with distance as it should, and the sky
         // through the windows is in this probe (it sees all five).
         const room = probe(-2.3, 1.3, -0.2);
+        lens.emissiveIntensity = lensEmissive;
         this.sun.intensity = sunIntensity;
         if (pass === 0) await hooks.probes(1);
         // Prop probe: taken 0.5 m in front of the brewer at 1.1 m, so the back-counter
@@ -268,6 +276,11 @@ export class Diner {
         // the metals, props and exterior, which carry their own probes.
         scene.environmentIntensity = ROOM_PROBE_INTENSITY;
         assign(metalMats, roomSpec.texture);
+        // Counter laminate: a semi-gloss sheet under six lit lenses shows their pools (rev 3
+        // critics), so it takes the metals' probe (lit lenses, sun stripes) at the dielectrics'
+        // near-field intensity — its own envMapIntensity applies because the map is its own.
+        for (const m of [this.palette.formicaCounter, this.palette.formicaCounterWorn]) m.envMapIntensity = ROOM_PROBE_INTENSITY;
+        assign([this.palette.formicaCounter, this.palette.formicaCounterWorn], roomSpec.texture);
         assign(propMats, prop.texture);
         assign(exteriorMats, lot.texture);
       }

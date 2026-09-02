@@ -193,67 +193,74 @@ const SUN_LUX = 90_000;
 const SPOT_DIST = 150;
 
 /**
- * 4100 K cool-white fluorescent in a D65 pipeline ≈ (255, 224, 190), plus the 546 nm
- * mercury line: +6 % G, +4 % B → a tint that reads slightly green-cyan beside the 5,400 K
- * sun (rev 1's +4 % G was invisible next to the warmer lens albedo). Exported for the lens
- * emissive (materials.ts), so lamp and lens share one colour.
+ * Rev 3: cool-white fluorescent as a daylight-balanced camera records it — the 546 nm
+ * mercury line dominates a halophosphate lamp's spectrum, so the lens photographs pale
+ * green-cyan (R < G, B < G) beside the 5,400 K sun; both critics asked for exactly that
+ * after rev 2's warm (255, 237, 198) tint read as "cream". sRGB (236, 255, 238). Exported
+ * for the lens emissive (materials.ts), so lamp and lens share one colour.
  */
-export const FLUORESCENT = new THREE.Color().setRGB(255 / 255, Math.min(1, (224 / 255) * 1.06), Math.min(1, (190 / 255) * 1.04), THREE.SRGBColorSpace);
+export const FLUORESCENT = new THREE.Color().setRGB(236 / 255, 255 / 255, 238 / 255, THREE.SRGBColorSpace);
 /**
  * Luminaire output of a four-lamp F32T8 2×4: 4 × 2,850 lm initial lamp lumens = 11,400,
  * × 0.68 luminaire efficiency through a K12 lens × 0.88 ballast factor × 0.85 lamp
- * depreciation ≈ 5,800 lm maintained; set at 7,500 (a cleaner, younger install).
- * Six fixtures (layout.ts CEILING.troffers) → 45,000 lm over the 68 m² room = 660 lux if
- * every lumen reached the floor; with a room cavity utilisation of ≈ 0.6 (light walls,
- * dark floor, 2.9 m ceiling) the working plane sits at ≈ 400 lux, the "300–500 lux from
- * the troffers" of the brief. A white surface under that is 0.8 × 400 / π ≈ 100 nits:
- * 3.4 stops under middle grey (GREY_NITS) at this exposure.
+ * depreciation ≈ 5,800 lm maintained; rev 2 set 7,500. Rev 3: 10,500 — new lamps behind a
+ * clean lens (the brief's 10–12 klm), because under the rev 3 fills a white mug directly
+ * under a fixture must read brighter than a cream wall in window shade, as it does in the
+ * Reitz frame: 10,500 lm / π over 2 m² ≈ 840 lux straight under the lens, 0.85 × 840 / π ≈
+ * 230 nits on white crockery, against ≈ 250 nits of shaded wall. Six fixtures (layout.ts
+ * CEILING.troffers) → 63,000 lm over the 68 m² room, ≈ 550 lux on the working plane with a
+ * room cavity utilisation of ≈ 0.6.
  */
-export const TROFFER_LUMENS = 7_500;
+export const TROFFER_LUMENS = 10_500;
 /** Lens: 1.11 × 0.51 m opening (two 0.6 m cells less the door frame). */
 export const TROFFER_LENS_AREA = (CEILING.tile * 2 - 0.09) * (CEILING.tile - 0.09);
 /**
  * Mean lens luminance of a Lambertian emitter of TROFFER_LUMENS over TROFFER_LENS_AREA:
- * Φ / (π A) ≈ 4,200 nits (+2.0 EV over grey; the tube images in the emissive map peak at
- * ≈ 1.5× → 6,300 nits, +2.5 EV: "near clip" under the camera curve, not clipped).
+ * Φ / (π A) ≈ 5,900 nits (+1.8 EV over grey); the two tube-pair images in the emissive map
+ * peak at ≈ 1.8× → 10,600 nits, past the camera curve's white (9,560): the bars clip, the
+ * field between them holds the green-cyan tint — a lit troffer in a daylight exposure.
  */
 export const TROFFER_LENS_NITS = TROFFER_LUMENS / (Math.PI * TROFFER_LENS_AREA);
 /**
- * Sky dome: the shader's horizon is authored at display scale (SKY_HORIZON_RGB); the scale
- * puts the horizon band at 10,000 nits (zenith 0.29× → 2,900). `scaleSky` adds the
- * circumsolar brightening on top (×2 at the sun, ×1.4 at 35° from it).
+ * Sky dome, in nits (rev 3; `scaleSky` replaces the dome shader's colour model). Luminance
+ * is linear in sin(elevation) from SKY_HORIZON_NITS to SKY_ZENITH_RATIO × that, times a
+ * circumsolar aureole (0.5 c⁴ + 0.6 c³² + 1.5 c⁴⁰⁰, c = cos of the angle to the sun: ×1.5
+ * within 20° of the sun, ×3 at its rim); chroma runs from SKY_HORIZON_CHROMA to
+ * SKY_ZENITH_CHROMA (unit luminance each), whitened inside the aureole and in a 2° dust
+ * band on the horizon line.
  *
  * The number that matters is the hemisphere's cosine-weighted integral — the diffuse
- * skylight on the lot — not the horizon: it sets the lit/shadow ratio of every outdoor
- * surface, E_sun,h / E_sky = 51.6 klux / E_sky. Integrated numerically over the shader
- * (harness skyE.mjs: gradient, forward-scatter and haze-band mixes, glow, boost):
- *   rev 2 round 9  12,000 horizon · zenith 0.48× · pow(h, 1.6) · boost 1.5  →  39 klux,
- *                  asphalt lit 4,300 / shade 1,700 nits = 2.5:1 (1.3 EV), flat, and the
- *                  sunlit sand at 11,600 nits (36 % of an exterior frame clipped);
- *   this          10,000 horizon · zenith 0.29× · linear gradient · boost 1.0  →  23 klux,
- *                  3.2:1 (1.7 EV); sand ≈ 9,500, at L_sat.
- * A turbid summer morning measures 15–25 klux diffuse with the sun at 35° (CIE types
- * 8–10: horizon 10–12 k cd/m², zenith 3–5 k, circumsolar 20 k+), so the earlier comment's
- * "hemisphere average ≈ 8,000 nits" was wrong by 1.7× — the horizon value held to 30° by
- * pow(h, 1.6) and the ×2.5 boost were most of the excess. The band the windows see (5–25°,
- * away from the sun) is now 8–9 k nits, ≈ 7–7.7 k through the glass: sRGB ≈ 225, a pale
- * blue distinct from the clipped sunlit wall, while the circumsolar quarter still clips.
+ * skylight — not the horizon: it sets the lit/shadow ratio of every outdoor surface,
+ * E_sun,h / E_sky = 51.6 klux / E_sky, and it is most of what lights the shaded room.
+ * Integrated numerically over the shader (this model, sun at 35°):
+ *   rev 2  10,000 horizon · zenith 0.29× · linear · boost 1.0          →  23 klux, 3.2:1 (1.7 EV);
+ *   rev 3   6,500 horizon · zenith 0.50× · linear · aureole as above   →  15.3 klux, 4.4:1
+ *          (2.1 EV) on open ground; ≈ 3 EV under a car, which also hides half the sky.
+ * A clear-to-hazy summer morning with the sun at 35° measures 12–18 klux diffuse (CIE
+ * types 11–13: horizon 5–8 k cd/m², zenith 3–4 k). Rev 2's 23 klux (and its 3.4:1
+ * horizon/zenith) was still the turbid end; both critics measured every lot shadow 1 EV
+ * too shallow and every sky sample achromatic — the latter because 8–12 k nits sat on the
+ * camera curve's shoulder, where the channels converge. At 6,500 the band the windows see
+ * (5–25°, away from the sun) is ≈ 6,000 nits, 5,200 through the glass: +1.6 EV, blue
+ * channel at +2.2 — sRGB ≈ (165, 200, 240), the critics' (150, 185, 235) — while the
+ * aureole quarter still clips.
  */
-const SKY_HORIZON_NITS = 10_000;
+const SKY_HORIZON_NITS = 4_500;
+const SKY_ZENITH_RATIO = 0.5;
 /**
- * Sky dome colours (display-scale, luminance ≈ 0.85 at the horizon; `scaleSky` sets them on
- * the shader and normalises by the horizon's luminance). Rev 1 kept System 3's near-white
- * horizon (0.90, 0.915, 0.93) and the sky read grey-green through the tinted glass; a
- * clear desert morning at 5–25° elevation — what the windows see — is a pale but
- * unmistakable blue, deepening to the zenith (ratio ≈ 0.29 → ≈ 2,900 nits, a turbid summer
- * zenith). The shader's
- * own forward-scatter and haze-band terms whiten it toward the sun's azimuth and at the
- * horizon line, so the circumsolar quarter still goes white (with `scaleSky`'s ×2.5 boost).
+ * Chroma at unit luminance. Horizon (0.42, 0.66, 1.0) / Y, B/R 2.4; zenith (0.28, 0.50, 1.0)
+ * / Y, B/R 3.6; blended in √h so the 5–25° band the windows see sits near B/R 3. That is
+ * what the critics' target sRGB (150, 185, 235) means once inverted through the camera
+ * curve: B at +2.0 EV over grey, R at +0.25 — a scene ratio of 3.4, not the 1.6 of a
+ * "pale blue" (0.6, 0.76, 1.0) which the per-channel shoulder then squeezed to
+ * (205, 225, 245). Rev 2's authored horizon (0.78, 0.86, 0.97) read R ≈ G ≈ B outright.
  */
-const SKY_HORIZON_RGB = new THREE.Color(0.78, 0.86, 0.97);
-const SKY_ZENITH_RGB = new THREE.Color(0.15, 0.25, 0.48);
+const SKY_HORIZON_CHROMA = new THREE.Color(0.36, 0.6, 1.0);
+const SKY_ZENITH_CHROMA = new THREE.Color(0.24, 0.47, 1.0);
 export const luminance = (c: THREE.Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
-const SKY_SCALE = nits(SKY_HORIZON_NITS) / luminance(SKY_HORIZON_RGB);
+SKY_HORIZON_CHROMA.multiplyScalar(1 / luminance(SKY_HORIZON_CHROMA));
+SKY_ZENITH_CHROMA.multiplyScalar(1 / luminance(SKY_ZENITH_CHROMA));
+const SKY_SCALE = nits(SKY_HORIZON_NITS);
 /**
  * Sun inside the room, on the horizontal, averaged over the slat duty cycle: 90 klux ×
  * 0.88 glass × sin 35° × 0.5 (half-open 1" slats pass ~50 % of the beam) ≈ 22,700 lux on
@@ -273,17 +280,26 @@ const PATCH_LUX_X = SUN_LUX * 0.88 * 0.504 * 0.5;
  * Reflected flux per channel = Σ E × A × ρ:
  *   floor 22.7k × 1.75 × (0.47, 0.45, 0.42) = (18.7k, 17.9k, 16.7k)
  *   table 22.7k × 0.30 × (0.90, 0.85, 0.75) = ( 6.1k,  5.8k,  5.1k)
- *   vinyl 20.0k × 0.80 × (0.40, 0.01, 0.007)= ( 6.4k,  0.16k, 0.11k)
+ *   vinyl 20.0k × 0.80 × (0.40, 0.01, 0.007)= ( 6.4k,  0.16k, 0.11k)  → VINYL_FLUX (rev 3)
  *   total ≈ (31k, 24k, 22k) lm-equivalent; the red vinyl is 20 % of the red channel,
  * which is the colour bleed (a warm pink, not the sun's white-yellow) that reaches the
  * ceiling, the table underside and the wall behind the far bench. One upward Lambertian
- * spot per booth, Φ/π cd, at the flux-weighted centroid of those three surfaces.
+ * spot per booth, Φ/π cd, at the flux-weighted centroid of the floor and table terms.
+ *
+ * Rev 3 splits the vinyl term out (VINYL_FLUX): folded into the aisle spot it was one fifth
+ * of a room-wide warm tint and the critics measured no red shift at all on the wall beside
+ * a bench (R/G +0.015 against a far wall). The lit bench is a 2,500-nit red Lambertian
+ * panel 0.5 m from the wall above it, the divider and the table underside: those faces see
+ * it over ≈ 1 sr, ≈ 2,000 lux of red on top of ≈ 1,300 lux of white ambient — the pink
+ * cast next to a sunlit red bench in every Shore/Eggleston diner frame. One spot per
+ * booth ON the lit (−x) bench, firing +x and up (the seat radiates up, the back +x).
  */
 const BOUNCE_FLUX = new THREE.Vector3(
-  PATCH_LUX_H * 1.75 * 0.47 + PATCH_LUX_H * 0.3 * 0.9 + PATCH_LUX_X * 0.8 * 0.4,
-  PATCH_LUX_H * 1.75 * 0.45 + PATCH_LUX_H * 0.3 * 0.85 + PATCH_LUX_X * 0.8 * 0.01,
-  PATCH_LUX_H * 1.75 * 0.42 + PATCH_LUX_H * 0.3 * 0.75 + PATCH_LUX_X * 0.8 * 0.007,
+  PATCH_LUX_H * 1.75 * 0.47 + PATCH_LUX_H * 0.3 * 0.9,
+  PATCH_LUX_H * 1.75 * 0.45 + PATCH_LUX_H * 0.3 * 0.85,
+  PATCH_LUX_H * 1.75 * 0.42 + PATCH_LUX_H * 0.3 * 0.75,
 );
+const VINYL_FLUX = new THREE.Vector3(PATCH_LUX_X * 0.8 * 0.4, PATCH_LUX_X * 0.8 * 0.01, PATCH_LUX_X * 0.8 * 0.007);
 /** Spot cone that approximates a Lambertian emitter: smoothstep(cos 89°, 1, cos θ) ≈ cos θ. */
 const LAMBERT_ANGLE = THREE.MathUtils.degToRad(89);
 /**
@@ -295,15 +311,27 @@ const LAMBERT_ANGLE = THREE.MathUtils.degToRad(89);
  * than the room's mean. Measured (rev 2, `?nofill` / `?nobounce` A/B on the HDR probe): the
  * probe adds ≈ 1,400 lux-equivalent of spot-lit second bounce on the shaded walls where the
  * flux balance (Φ₁ · ρ / (A · (1 − ρ)) ≈ 125 klm · 0.5 / (220 m² · 0.5) ≈ 570 lux) allows
- * ≈ 600. 0.7 halves that excess while keeping most of the probe's other job — the sky
- * through the five windows, which sits 3.5 m from the probe and is not inflated the same
- * way — intact. dawn-station ships the same correction on its interior PMREM at 0.35
- * (`lightInterior.ts`, `ibounce`), for a room with no sun in it. `?ibounce=n` overrides.
+ * ≈ 600. Rev 2 shipped 0.7 and both critics measured the shaded walls of every oblique
+ * pose (`length`, `booth`, `aisle`, `counter`) 1–1.5 EV over the poses that look at a
+ * window — the probe is pose-independent, but its excess is not: the poses that see the
+ * far wall and the ceiling see the faces the probe inflates most.
+ *
+ * Rev 3 attribution (`length` wall-shade, HDR probe, one exposure; nits):
+ *   sun + probe only (`?nofill`)                     40   sky through the windows
+ *   + troffers (`?nobounce`)                        130   ≈ 90 from the fixtures
+ *   + bounce spots, probe 0.01                      180   the first bounce, no probe
+ *   full, probe 0.35 / 0.45 / 0.7                   382 / 452 / 650
+ * so the probe's second bounce is ≈ 5.8 nits per 0.01 of intensity, and the flux balance
+ * above allows ≈ 90 nits of it on a cream wall (≈ 410 lux): 0.25 gives ≈ 145 (the probe
+ * also carries what the first bounce lights beyond the five spots' cos-falloff) and puts
+ * the wall at ≈ 325 nits, sRGB ≈ 58 — inside the critics' 40–60 with the window and slat
+ * gaps ≥ +4 EV above it. dawn-station ships 0.35 (`lightInterior.ts`, `ibounce`) for a room
+ * with no sun in it. `?ibounce=n` overrides.
  */
 export const ROOM_PROBE_INTENSITY = (() => {
-  if (typeof location === "undefined") return 0.7;
+  if (typeof location === "undefined") return 0.1;
   const v = Number(new URLSearchParams(location.search).get("ibounce"));
-  return Number.isFinite(v) && v > 0 ? v : 0.7;
+  return Number.isFinite(v) && v > 0 ? v : 0.1;
 })();
 
 export interface LightingResult {
@@ -318,8 +346,6 @@ export interface LightingResult {
    */
   sunBeam: THREE.SpotLight;
   sunLot: THREE.DirectionalLight;
-  /** Caster-only cone on the spot's cone; masks `sunLot` out of the building. */
-  cone: THREE.Mesh;
   /** One Lambertian spot per 2×4 fixture (`?nofluor` → none). */
   troffers: THREE.SpotLight[];
   /** One upward Lambertian spot per booth: the first bounce of that window's sun (`?nobounce` → none). */
@@ -335,6 +361,8 @@ export interface LightingResult {
 /** Tone mapping, exposure and shadow filtering. main.ts owns the renderer; this keeps the numbers in one place. */
 export function configureRenderer(renderer: THREE.WebGLRenderer): void {
   installCameraToneMapping();
+  installSunSplit();
+  installSpecularAA();
   renderer.toneMapping = TONE_MAPPING;
   renderer.toneMappingExposure = EXPOSURE;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -408,35 +436,47 @@ function primeShadowMapType(renderer: THREE.WebGLRenderer): void {
 let pcssInstalled = false;
 
 /**
+ * The compare-mode depth texture the PCSS filter taps (`sunBeam`'s map, same camera and
+ * casters as spot 0). Set by buildLighting; injected into every material's uniforms by
+ * `installPcss` (Material.prototype.onBeforeCompile) and `assignSunSplit` (materials with
+ * their own onBeforeCompile).
+ */
+const SUN_PCF_UNIFORM: { value: THREE.Texture | null } = { value: null };
+
+/**
  * Percentage-closer soft shadows for the BasicShadowMap path (raw depth textures).
  * `shadow.radius` is re-purposed per light:
- *   radius > 0 → PCSS. Penumbra (in shadow-map UV) = radius × (receiverDepth − blockerDepth)
- *                in the map's [0,1] depth space; blocker search radius = 0.2 × radius.
- *                `penumbraPerDepth()` computes the constant from the light's frustum and
- *                the sun's 0.53° diameter.
- *   radius ≤ 0 → fixed-kernel PCF of |radius| texels (the lot sun: its penumbrae would be
- *                a few px through the blinds, and a blur on the cone occluder's edge would
- *                have opened a half-lit ring at the two-sun seam).
+ *   radius > 0 → PCSS (the interior sun). Penumbra (in shadow-map UV) = radius ×
+ *                (receiverDepth − blockerDepth) in the map's [0,1] depth space; blocker
+ *                search radius = 0.2 × radius. `penumbraPerDepth()` computes the constant
+ *                from the light's frustum and the sun's 0.53° diameter.
+ *   −0.5 < radius ≤ 0 → one bilinear tap (the lot sun: hard shadows, a 1-texel ramp).
+ *   radius ≤ −0.5 → four bilinear taps on a square of |radius| texels.
  *
- * Rev 2: 8 blocker taps + 12 filter taps (rev 1: 16 + 24) on a Vogel spiral rotated per
- * pixel by interleaved-gradient noise keyed to the shadow-map UV (world-stationary; see the
- * note at `phi`); the lot light takes one bilinear tap.
- * Every FILTER tap is a bilinear comparison (`pcssTap`: the four texels around the tap,
- * each compared, then bilinearly weighted — what a `sampler2DShadow` does in hardware, which
- * a raw depth texture cannot). It costs 4 coherent fetches per tap but turns the 13-level
- * staircase of 12 hard taps into a continuous ramp, which is what removes the speckle in
- * the penumbrae (rev 1's 24 single-fetch taps still dithered visibly). `?pcss=fast` compiles
- * single-fetch taps for the A/B timing. Non-reversed depth.
+ * Rev 3. Rev 2 sampled 8 + 12 taps on a Vogel spiral rotated per pixel: Monte-Carlo, so
+ * wherever the penumbra spanned a few slat periods (the far wall, the aisle floor, the
+ * far end of every table) the 12 taps returned a random fraction of a 50/50 pattern —
+ * ±14 % grain that both critics read as speckle, dither and glitter. Three changes:
+ *
+ *  1. Deterministic kernels. Blocker search on a 4 × 4 grid over the search disc; filter on
+ *     a 7 × 7 grid over the penumbra disc with a smooth disc weight (the taps are baked as
+ *     constants). Bilinear taps at ≤ 1-texel spacing integrate the map exactly (a box
+ *     filter): no noise, and with a 4096² map that holds up to a 3.5-texel (15 mm) penumbra
+ *     radius ≈ 3 m of slat → receiver distance; beyond that the grid undersamples the
+ *     slats slightly (mild moiré where the eye sees a uniform glow anyway).
+ *  2. Hardware PCF. The filter taps read `sunPcfMap`, the compare-mode copy of the sun's
+ *     map the post pipeline already renders (`sunBeam`): one `texture()` = one bilinear
+ *     comparison, so 45 taps cost what 12 manual bilinear taps did. The blocker search
+ *     still needs raw depths and reads the light's own map.
+ *  3. Receiver-plane depth bias (Isidoro 2006): the reference depth of each tap follows
+ *     the receiver's depth gradient (dz/du, dz/dv from screen derivatives), so a wide
+ *     kernel on a floor at 35° incidence no longer shadows itself on the light-side half —
+ *     rev 2 hid that with `normalBias 0.012`, 3 texels, which also let the sun through the
+ *     0.3 mm slats onto their room-side lips. `normalBias` is one texel now.
  */
 export function installPcss(): void {
   if (pcssInstalled) return;
   pcssInstalled = true;
-  const q = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
-  const fast = q?.get("pcss") === "fast";
-  // Tap budget. `?taps=b,f` for the A/B (rev 2 measured 8/16 → 8/12 at −0.5 ms on `length`).
-  const taps = (q?.get("taps") ?? "").split(",").map(Number);
-  const BLOCKER_TAPS = Number.isInteger(taps[0]) && taps[0] >= 4 ? taps[0] : 8;
-  const FILTER_TAPS = Number.isInteger(taps[1]) && taps[1] >= 4 ? taps[1] : 12;
   // The built three.module.js strips the chunk's comments, so the BASIC branch is located
   // structurally: the `#else` after the VSM `#elif`, up to the `#endif` before the point-light block.
   const chunk = THREE.ShaderChunk.shadowmap_pars_fragment;
@@ -451,39 +491,41 @@ export function installPcss(): void {
     console.warn("[lighting] shadowmap_pars_fragment layout changed; PCSS not installed");
     return;
   }
+
+  // Filter kernel: 7 × 7 cell-centred grid over [−pen, pen], disc weight 1 inside r = 0.7,
+  // fading to 0 at r = 1.0 (close to a disc sun's penumbra profile), normalised.
+  const N = 7;
+  const taps: Array<[number, number, number]> = [];
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const u = ((i + 0.5) / N) * 2 - 1, v = ((j + 0.5) / N) * 2 - 1;
+    const w = THREE.MathUtils.clamp((1.0 - Math.hypot(u, v)) / 0.3, 0, 1);
+    if (w > 0) taps.push([u, v, w]);
+  }
+  const wsum = taps.reduce((acc, t) => acc + t[2], 0);
+  const filterGlsl = taps.map(([u, v, w]) => {
+    const o = `vec2( ${u.toFixed(4)}, ${v.toFixed(4)} ) * pen`;
+    return `lit += ${(w / wsum).toFixed(5)} * texture( sunPcfMap, vec3( shadowCoord.xy + ${o}, zR + dot( gradZ, ${o} ) ) );`;
+  }).join("\n\t\t\t\t\t\t");
+  // Blocker search: 4 × 4 cell-centred grid over the search disc.
+  const search: string[] = [];
+  for (const v of [-0.75, -0.25, 0.25, 0.75]) for (const u of [-0.75, -0.25, 0.25, 0.75]) {
+    search.push(`{ vec2 o = vec2( ${u}, ${v} ) * searchR; float d = texture2D( shadowMap, shadowCoord.xy + o ).r; if ( d < zR + dot( gradZ, o ) ) { sum += d; n += 1.0; } }`);
+  }
+
   const pcss = /* glsl */ `#else // SHADOWMAP_TYPE_BASIC — replaced by PCSS (src/scene/Lighting.ts)
-		${fast ? "#define PCSS_FAST 1" : ""}
 
-		#define PCSS_BLOCKER_TAPS ${BLOCKER_TAPS}
-		#define PCSS_FILTER_TAPS ${FILTER_TAPS}
+		uniform sampler2DShadow sunPcfMap;
 
-		// Vogel spiral: n points of equal area on the unit disk (golden angle), rotated by phi.
-		// Any tap count is a well-distributed disk, so the budget is a constant, not a table.
-		vec2 pcssVogel( int i, int n, float phi ) {
-			float r = sqrt( ( float( i ) + 0.5 ) / float( n ) );
-			float theta = float( i ) * 2.39996323 + phi;
-			return vec2( cos( theta ), sin( theta ) ) * r;
-		}
-
-		// Interleaved gradient noise (Jimenez 2014): a per-pixel rotation with no visible structure.
-		float pcssNoise( vec2 p ) {
-			return fract( 52.9829189 * fract( dot( p, vec2( 0.06711056, 0.00583715 ) ) ) );
-		}
-
-		// One filter tap: bilinearly weighted comparison of the 2×2 texels around uv.
+		// One bilinear comparison of a raw depth map (what sampler2DShadow does in hardware).
 		float pcssTap( sampler2D map, vec2 uv, vec2 texel, float zR ) {
-			#ifdef PCSS_FAST
-				return step( zR, texture2D( map, uv ).r );
-			#else
-				vec2 p = uv / texel - 0.5;
-				vec2 f = fract( p );
-				vec2 base = ( floor( p ) + 0.5 ) * texel;
-				float d00 = step( zR, texture2D( map, base ).r );
-				float d10 = step( zR, texture2D( map, base + vec2( texel.x, 0.0 ) ).r );
-				float d01 = step( zR, texture2D( map, base + vec2( 0.0, texel.y ) ).r );
-				float d11 = step( zR, texture2D( map, base + texel ).r );
-				return mix( mix( d00, d10, f.x ), mix( d01, d11, f.x ), f.y );
-			#endif
+			vec2 p = uv / texel - 0.5;
+			vec2 f = fract( p );
+			vec2 base = ( floor( p ) + 0.5 ) * texel;
+			float d00 = step( zR, texture2D( map, base ).r );
+			float d10 = step( zR, texture2D( map, base + vec2( texel.x, 0.0 ) ).r );
+			float d01 = step( zR, texture2D( map, base + vec2( 0.0, texel.y ) ).r );
+			float d11 = step( zR, texture2D( map, base + texel ).r );
+			return mix( mix( d00, d10, f.x ), mix( d01, d11, f.x ), f.y );
 		}
 
 		float getShadow( sampler2D shadowMap, vec2 shadowMapSize, float shadowIntensity, float shadowBias, float shadowRadius, vec4 shadowCoord ) {
@@ -491,36 +533,40 @@ export function installPcss(): void {
 			float shadow = 1.0;
 			shadowCoord.xyz /= shadowCoord.w;
 			float zR = shadowCoord.z + shadowBias;
+			// Receiver-plane depth gradient: dz/d(uv) from the screen-space derivatives of the
+			// projected coordinate (Isidoro 2006), taken here, outside any branch, where the
+			// derivatives are defined. Clamped to the slope of an 80° incidence so a silhouette's
+			// derivative cannot throw a tap's reference depth across the room.
+			vec2 dxUV = dFdx( shadowCoord.xy ), dyUV = dFdy( shadowCoord.xy );
+			float dxZ = dFdx( shadowCoord.z ), dyZ = dFdy( shadowCoord.z );
+			float det = dxUV.x * dyUV.y - dxUV.y * dyUV.x;
+			vec2 gradZ = abs( det ) > 1e-14 ? vec2( dxZ * dyUV.y - dyZ * dxUV.y, dyZ * dxUV.x - dxZ * dyUV.x ) / det : vec2( 0.0 );
+			gradZ = clamp( gradZ, vec2( -2.5 ), vec2( 2.5 ) );
 			bool inFrustum = shadowCoord.x >= 0.0 && shadowCoord.x <= 1.0 && shadowCoord.y >= 0.0 && shadowCoord.y <= 1.0;
 
 			if ( inFrustum && zR <= 1.0 ) {
 
 				vec2 texel = vec2( 1.0 ) / shadowMapSize;
-				// Tap-pattern phase from the shadow-map UV (world space perpendicular to the light,
-				// 1/8 texel = 0.4 mm for the sun), not gl_FragCoord: a point on a surface keeps its
-				// phase as the camera walks, so the Monte-Carlo residual rides with the surface
-				// instead of being redrawn every frame (night-street softShadow.ts, 'world' phase).
-				float phi = pcssNoise( shadowCoord.xy * shadowMapSize * 8.0 ) * PI2;
+				// Slope-scaled bias for the hardware PCF's own footprint: each tap compares one
+				// reference depth against the four texels around it, up to a texel from the
+				// receiver point, and on a surface at 70–80° to the light (a slat top, a table
+				// edge) the surface itself is deeper by |∇z| × texel there — acne that read as
+				// "every slat face in shade" until this line (rev 3).
+				zR -= ( abs( gradZ.x ) + abs( gradZ.y ) ) * texel.x * 0.75;
 
 				if ( shadowRadius > 0.0 ) {
 
 					// 1. Blocker search: average depth of everything in front of the receiver.
 					float searchR = shadowRadius * 0.2;
 					float sum = 0.0, n = 0.0;
-					for ( int i = 0; i < PCSS_BLOCKER_TAPS; i ++ ) {
-						float d = texture2D( shadowMap, shadowCoord.xy + pcssVogel( i, PCSS_BLOCKER_TAPS, phi ) * searchR ).r;
-						if ( d < zR ) { sum += d; n += 1.0; }
-					}
+					${search.join("\n\t\t\t\t\t")}
 					if ( n > 0.5 ) {
 						// 2. Penumbra ∝ receiver−blocker separation, clamped to the search disk.
-						float pen = clamp( shadowRadius * ( zR - sum / n ), texel.x * 0.75, searchR );
-						// 3. PCF over the penumbra, bilinear taps (a second phase so the filter's
-						//    residual is not correlated with the search's).
+						float pen = clamp( shadowRadius * ( zR - sum / n ), texel.x * 0.5, searchR );
+						// 3. Weighted disc of hardware-PCF taps over the penumbra.
 						float lit = 0.0;
-						for ( int i = 0; i < PCSS_FILTER_TAPS; i ++ ) {
-							lit += pcssTap( shadowMap, shadowCoord.xy + pcssVogel( i, PCSS_FILTER_TAPS, phi + 1.0 ) * pen, texel, zR );
-						}
-						shadow = lit / float( PCSS_FILTER_TAPS );
+						${filterGlsl}
+						shadow = lit;
 					}
 
 				} else if ( shadowRadius > -0.5 ) {
@@ -530,11 +576,9 @@ export function installPcss(): void {
 
 				} else {
 
-					// Fixed kernel: four bilinear taps on a rotated square of half-side |radius| texels.
+					// Fixed kernel: four bilinear taps on a square of half-side |radius| texels.
 					float r = max( 0.5, -shadowRadius ) * texel.x * 0.7071;
-					float cs = cos( phi ), sn = sin( phi );
-					mat2 rot = mat2( cs, sn, -sn, cs );
-					vec2 a = rot * vec2( r, r ), b = rot * vec2( r, -r );
+					vec2 a = vec2( r, r ), b = vec2( r, -r );
 					float lit = pcssTap( shadowMap, shadowCoord.xy + a, texel, zR )
 						+ pcssTap( shadowMap, shadowCoord.xy - a, texel, zR )
 						+ pcssTap( shadowMap, shadowCoord.xy + b, texel, zR )
@@ -551,6 +595,31 @@ export function installPcss(): void {
 
 	`;
   THREE.ShaderChunk.shadowmap_pars_fragment = chunk.slice(0, start) + pcss + chunk.slice(end);
+
+  // Every program that includes the chunk needs the sampler bound. Materials without their
+  // own onBeforeCompile get it through the prototype; assignSunSplit wraps the others.
+  const proto = THREE.Material.prototype as unknown as { onBeforeCompile: (s: THREE.WebGLProgramParametersWithUniforms, r: THREE.WebGLRenderer) => void };
+  const prev = proto.onBeforeCompile;
+  proto.onBeforeCompile = function (this: THREE.Material, shader, renderer) {
+    prev.call(this, shader, renderer);
+    (shader.uniforms as Record<string, { value: unknown }>).sunPcfMap = SUN_PCF_UNIFORM;
+  };
+}
+
+/** Give a material with its own `onBeforeCompile` the PCSS sampler too (see installPcss). */
+function bindSunPcf(m: THREE.Material): void {
+  if (!Object.prototype.hasOwnProperty.call(m, "onBeforeCompile")) return;
+  const own = m.onBeforeCompile;
+  if ((own as unknown as { sunPcf?: boolean }).sunPcf) return;
+  const wrapped = function (this: THREE.Material, shader: THREE.WebGLProgramParametersWithUniforms, renderer: THREE.WebGLRenderer) {
+    own.call(this, shader, renderer);
+    (shader.uniforms as Record<string, { value: unknown }>).sunPcfMap = SUN_PCF_UNIFORM;
+  };
+  (wrapped as unknown as { sunPcf?: boolean }).sunPcf = true;
+  m.onBeforeCompile = wrapped;
+  // The program cache keys on onBeforeCompile.toString() unless a custom key exists; every
+  // wrapper prints the same, so key on the wrapped function instead.
+  if (!Object.prototype.hasOwnProperty.call(m, "customProgramCacheKey")) m.customProgramCacheKey = () => own.toString() + "+sunpcf";
 }
 
 /**
@@ -601,6 +670,101 @@ function penumbraPerDepth(cam: THREE.PerspectiveCamera, d: number, theta: number
 }
 
 /* ------------------------------------------------------------------------- */
+/* Two-sun split by receiver (rev 3)                                          */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * `sun` (the spot) and `sunLot` (the directional) are the same sun; each receiver must
+ * see exactly one of them. Rev 1–2 did that with a caster-only cone on the spot's cone
+ * in `sunLot`'s map — which also put every car, wheel stop and pole shadow inside the cone
+ * (the near stalls) into `sunLot`'s shadow, so the near lot was lit by the SPOT, through
+ * its 3.5 mm PCSS map with a penumbra estimated for slats, and its shadows came out
+ * 250 mm soft (rev 2 critics: "car-shadow edge ramps over 32 px"). Rev 3 splits by
+ * material instead: every mesh under the `exterior` group compiles with `SUN_SKIP_SPOT0`
+ * and drops spot 0 before its shadow lookup; everything else compiles with
+ * `SUN_SKIP_DIR0` and drops directional 0. three orders shadow-casting lights first
+ * within a type, and the two suns are the only casters of theirs, so index 0 is stable.
+ * The cone is gone; `sunLot`'s casters are the lot objects alone (the building's own
+ * shadow falls behind it, out of every pose).
+ */
+function installSunSplit(): void {
+  const chunk = THREE.ShaderChunk.lights_fragment_begin;
+  const spotLine = "getSpotLightInfo( spotLight, geometryPosition, directLight );";
+  const dirLine = "getDirectionalLightInfo( directionalLight, directLight );";
+  if (!chunk.includes(spotLine) || !chunk.includes(dirLine)) {
+    console.warn("[lighting] lights_fragment_begin layout changed; sun split not installed");
+    return;
+  }
+  THREE.ShaderChunk.lights_fragment_begin = chunk
+    .replace(spotLine, `${spotLine}
+		#if defined( SUN_SKIP_SPOT0 ) && ( UNROLLED_LOOP_INDEX == 0 )
+			directLight.visible = false; directLight.color = vec3( 0.0 );
+		#endif`)
+    .replace(dirLine, `${dirLine}
+		#if defined( SUN_SKIP_DIR0 ) && ( UNROLLED_LOOP_INDEX == 0 )
+			directLight.visible = false; directLight.color = vec3( 0.0 );
+		#endif`);
+}
+
+/**
+ * Geometric specular anti-aliasing (Tokuyoshi & Kaplanyan 2019, "Improved Geometric
+ * Specular Antialiasing"): the roughness of every standard/physical material is widened by
+ * the screen-space variance of its SHADED normal, σ² = 0.25 · (|∂n/∂x|² + |∂n/∂y|²), capped
+ * at 0.18. three does this for the geometric normal only (`geometryRoughness`); the
+ * normal-mapped one is what glittered — the vinyl's pebble grain under the sun (rev 2
+ * critics: adjacent pixels 39 / 111 / 58 / 104 on a sunlit bench) is a normal map whose
+ * facets flip across the specular lobe from one pixel to the next. A real lens integrates
+ * that over the pixel; this is the closed-form equivalent. Costs two derivatives.
+ */
+function installSpecularAA(): void {
+  const chunk = THREE.ShaderChunk.lights_physical_fragment;
+  const line = "material.roughness = min( material.roughness, 1.0 );";
+  if (!chunk.includes(line)) {
+    console.warn("[lighting] lights_physical_fragment layout changed; specular AA not installed");
+    return;
+  }
+  THREE.ShaderChunk.lights_physical_fragment = chunk.replace(line, `${line}
+{
+	vec3 dnx = dFdx( normal ), dny = dFdy( normal );
+	float kernelRoughness = min( 0.18, 0.25 * ( dot( dnx, dnx ) + dot( dny, dny ) ) );
+	material.roughness = min( 1.0, sqrt( material.roughness * material.roughness + kernelRoughness ) );
+}`);
+}
+
+/**
+ * Tag every material under `root` with the define its meshes need (see installSunSplit).
+ * `exteriorMaterials` are outdoor receivers built by the Shell (the apron slab: `concrete`
+ * reaches 1.8 m past the wall, beyond the spot's cone). A material used both inside and
+ * outside gets neither (both suns, as before) and is reported. Runs before the compile
+ * pass (Diner.build), so no program is rebuilt.
+ */
+function assignSunSplit(root: THREE.Object3D, exteriorMaterials: THREE.Material[]): void {
+  const exteriorRoot = root.getObjectByName("exterior");
+  const ext = new Set<THREE.Material>(exteriorMaterials), int = new Set<THREE.Material>();
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    let outside = false;
+    for (let p: THREE.Object3D | null = o; p; p = p.parent) if (p === exteriorRoot) { outside = true; break; }
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const m of mats) {
+      bindSunPcf(m);
+      if (!ext.has(m)) (outside ? ext : int).add(m);
+    }
+  });
+  let shared = 0;
+  for (const m of ext) {
+    if (int.has(m)) { shared++; continue; }
+    (m.defines ??= {}).SUN_SKIP_SPOT0 = 1;
+  }
+  for (const m of int) {
+    if (ext.has(m)) continue;
+    (m.defines ??= {}).SUN_SKIP_DIR0 = 1;
+  }
+  if (shared) console.warn(`[lighting] ${shared} material(s) used both inside and outside receive both suns`);
+}
+
+/* ------------------------------------------------------------------------- */
 /* Shadow masks (per-light caster lists)                                      */
 /* ------------------------------------------------------------------------- */
 
@@ -616,7 +780,8 @@ function penumbraPerDepth(cam: THREE.PerspectiveCamera, d: number, theta: number
  * first map in the list would ever be rendered. The wrapper mirrors the early return
  * and the final clear itself.
  */
-export function installShadowMasks(renderer: THREE.WebGLRenderer, root: THREE.Object3D, lights: LightingResult): void {
+export function installShadowMasks(renderer: THREE.WebGLRenderer, root: THREE.Object3D, lights: LightingResult, exteriorMaterials: THREE.Material[] = []): void {
+  assignSunSplit(root, exteriorMaterials);
   const interior: THREE.Object3D[] = [];
   root.traverse((o) => {
     if ((o as THREE.Mesh).isMesh && o.castShadow && !o.userData.lotCaster) interior.push(o);
@@ -629,7 +794,6 @@ export function installShadowMasks(renderer: THREE.WebGLRenderer, root: THREE.Ob
     for (const light of list) {
       const lot = light === lights.sunLot;
       for (const o of interior) o.castShadow = !lot;
-      lights.cone.castShadow = lot;
       shadowMap.needsUpdate = true;
       original([light], scene, camera);
       if (light === lights.sun) {
@@ -683,11 +847,12 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   sun.shadow.camera.fov = THREE.MathUtils.radToDeg(halfAngle) * 2;
   sun.shadow.camera.updateProjectionMatrix();
   sun.shadow.bias = -0.00012;
-  sun.shadow.normalBias = 0.012; // ≈ 3.5 mm texels: 12 mm keeps sunlit planes acne-free under the blocker search
+  sun.shadow.normalBias = 0.004; // one 4 mm texel; the receiver-plane bias in the PCSS kernel does the rest (rev 2: 0.012)
   // PCSS: 0.53° sun → 9.3 mm/m full penumbra = 4.65 mm/m filter radius (≈ 0.0127 UV per unit depth here).
   sun.shadow.radius = penumbraPerDepth(sun.shadow.camera, SPOT_DIST, SUN_ANGULAR_DIAMETER / 2);
   scene.add(sun, sun.target);
   const sunBeam = buildSunBeam(sun);
+  SUN_PCF_UNIFORM.value = (sunBeam.shadow.map as THREE.WebGLRenderTarget).depthTexture;
 
   /* ---------------- exterior sun: wide directional over the lot ---------------- */
   const sunLot = new THREE.DirectionalLight(SUN_COLOR, sunIntensity);
@@ -698,20 +863,20 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   sunLot.position.copy(centre).addScaledVector(dir, lotDist);
   sunLot.target.position.copy(centre);
   sunLot.castShadow = true;
-  // Rev 2: 2048² (was 4096²) — ≈ 22 × 11 mm texels over the lot box below; the casters
-  // out there are cars, poles, wheel stops and a wall, whose shadows are metres long.
-  // Halves the depth pass's fill and the map's memory (4.7 ms → measure).
-  sunLot.shadow.mapSize.set(2048, 2048);
+  // Rev 3: 4096² over the lot box alone (rev 2: 2048² over lot + building, 22 × 11 mm
+  // texels, whose staircase showed on every car-shadow edge once the cone was gone). The
+  // building is no receiver of this light any more (installSunSplit) and casts nothing into
+  // its map, so the frustum is the lot: kerb → CMU wall, pole tops. ≈ 7 × 4 mm texels,
+  // 7 mm on the ground — a 15 mm ramp against the sun's own 3 mm (car sill) to 45 mm (pole top).
+  sunLot.shadow.mapSize.set(4096, 4096);
   {
-    // Fit the ortho frustum to the lot box (kerb → CMU wall, pole tops) plus the building.
     const cam = sunLot.shadow.camera;
     const up = new THREE.Vector3(0, 1, 0);
     const right = new THREE.Vector3().crossVectors(up, dir).normalize(); // camera +x in world
     const camUp = new THREE.Vector3().crossVectors(dir, right).normalize(); // camera +y
     let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
     const pts: THREE.Vector3[] = [];
-    for (const x of [-17, 17]) for (const y of [-0.5, 8.8]) for (const z of [ROOM.zFront, ROOM.zFront + 21]) pts.push(new THREE.Vector3(x, y, z));
-    for (const x of [bx0, bx1]) for (const y of [by0, by1]) for (const z of [bz0, bz1]) pts.push(new THREE.Vector3(x, y, z));
+    for (const x of [-14.5, 14.5]) for (const y of [-0.5, 9.0]) for (const z of [ROOM.zFront + T, ROOM.zFront + T + 16.5]) pts.push(new THREE.Vector3(x, y, z));
     for (const p of pts) {
       tmp.copy(p).sub(centre);
       const u = tmp.dot(right), v = tmp.dot(camUp);
@@ -727,38 +892,23 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
     cam.updateProjectionMatrix();
   }
   sunLot.shadow.bias = -0.0001;
-  sunLot.shadow.normalBias = 0.05; // ≈ 2 texels of the 2048² map (22 mm): acne-free on the asphalt at 35° incidence
+  sunLot.shadow.normalBias = 0.03; // ≈ 1.5 texels of the 2048² map (rev 2: 0.05 lifted every tyre and wheel stop off its shadow)
   // One bilinear tap (installPcss, radius in (−0.5, 0]): a 1-texel (11 mm) ramp. The sun's
   // real penumbra on the lot is 9.3 mm per metre of caster height — one texel for a car's
   // sill, two for its roof — so the 4-tap kernel was softer than the sun and cost 0.8 ms.
   sunLot.shadow.radius = -0.25;
   scene.add(sunLot, sunLot.target);
 
-  /* ---------------- cone occluder: masks `sunLot` out of the spot's cone ---------------- */
-  let cone3: THREE.Mesh;
-  {
-    const L = SPOT_DIST + 40; // apex → base, well past the ground under the far side of the room
-    const cone = new THREE.ConeGeometry(Math.tan(halfAngle) * L, L, 96, 1, true);
-    cone.translate(0, -L / 2, 0); // apex at the origin, axis down −y
-    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); // −y → −dir
-    // Invisible to every colour pass (nothing written) but a real caster for `sunLot`.
-    const mesh = new THREE.Mesh(cone, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, colorWrite: false, depthWrite: false, depthTest: false }));
-    mesh.material.shadowSide = THREE.DoubleSide;
-    mesh.quaternion.copy(q);
-    mesh.position.copy(sun.position);
-    mesh.castShadow = true;
-    mesh.receiveShadow = false;
-    mesh.frustumCulled = false;
-    mesh.renderOrder = -20;
-    mesh.name = "sun-cone-occluder";
-    scene.add(mesh);
-    cone3 = mesh;
-  }
+  // Rev 3: no cone occluder. The spot / directional split is per receiver (installSunSplit):
+  // exterior materials ignore the spot, interior ones ignore `sunLot`, so `sunLot` may
+  // shine straight through the walls and windows in its own map without lighting anything
+  // indoors, and the near stalls get its hard shadows from the cars and poles.
 
   /* ---------------- sky dome → physical nits ---------------- */
-  const horizon = SKY_HORIZON_RGB.clone().multiplyScalar(SKY_SCALE);
+  const horizon = SKY_HORIZON_CHROMA.clone().multiplyScalar(SKY_SCALE);
   const sky = scene.getObjectByName("sky") as THREE.Mesh | undefined;
   if (sky) scaleSky(sky, SKY_SCALE);
+  scaleHorizonRings(scene);
 
   // Diagnostics for the capture harness: `?nofill` renders the suns alone, `?nospot` /
   // `?nolot` switch one of the two suns off so the cone seam and each map can be checked;
@@ -766,7 +916,7 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   const q = new URLSearchParams(location.search);
   if (q.has("nospot")) sun.intensity = 0;
   if (q.has("nolot")) sunLot.intensity = 0;
-  if (q.has("nofill")) return { sun, sunBeam, sunLot, cone: cone3, troffers: [], bounces: [], horizon };
+  if (q.has("nofill")) return { sun, sunBeam, sunLot, troffers: [], bounces: [], horizon };
 
   /**
    * A Lambertian panel of flux Φ as a point: SpotLight, angle 89°, penumbra 1 (the
@@ -841,6 +991,25 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
       scene.add(l, l.target);
       bounces.push(l);
     }
+    // Red bounce off the lit −x bench of each booth (VINYL_FLUX, derivation at BOUNCE_FLUX):
+    // on the bench's front face at seat-back height, aimed +x and 35° up, so it reaches the
+    // opposite bench, the divider, the table underside and the window wall above the seat.
+    // Only booths whose bench the beam actually reaches (the first window's lands on the
+    // end wall, see above).
+    {
+      const lum = 0.2126 * VINYL_FLUX.x + 0.7152 * VINYL_FLUX.y + 0.0722 * VINYL_FLUX.z;
+      const color = new THREE.Color(VINYL_FLUX.x / lum, VINYL_FLUX.y / lum, VINYL_FLUX.z / lum);
+      const zc = (BOOTH.zInner + BOOTH.zOuter) / 2;
+      for (const cx of WINDOW.centersX) {
+        const xc = cx - (ROOM.zFront - zFloor) * planShift * wFloor - 0.5 * wBooth;
+        if (xc <= -ROOM.halfX + 0.4) continue;
+        const l = lambertSpot(color, lum, "vinyl-bounce");
+        l.position.set(cx - BOOTH.back.frontX + 0.02, 0.62, zc);
+        l.target.position.set(cx - BOOTH.back.frontX + 0.02 + Math.cos(0.61), 0.62 + Math.sin(0.61), zc);
+        scene.add(l, l.target);
+        bounces.push(l);
+      }
+    }
   }
 
   /* ---------------- heat lamps over the pass-through shelf ---------------- */
@@ -865,43 +1034,86 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
     scene.add(heat, heat.target);
   }
 
-  return { sun, sunBeam, sunLot, cone: cone3, troffers, bounces, horizon };
+  return { sun, sunBeam, sunLot, troffers, bounces, horizon };
 }
 
 /**
- * Multiply the sky shader's output before tone mapping, through an injected uniform, so
- * System 3's authored gradient keeps its shape while reading in nits (horizon ≈ 7,000,
- * zenith ≈ 3,800, glare and disc above that). A circumsolar term is added on top: on a
- * hazy summer morning the sky within ~40° of the sun is 1.7–2.5× brighter than the opposite
- * horizon (forward scattering by dust; CIE clear-sky types 11–12), and that is the part
- * of the sky the windows face (sun 38° off the window normal). `c` = cos(angle to the
- * sun) is a local of the sky shader's main(). Done here rather than in Exterior.ts so the
- * sky's look and its photometric scale stay in separate files.
+ * Replace the dome shader's colour model (Exterior.ts authors a display-scale mix) with the
+ * physical one above, in scene units: luminance and chroma as documented at
+ * SKY_HORIZON_NITS. `horizon` / `zenith` uniforms carry the unit-luminance chromas; `ground`
+ * (below the horizon line, seen only by probes where no geometry covers) keeps the dome's
+ * authored value times the scale; the 0.53° disc stays at 40× the horizon.
  */
 export function scaleSky(sky: THREE.Mesh, scale: number): void {
   const mat = sky.material as THREE.ShaderMaterial;
-  // Rev 2: the dome's authored colours are the lighting's (SKY_HORIZON_RGB / SKY_ZENITH_RGB).
-  (mat.uniforms.horizon.value as THREE.Color).copy(SKY_HORIZON_RGB);
-  (mat.uniforms.zenith.value as THREE.Color).copy(SKY_ZENITH_RGB);
+  (mat.uniforms.horizon.value as THREE.Color).copy(SKY_HORIZON_CHROMA);
+  (mat.uniforms.zenith.value as THREE.Color).copy(SKY_ZENITH_CHROMA);
   const prev = mat.onBeforeCompile;
   mat.onBeforeCompile = (shader, renderer) => {
     prev?.call(mat, shader, renderer);
     shader.uniforms.skyScale = { value: scale };
-    const boost = shader.fragmentShader.includes("float c = clamp( dot( d, sunDir )") || shader.fragmentShader.includes("float c = clamp(dot(d, sunDir)")
-      ? "gl_FragColor.rgb *= skyScale * ( 1.0 + 1.0 * pow( c, 4.0 ) );"
-      : "gl_FragColor.rgb *= skyScale;";
-    shader.fragmentShader = shader.fragmentShader
-      .replace("varying vec3 vDir;", "varying vec3 vDir;\nuniform float skyScale;")
-      // Horizon → zenith gradient shape. Exterior.ts authors mix(horizon, zenith, pow(h, 0.55)),
-      // halfway to the zenith by 15° of elevation. Linear in sin(elevation): 74 % of the
-      // horizon value at 15°, 50 % at 30° — between CIE types 8 and 10 for a 35° sun, and
-      // the integral above. (Round 9's pow(h, 1.6) held 94 % to 15° and 82 % to 30°, which
-      // put the diffuse sky at 39 klux.)
-      .replace("pow(h, 0.55)", "h")
-      .replace("#include <tonemapping_fragment>", boost + "\n#include <tonemapping_fragment>");
+    const src = shader.fragmentShader;
+    const i0 = src.indexOf("float h = clamp(d.y, 0.0, 1.0);");
+    const i1 = src.indexOf("gl_FragColor = vec4(col, 1.0);");
+    if (i0 < 0 || i1 < 0) {
+      console.warn("[lighting] sky shader layout changed; physical sky not installed");
+      return;
+    }
+    const body = /* glsl */ `float h = clamp(d.y, 0.0, 1.0);
+        float c = clamp(dot(d, sunDir), 0.0, 1.0);
+        // Luminance relative to the horizon: linear in sin(elevation), times the aureole.
+        float circ = 0.5 * pow(c, 4.0) + 0.6 * pow(c, 32.0) + 1.5 * pow(c, 400.0);
+        float lum = mix(1.0, ${SKY_ZENITH_RATIO.toFixed(3)}, h) * (1.0 + circ);
+        // Chroma (unit luminance): pale horizon blue → deep zenith blue; whitened by the
+        // aureole (forward scatter) and by the dust band in the lowest 2°.
+        vec3 chroma = mix(horizon, zenith, pow(h, 0.5));
+        chroma = mix(chroma, vec3(1.03, 1.0, 0.95), clamp(circ * 0.8, 0.0, 0.85));
+        chroma = mix(chroma, vec3(1.037, 0.996, 0.934), smoothstep(0.035, 0.0, h) * 0.5);
+        vec3 col = chroma * lum;
+        float disc = smoothstep(0.999975, 0.999992, c) * 40.0;
+        col += sunColor * disc;
+        if (d.y < 0.0) col = mix(horizon, ground, clamp(-d.y * 6.0, 0.0, 1.0));
+        gl_FragColor = vec4(col * skyScale, 1.0);`;
+    shader.fragmentShader = src.slice(0, i0) + body + src.slice(i1 + "gl_FragColor = vec4(col, 1.0);".length);
+    shader.fragmentShader = shader.fragmentShader.replace("varying vec3 vDir;", "varying vec3 vDir;\nuniform float skyScale;");
   };
-  mat.customProgramCacheKey = () => "sky-scaled";
+  mat.customProgramCacheKey = () => "sky-physical-r3";
   mat.needsUpdate = true;
+}
+
+/**
+ * The three ridge rings (Exterior.ts buildHorizon) are unlit vertex-coloured meshes authored
+ * against the dome's display-scale near-white horizon (Y ≈ 0.905): rock 0.3, hazed crests
+ * toward 0.87. Rev 3 puts them in the sky's units — colour × horizon nits / 0.905 — so the
+ * near range sits ≈ 1.6 EV under the horizon sky, the far "ghost" range ≈ 0.9 EV under, and
+ * the hazed fraction takes the sky's chroma (aerial perspective IS skylight). They leave the
+ * scene fog: rev 2's 40 → 200 m fog to the horizon colour had them 70 % sky at 150 m, i.e.
+ * brighter than the blue behind them (critics: "mountains should sit ~1 EV below the sky").
+ */
+function scaleHorizonRings(scene: THREE.Scene): void {
+  const k = SKY_SCALE / 0.905;
+  const tint = SKY_HORIZON_CHROMA;
+  const c = new THREE.Color();
+  for (const name of ["horizon", "horizon-mid", "horizon-far"]) {
+    const mesh = scene.getObjectByName(name) as THREE.Mesh | undefined;
+    if (!mesh) continue;
+    const mat = mesh.material as THREE.MeshBasicMaterial;
+    if (mat.userData.skyScaled) continue;
+    mat.userData.skyScaled = true;
+    mat.fog = false;
+    const col = mesh.geometry.getAttribute("color") as THREE.BufferAttribute | undefined;
+    if (!col) continue;
+    for (let i = 0; i < col.count; i++) {
+      c.setRGB(col.getX(i), col.getY(i), col.getZ(i));
+      const t = THREE.MathUtils.clamp(luminance(c) / 0.87, 0, 1);
+      c.multiplyScalar(k);
+      c.r *= THREE.MathUtils.lerp(1, tint.r, t);
+      c.g *= THREE.MathUtils.lerp(1, tint.g, t);
+      c.b *= THREE.MathUtils.lerp(1, tint.b, t);
+      col.setXYZ(i, c.r, c.g, c.b);
+    }
+    col.needsUpdate = true;
+  }
 }
 
 /* ------------------------------------------------------------------------- */

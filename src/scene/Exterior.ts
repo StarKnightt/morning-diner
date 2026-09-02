@@ -1203,7 +1203,15 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
   // Paint: faded clearcoat under a dust film (carDust: sills and roof/hood dusty, flanks clean)
   const dustW = ext.carDust(512, 3330), dustM = ext.carDust(512, 3331);
   const whitePaint = skyFill(new THREE.MeshPhysicalMaterial({ color: 0xdcd9ce, map: dustW.map, roughnessMap: dustW.roughnessMap, roughness: 1, metalness: 0, clearcoat: 0.35, clearcoatRoughness: 0.4, envMapIntensity: 0.7 }), 0.2);
-  const maroonPaint = skyFill(new THREE.MeshPhysicalMaterial({ color: 0x3a1014, map: dustM.map, roughnessMap: dustM.roughnessMap, roughness: 0.85, metalness: 0, clearcoat: 0.7, clearcoatRoughness: 0.22, envMapIntensity: 1 }), 0.2);
+  // Rev 3 (System 4): specularIntensity 0.35 on the base under the coat. three sums the coat's
+  // Fresnel (0.7 × 0.19 at the 70° the `lot-shadow` camera sees the hood at) with the base's
+  // own full dielectric Fresnel (0.19) → 0.30 of the sky where a coated paint reflects ≈ 0.20
+  // (the coat's surface dominates; what enters the coat meets the base at the refracted angle
+  // and comes back through the coat's own interface). At 0.30 the hood mirrored the circumsolar
+  // sky (≈ 9,000 nits at 20° from the sun) at 2,700 nits — the critics' lilac hood "with a hard
+  // edge to maroon"; at 0.20 it is a 1,600-nit bluish sheen over the maroon and only the sun's
+  // highlight clips.
+  const maroonPaint = skyFill(new THREE.MeshPhysicalMaterial({ color: 0x3a1014, map: dustM.map, roughnessMap: dustM.roughnessMap, roughness: 0.85, metalness: 0, specularIntensity: 0.35, clearcoat: 0.7, clearcoatRoughness: 0.22, envMapIntensity: 1 }), 0.2);
   const grilleP = ext.grilleTexture(512, 8, 2, false, 3332), grilleS = ext.grilleTexture(512, 24, 6, true, 3333);
   const grillePickup = new THREE.MeshStandardMaterial({ map: grilleP.map, roughnessMap: grilleP.roughnessMap, roughness: 1, metalness: 0.6 });
   const grilleSedan = new THREE.MeshStandardMaterial({ map: grilleS.map, roughnessMap: grilleS.roughnessMap, roughness: 1, metalness: 0.8 });

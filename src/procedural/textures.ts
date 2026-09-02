@@ -1303,20 +1303,23 @@ export function prismLens(size: number, cells: number): { normalMap: THREE.Textu
  * the canvas is 1.0: the material's `emissiveIntensity` is then the lens's MEAN nits × K
  * and the peaks sit at ≈ 1.5× it. sRGB colour space, no repeat (one canvas = one lens).
  */
-export const TROFFER_LENS_HEADROOM = 1.6;
+export const TROFFER_LENS_HEADROOM = 2.4;
 export function trofferLens(w: number, h: number, tubes: number, cells: number): { emissiveMap: THREE.Texture } {
   const { c, ctx } = canvas(w, h);
   const img = ctx.createImageData(w, h);
   const vals = new Float32Array(w * h);
-  const sigma = 0.07; // band half-width as a fraction of the lens's short side (0.51 m → ≈ 36 mm)
+  const sigma = tubes <= 2 ? 0.085 : 0.07; // band half-width as a fraction of the lens's short side (0.51 m → 43 / 36 mm)
   let sum = 0;
   for (let y = 0; y < h; y++) {
     const v = (y + 0.5) / h;
     // Lamp bands: `tubes` gaussians centred at (k + 0.5) / tubes, on a diffuse floor.
-    let band = 0.55;
+    // Two-lamp fixture (rev 3): floor 0.30, band 2.0 → mean ≈ 1.15, bar peak ≈ 2.2× mean,
+    // valley between the bars ≈ 0.3× — the bars clip (TROFFER_LENS_NITS × 2.2 ≈ 10,200 nits
+    // against the camera's 9,600) while the mean stays the fixture's photometric value.
+    let band = tubes <= 2 ? 0.3 : 0.55;
     for (let k = 0; k < tubes; k++) {
       const d = (v - (k + 0.5) / tubes) / sigma;
-      band += 1.05 * Math.exp(-0.5 * d * d);
+      band += (tubes <= 2 ? 2.0 : 1.05) * Math.exp(-0.5 * d * d);
     }
     // Housing walls along the long edges shade the outermost 25 mm of lens.
     const edge = smoothstep(0.0, 0.05, v) * smoothstep(1.0, 0.95, v);
@@ -1337,7 +1340,7 @@ export function trofferLens(w: number, h: number, tubes: number, cells: number):
   const norm = (w * h) / sum;
   for (let i = 0; i < w * h; i++) {
     // Encode linear radiance as sRGB (the map is read back as an sRGB colour texture).
-    const lin = Math.min(1, (vals[i] * norm) / TROFFER_LENS_HEADROOM); // peaks ≈ 1.5× mean → 0.94 of the encodable range
+    const lin = Math.min(1, (vals[i] * norm) / TROFFER_LENS_HEADROOM); // peaks ≈ 2.2× mean → 0.92 of the encodable range
     const s = lin <= 0.0031308 ? lin * 12.92 : 1.055 * Math.pow(lin, 1 / 2.4) - 0.055;
     const o = i * 4;
     img.data[o] = img.data[o + 1] = img.data[o + 2] = Math.round(s * 255);

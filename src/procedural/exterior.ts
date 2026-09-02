@@ -77,7 +77,10 @@ export function lotSurface(size: number, layout: LotLayout, seed: number): LotTe
       // Polished/bleached band where tyres run in the drive aisle (5.5–12 m out).
       const aisle = Math.exp(-(((zM - 8.7) / 2.2) ** 2)) * (0.6 + 0.4 * traffic(u * 3, v));
       const n = (drift(u, v) - 0.5) * 0.22 + (speck(u, v) - 0.5) * 0.42 + aisle * 0.1;
-      const g = 96 * (1 + n);
+      // sRGB 78 ≈ 0.075 linear: a weathered but not chalky asphalt (0.05–0.12). System 4 rev 3:
+      // was 96 (0.116), which under the sky put the lot only 0.9 EV under the desert sand; with
+      // the 4 % dielectric specular it now sits ≈ 1.8 EV under (sand ≈ 0.35 albedo).
+      const g = 78 * (1 + n);
       const i = (y * W + x) * 4;
       d[i] = g * 1.02; d[i + 1] = g; d[i + 2] = g * 0.96; d[i + 3] = 255;
       rough[y * W + x] = 0.86 + (speck(u, v) - 0.5) * 0.1 - aisle * 0.08;
@@ -254,14 +257,18 @@ export function lotSurface(size: number, layout: LotLayout, seed: number): LotTe
 
   // ---- parking lines: faded originals + offset re-stripe ------------------------------------
   const lineW = 0.1 * pxPerM;
+  const lineWear = makeFbm(seed + 7, 6, 2);
   const drawLine = (x: number, z0: number, z1: number, color: [number, number, number], coverage: number, wobble: number) => {
     const [px0, py0] = toPx(x, z0);
     const [, py1] = toPx(x, z1);
     const segs = 40;
+    const phase = rng() * 10;
     for (let s = 0; s < segs; s++) {
       const t0 = s / segs, t1 = (s + 1) / segs;
-      // Lines erode most at the aisle end (t → 1) and where wheels cross them.
-      const wear = coverage * (1 - 0.55 * t0 ** 2) * (0.75 + 0.5 * rng());
+      // Lines erode most at the aisle end (t → 1) and where wheels cross them. The along-line
+      // variation is a smooth noise (System 4 rev 3; the per-segment random of rev 4 made
+      // 140 mm dark dashes that both critics read as shadows landing on the paint alone).
+      const wear = coverage * (1 - 0.55 * t0 ** 2) * (0.78 + 0.44 * lineWear(t0 * 2 + phase, phase * 0.37));
       const a = clamp(wear, 0, 1);
       if (a < 0.06) continue;
       ctx.fillStyle = `rgba(${color[0]},${color[1]},${color[2]},${a.toFixed(3)})`;

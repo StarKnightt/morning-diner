@@ -121,8 +121,15 @@ function appendSlat(out: { pos: number[]; nor: number[]; uv: number[]; col: numb
     const t = tiltAt(x), c = Math.cos(t), s = Math.sin(t);
     o.push(0, ny * c - nz * s, ny * s + nz * c);
   };
+  // Winding: every caller lists its corners counter-clockwise in the (x, v) chart, which in
+  // world (x, z) is clockwise seen from +y — a geometric normal pointing DOWN, opposite the
+  // authored normal N() (up, the crown's convex face). Emit c before b so the front face is
+  // the up face. System 4 rev 3: with the two disagreeing, three's DoubleSide flip
+  // (`normal *= faceDirection`) turned the room-facing up face's normal down-and-street for
+  // every fragment, so the sun (which lights the up face at cos 0.26 through the gap above)
+  // contributed nothing and the slats read as a dark grille from every interior pose.
   const tri = (a: [number, number], b: [number, number], c: [number, number]) => {
-    for (const [x, v] of [a, b, c]) {
+    for (const [x, v] of [a, c, b]) {
       P(x, v, out.pos);
       N(x, v, out.nor);
       out.uv.push((x + xEnd) / length, v / w + 0.5);
