@@ -51,7 +51,7 @@
  * between them — a per-MAP caster list with no wasted depth draws.
  */
 import * as THREE from "three";
-import { BACK_BAR, BOOTH, CEILING, COUNTER, ROOM, STOOL, WINDOW, trofferCenter } from "./layout";
+import { BACK_BAR, BOOTH, CEILING, COUNTER, PASS_THROUGH, ROOM, STOOL, WINDOW, trofferCenter } from "./layout";
 
 /* ------------------------------------------------------------------------- */
 /* Units and exposure                                                         */
@@ -218,7 +218,7 @@ const SKY_HORIZON_NITS = 8_000;
  */
 const SKY_HORIZON_RGB = new THREE.Color(0.78, 0.86, 0.97);
 const SKY_ZENITH_RGB = new THREE.Color(0.25, 0.42, 0.8);
-const luminance = (c: THREE.Color) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+export const luminance = (c: THREE.Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
 const SKY_SCALE = nits(SKY_HORIZON_NITS) / luminance(SKY_HORIZON_RGB);
 /**
  * Sun inside the room, on the horizontal, averaged over the slat duty cycle: 90 klux ×
@@ -719,6 +719,28 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
     }
   }
 
+  /* ---------------- heat lamps over the pass-through shelf ---------------- */
+  // Two 250 W red R40 heat lamps (Shell.ts: shades at pass.a0 + 0.35 and pass.a1 − 0.35,
+  // 0.45 m over the shelf, 120 mm behind the wall). A clear 250 W R40 is ≈ 4,000 lm; the
+  // red coating passes ≈ 15 % → ≈ 600 lm each, 1,200 lm, colour ≈ (1.0, 0.45, 0.20) —
+  // one 60°-half-angle spot midway between them covers the whole 1.4 m shelf from 0.4 m:
+  // E ≈ (1,200/π) / 0.4² ≈ 2,400 lux at the shelf → the painted liner and jambs at ≈ 600
+  // nits, orange-red (middle grey, GREY_NITS), the stainless shelf showing the two bulbs.
+  // Rev 1 had nothing lighting the pass-through and both critics called it a black hole;
+  // this is what a diner pass-through looks like at any hour. `distance` 3 m clips it to
+  // the kitchen box + the back bar (decay 2 has it under 1 lux by 2.5 m anyway).
+  {
+    const pass = PASS_THROUGH;
+    const shelfY = pass.sill, lampY = shelfY + pass.heatLampAbove - 0.1;
+    const z = ROOM.zBack - T - 0.12;
+    const heat = new THREE.SpotLight(new THREE.Color(1.0, 0.45, 0.2), nits(1_200 / Math.PI), 3, THREE.MathUtils.degToRad(60), 0.6, 2);
+    heat.castShadow = false;
+    heat.name = "heat-lamp";
+    heat.position.set(pass.centerX, lampY, z);
+    heat.target.position.set(pass.centerX, shelfY, z + 0.05);
+    scene.add(heat, heat.target);
+  }
+
   return { sun, sunBeam, sunLot, cone: cone3, troffers, bounces, horizon };
 }
 
@@ -768,7 +790,17 @@ export function scaleSky(sky: THREE.Mesh, scale: number): void {
  * framebuffer, in linear light on the post pipeline's HDR target and in sRGB on the
  * default framebuffer (0.5 → 0.735 encoded ≈ ×0.5 decoded) — the same darkening either way.
  */
-export function buildContactShadows(parent: THREE.Object3D): THREE.Mesh {
+export interface ContactDisc {
+  x: number;
+  y: number;
+  z: number;
+  /** Full occlusion `ao` inside `r0`, fading to 0 at `r1`. */
+  r0: number;
+  r1: number;
+  ao: number;
+}
+
+export function buildContactShadows(parent: THREE.Object3D, extra: readonly ContactDisc[] = []): THREE.Mesh {
   const pos: number[] = [];
   const col: number[] = [];
   const idx: number[] = [];
@@ -807,10 +839,13 @@ export function buildContactShadows(parent: THREE.Object3D): THREE.Mesh {
     strip(new THREE.Vector3(x0, y0, z + nz * 0.0012), new THREE.Vector3(x1, y0, z + nz * 0.0012), new THREE.Vector3(0, dy, 0), height, ao);
   const faceX = (z0: number, z1: number, y0: number, x: number, nx: number, dy: number, height: number, ao: number) =>
     strip(new THREE.Vector3(x + nx * 0.0012, y0, z0), new THREE.Vector3(x + nx * 0.0012, y0, z1), new THREE.Vector3(0, dy, 0), height, ao);
-  /** Annulus on the floor around (x, z): full `ao` inside r0, fading to 0 at r1. */
-  const disc = (x: number, z: number, r0: number, r1: number, ao: number) => {
+  /**
+   * Annulus on a horizontal surface at height `y` (the floor by default) around (x, z):
+   * full `ao` inside r0, fading to 0 at r1; `sx`/`sz` stretch it to an ellipse.
+   */
+  const disc = (x: number, z: number, r0: number, r1: number, ao: number, sx = 1, sz = 1, y = Y) => {
     const N = 28;
-    const c = push(new THREE.Vector3(x, Y, z), ao);
+    const c = push(new THREE.Vector3(x, y, z), ao);
     const rings: number[][] = [];
     for (let i = 0; i <= STEPS; i++) {
       const t = i / STEPS;
@@ -818,7 +853,7 @@ export function buildContactShadows(parent: THREE.Object3D): THREE.Mesh {
       const ring: number[] = [];
       for (let k = 0; k < N; k++) {
         const a = (k / N) * Math.PI * 2;
-        ring.push(push(new THREE.Vector3(x + Math.cos(a) * r, Y, z + Math.sin(a) * r), ao * fall(t)));
+        ring.push(push(new THREE.Vector3(x + Math.cos(a) * r * sx, y, z + Math.sin(a) * r * sz), ao * fall(t)));
       }
       rings.push(ring);
     }
@@ -845,9 +880,18 @@ export function buildContactShadows(parent: THREE.Object3D): THREE.Mesh {
       const xa = cx + s * (seat.front - 0.02), xb = cx + s * divider.x0;
       floorX(Math.min(xa, xb), Math.max(xa, xb), zEnd0, -1, 0.14, 0.45);
     }
-    // Under the table between the seats: table above, seats both sides — a soft general shade.
-    floorX(cx - seat.front, cx + seat.front, zOuter, -1, 0.5, 0.3);
-    disc(cx, zInner + BOOTH.table.inset + 0.35, 0.22, 0.42, 0.35);
+    // Under the table: the top above, seats both sides, the wall behind — that floor sees
+    // only the 0.72 m opening to the aisle, ≈ 8 % of its hemisphere, and in photographs
+    // sits 2–3 EV under the aisle floor. Rev 1's 0.3 (×0.7) left a lit floor under every
+    // table (both critics: the booths "float"). Rev 2: an elliptical pool the size of the
+    // bay (0.7 × 1.0 m at full strength, fading past the seat fronts and 0.35 m out into
+    // the aisle mouth) at 0.6 (×0.4, −1.3 EV) — the probe still lights it, so this is the
+    // occlusion the probe lacks, not black — plus the pedestal bell's own contact ring
+    // and the wall corner on top.
+    const zTable = zInner + BOOTH.table.inset + 0.35;
+    disc(cx, zTable + 0.15, 0.3, 0.62, 0.6, 1.15, 1.6);
+    disc(cx, zTable, BOOTH.pedestal.bellR * 0.9, BOOTH.pedestal.bellR + 0.1, 0.5);
+    floorX(cx - seat.front, cx + seat.front, zOuter, -1, 0.2, 0.45);
   }
   // Dividers between booths and the end partitions: floor line at the aisle end.
   for (let i = 0; i < WINDOW.centersX.length - 1; i++) {
@@ -901,6 +945,12 @@ export function buildContactShadows(parent: THREE.Object3D): THREE.Mesh {
     cZ(ROOM.zBack, ROOM.zFront, -ROOM.halfX, 1);
     cZ(ROOM.zBack, ROOM.zFront, ROOM.halfX, -1);
   }
+
+  /* ---- props (Props.ts): mug feet and rims, saucers — 1.5 mm over their own surface ---- */
+  // Rev 1 had none: an inverted mug's rounded 3.5 mm rim is one texel of the 4096² sun map
+  // and the PCSS filter blurs it away, so every mug stood on a fully lit ring of mat/counter
+  // — "light leaking under the mugs". The fills cast nothing either.
+  for (const d of extra) disc(d.x, d.z, d.r0, d.r1, d.ao, 1, 1, d.y + 0.0015);
 
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));

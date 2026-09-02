@@ -7,7 +7,7 @@ import * as THREE from "three";
 import * as texModule from "../procedural/textures";
 import * as extModule from "../procedural/exterior";
 import { WINDOW } from "../scene/layout";
-import { FLUORESCENT, TROFFER_LENS_NITS, nits } from "../scene/Lighting";
+import { FLUORESCENT, TROFFER_LENS_NITS, luminance, nits } from "../scene/Lighting";
 import type { TextureBank } from "./textureBank";
 
 export interface Palette {
@@ -77,6 +77,8 @@ export interface Palette {
   fanBlade: THREE.MeshStandardMaterial;
   voidBlack: THREE.MeshBasicMaterial;
   kitchenDim: THREE.MeshStandardMaterial;
+  /** Red-coated R40 heat-lamp bulb face over the pass-through shelf (System 4 rev 2). */
+  heatLampBulb: THREE.MeshStandardMaterial;
   darkGlass: THREE.MeshStandardMaterial;
   concrete: THREE.MeshStandardMaterial;
   acUnit: THREE.MeshStandardMaterial;
@@ -527,6 +529,7 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     voidBlack: new THREE.MeshBasicMaterial({ color: 0x040404 }),
     // Nothing lights the kitchen box, so a little emissive stands in for its own ambient: dark, not black.
     kitchenDim: new THREE.MeshStandardMaterial({ color: 0x4a4744, roughness: 0.95, metalness: 0, emissive: 0x3a3632, emissiveIntensity: 0.55 }),
+    heatLampBulb: new THREE.MeshStandardMaterial({ color: 0x3a0c06, roughness: 0.3, metalness: 0, emissive: 0xff5a22, emissiveIntensity: 1 }),
     darkGlass: new THREE.MeshStandardMaterial({ color: 0x1c1b1a, roughness: 0.15, metalness: 0.4 }),
     concrete,
     acUnit: new THREE.MeshStandardMaterial({ color: 0xd8d6cf, roughness: 0.6, metalness: 0.2 }),
@@ -546,12 +549,23 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     if (m instanceof THREE.MeshStandardMaterial) m.envMapIntensity = 1;
   }
   // Emissives in nits × K (Lighting.ts: 1 unit = 10,000 nits); the radiance is intensity ×
-  // the emissive colour's luminance. Lit rocker switch ≈ 700 nits, red pilot lamp ≈ 700 nits,
-  // the unlit kitchen box ≈ 30 nits (grey paint under a 300-lux kitchen fluorescent:
-  // 0.3 × 300 / π). The troffer lens is set at its construction above (TROFFER_LENS_NITS).
+  // the emissive colour's luminance. Lit rocker switch ≈ 700 nits, red pilot lamp ≈ 700 nits.
+  // The troffer lens is set at its construction above (TROFFER_LENS_NITS).
   palette.rockerLit.emissiveIntensity = 0.15;
   palette.pilotRed.emissiveIntensity = 0.3;
-  palette.kitchenDim.emissiveIntensity = 0.07;
+  // Kitchen box (System 4 rev 2): rev 1 gave it 30 nits, "grey paint under a 300-lux
+  // fluorescent" — but that is a −4.3 EV hole at this exposure (GREY_NITS ≈ 600), and both
+  // critics read the pass-through as unlit. A working kitchen at 8 AM runs 500 lux at the
+  // work plane (IES kitchen standard) with the walls at 250–350 lux and a lot of stainless;
+  // as an emissive stand-in for the surfaces the heat-lamp spot (Lighting.ts) does not
+  // reach: 0.45 albedo × 450 lux / π ≈ 65 nits, −3.2 EV — dark, but in the camera curve's
+  // toe rather than under it, so the range hood and table read as shapes.
+  palette.kitchenDim.emissiveIntensity = nits(65) / luminance(palette.kitchenDim.emissive);
+  // Heat-lamp bulb face: a 250 W red R40 runs ≈ 2,800 K behind a red coating; the visible
+  // face of the reflector bulb is ≈ 8,000 nits (a 60 W frosted bulb is ≈ 12,000 nits; the
+  // coating passes ~15 % but the reflector concentrates it). +3.7 EV: clips to the paper
+  // white with a red fringe, as heat lamps do in every diner photograph.
+  palette.heatLampBulb.emissiveIntensity = nits(8_000) / luminance(palette.heatLampBulb.emissive);
 
   /* ---- System 5: wear variants, derived from the tuned base materials ----
    * Each clone inherits colour, gloss and envMapIntensity from its base *as tuned above*

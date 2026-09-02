@@ -86,8 +86,9 @@ export class Diner {
     await hooks.stage("Hanging the blinds", 7 / 8);
     const exterior = buildExterior(this.group, this.palette, sunDirection(), this.bank);
     // System 4: baked contact occlusion along every base line (nothing else in the rig
-    // shadows those regions). Casts nothing, so it stays out of the shadow-mask lists.
-    buildContactShadows(this.group);
+    // shadows those regions) and, rev 2, under the mugs and saucers. Casts nothing, so it
+    // stays out of the shadow-mask lists.
+    buildContactShadows(this.group, props.contactDiscs);
     this.pourMug = props.pourMug;
     this.coffeePot = props.coffeePot;
     this.fanRotor = ceiling.fanRotor;
