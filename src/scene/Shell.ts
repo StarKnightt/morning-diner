@@ -1,15 +1,16 @@
 /**
- * The building shell: floor, walls with window / door / pass-through / AC
- * openings, window frames and glass, sills, baseboards, roof slab, kitchen
- * void, and the exterior ground the player starts on.
+ * The building shell: floor, walls with window / door / pass-through / kitchen
+ * door openings (reveals show the 250 mm wall), window frames with transom and
+ * glass stops, sills with aprons, cove base, supply register, roof slab,
+ * kitchen void, and the exterior ground the player starts on.
  */
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
-import { AC_UNIT, DOOR, KITCHEN_DOOR, PASS_THROUGH, ROOM, WINDOW } from "./layout";
+import { DOOR, KITCHEN_DOOR, PASS_THROUGH, REGISTER, ROOM, WINDOW } from "./layout";
 
-interface Opening {
+export interface Opening {
   a0: number; // along-wall start
   a1: number; // along-wall end
   y0: number;
@@ -21,7 +22,7 @@ interface Opening {
  * openings. Columns are cut at every opening edge; each column has at most one
  * opening, so it becomes one box below and one above.
  */
-function punchedWall(
+export function punchedWall(
   a0: number,
   a1: number,
   y0: number,
@@ -75,7 +76,7 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     a0: cx - WINDOW.width / 2,
     a1: cx + WINDOW.width / 2,
     y0: WINDOW.sill,
-    y1: WINDOW.sill + WINDOW.height,
+    y1: WINDOW.head,
   }));
   const doorOpening: Opening = { a0: DOOR.hingeX, a1: DOOR.hingeX + DOOR.width, y0: yLow, y1: DOOR.height };
   const frontOpenings = [...windowOpenings, doorOpening];
@@ -84,14 +85,10 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     b.box(pal.wallPaint, [x0, y0, zFront], [x1, y1, zMid], uv);
     b.box(pal.wallPaintExt, [x0, y0, zMid], [x1, y1, zFront + T], uv);
   });
-  // Solid collision for the whole wall (door leaf is walk-through until System 7
-  // gives it a hinge; the opening itself stays open in the collider set).
-  for (const seg of [
-    [-halfX, DOOR.hingeX],
-    [DOOR.hingeX + DOOR.width, halfX],
-  ]) {
-    b.collider([seg[0], 0, zFront], [seg[1], H, zFront + T]);
-  }
+  // Solid collision for the whole wall except the door opening (the leaf is
+  // walk-through until System 7 gives it a hinge).
+  b.collider([-halfX, 0, zFront], [DOOR.hingeX, H, zFront + T]);
+  b.collider([DOOR.hingeX + DOOR.width, 0, zFront], [halfX, H, zFront + T]);
 
   /* ---------------- back partition to the kitchen, -z ---------------- */
   const pass: Opening = {
@@ -100,127 +97,152 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     y0: PASS_THROUGH.sill,
     y1: PASS_THROUGH.sill + PASS_THROUGH.height,
   };
-  punchedWall(-halfX, halfX, yLow, H, [pass], (x0, x1, y0, y1) => {
+  const kdoor: Opening = {
+    a0: KITCHEN_DOOR.centerX - KITCHEN_DOOR.width / 2,
+    a1: KITCHEN_DOOR.centerX + KITCHEN_DOOR.width / 2,
+    y0: yLow,
+    y1: KITCHEN_DOOR.height,
+  };
+  punchedWall(-halfX, halfX, yLow, H, [pass, kdoor], (x0, x1, y0, y1) => {
     b.box(pal.wallPaint, [x0, y0, zBack - T], [x1, y1, zBack], uv);
   });
   b.collider([-halfX, 0, zBack - T], [halfX, H, zBack]);
 
   /* ---------------- end walls, ±x ---------------- */
-  const acOpening: Opening = {
-    a0: AC_UNIT.z - AC_UNIT.w / 2,
-    a1: AC_UNIT.z + AC_UNIT.w / 2,
-    y0: AC_UNIT.centerY - AC_UNIT.h / 2,
-    y1: AC_UNIT.centerY + AC_UNIT.h / 2,
-  };
-  punchedWall(zBack - T, zFront + T, yLow, H, [acOpening], (z0, z1, y0, y1) => {
-    b.box(pal.wallPaint, [-halfX - T / 2, y0, z0], [-halfX, y1, z1], uv);
-    b.box(pal.wallPaintExt, [-halfX - T, y0, z0], [-halfX - T / 2, y1, z1], uv);
-  });
+  b.box(pal.wallPaint, [-halfX - T / 2, yLow, zBack - T], [-halfX, H, zFront + T], uv);
+  b.box(pal.wallPaintExt, [-halfX - T, yLow, zBack - T], [-halfX - T / 2, H, zFront + T], uv);
   b.box(pal.wallPaint, [halfX, yLow, zBack - T], [halfX + T / 2, H, zFront + T], uv);
   b.box(pal.wallPaintExt, [halfX + T / 2, yLow, zBack - T], [halfX + T, H, zFront + T], uv);
   b.collider([-halfX - T, 0, zBack - T], [-halfX, H, zFront + T]);
   b.collider([halfX, 0, zBack - T], [halfX + T, H, zFront + T]);
 
-  /* ---------------- window AC unit ---------------- */
+  /* ---------------- supply register, high on the -x wall ---------------- */
   {
-    const x0 = -halfX - 0.45, x1 = -halfX + 0.15;
-    const z0 = acOpening.a0, z1 = acOpening.a1, y0 = acOpening.y0, y1 = acOpening.y1;
-    b.box(pal.acUnit, [x0, y0, z0], [x1, y1, z1]);
-    // Interior face: recessed grey louvre grille with horizontal slats, and a
-    // control strip along the bottom.
-    b.box(pal.kickPanel, [x1 - 0.004, y0 + 0.09, z0 + 0.03], [x1 + 0.002, y1 - 0.03, z1 - 0.03]);
-    for (let y = y0 + 0.11; y < y1 - 0.04; y += 0.03) {
-      b.box(pal.acUnit, [x1 + 0.002, y, z0 + 0.03], [x1 + 0.012, y + 0.012, z1 - 0.03]);
+    const { z, w, h, top } = REGISTER;
+    const z0 = z - w / 2, z1 = z + w / 2, y1 = top, y0 = top - h;
+    const xf = -halfX; // wall face
+    // Recess (dark) behind the louvres
+    b.box(pal.kickPanel, [xf - 0.03, y0 + 0.02, z0 + 0.02], [xf + 0.001, y1 - 0.02, z1 - 0.02]);
+    // Painted frame, 25 mm face
+    const f = 0.025;
+    b.rbox(pal.trimPaint, [xf, y0, z0], [xf + 0.012, y1, z0 + f], 0.002);
+    b.rbox(pal.trimPaint, [xf, y0, z1 - f], [xf + 0.012, y1, z1], 0.002);
+    b.rbox(pal.trimPaint, [xf, y0, z0 + f], [xf + 0.012, y0 + f, z1 - f], 0.002);
+    b.rbox(pal.trimPaint, [xf, y1 - f, z0 + f], [xf + 0.012, y1, z1 - f], 0.002);
+    // Louvres: angled slats every 25 mm
+    for (let y = y0 + f + 0.012; y < y1 - f - 0.01; y += 0.025) {
+      const g = new THREE.BoxGeometry(0.018, 0.004, z1 - z0 - 2 * f - 0.004);
+      g.rotateZ(THREE.MathUtils.degToRad(-35));
+      g.translate(xf + 0.004, y, z);
+      b.add(g, pal.trimPaint);
     }
-    b.box(pal.darkMetal, [x1 - 0.002, y0 + 0.03, z0 + 0.03], [x1 + 0.004, y0 + 0.07, z1 - 0.03]);
   }
 
-  /* ---------------- window frames, glass, sills, casing ---------------- */
-  const fw = 0.05; // frame member width
-  const fd = 0.1; // frame depth (z)
+  /* ---------------- window frames, transoms, stops, glass, sills ---------------- */
+  const fw = 0.04; // frame face
+  const fd = 0.06; // frame depth (z)
   const zF0 = zMid - fd / 2, zF1 = zMid + fd / 2;
+  const stop = 0.015;
   const glassGeos: THREE.BufferGeometry[] = [];
+  const pane = (x0: number, x1: number, y0: number, y1: number) => {
+    const g = new THREE.PlaneGeometry(x1 - x0, y1 - y0);
+    g.translate((x0 + x1) / 2, (y0 + y1) / 2, zMid);
+    glassGeos.push(g);
+    // Glass stops on both faces
+    for (const [za, zb] of [
+      [zF0 - stop, zF0],
+      [zF1, zF1 + stop],
+    ]) {
+      b.box(pal.alum, [x0, y0, za], [x1, y0 + stop, zb]);
+      b.box(pal.alum, [x0, y1 - stop, za], [x1, y1, zb]);
+      b.box(pal.alum, [x0, y0 + stop, za], [x0 + stop, y1 - stop, zb]);
+      b.box(pal.alum, [x1 - stop, y0 + stop, za], [x1, y1 - stop, zb]);
+    }
+  };
   for (const o of windowOpenings) {
     const { a0: x0, a1: x1, y0, y1 } = o;
+    // Perimeter frame members
     b.box(pal.alum, [x0, y0, zF0], [x0 + fw, y1, zF1]);
     b.box(pal.alum, [x1 - fw, y0, zF0], [x1, y1, zF1]);
     b.box(pal.alum, [x0 + fw, y1 - fw, zF0], [x1 - fw, y1, zF1]);
     b.box(pal.alum, [x0 + fw, y0, zF0], [x1 - fw, y0 + fw, zF1]);
-    // Glass pane
-    const g = new THREE.PlaneGeometry(x1 - x0 - fw * 2, y1 - y0 - fw * 2);
-    g.translate((x0 + x1) / 2, (y0 + y1) / 2, zMid);
-    glassGeos.push(g);
-    // Interior sill: painted wood, projects 0.12 m into the room.
-    b.box(pal.trimPaint, [x0 - 0.07, y0 - 0.04, zFront - 0.12], [x1 + 0.07, y0, zFront + 0.01]);
-    // Interior casing around the opening.
-    const cw = 0.07, ct = 0.015;
-    b.box(pal.trimPaint, [x0 - cw, y0 - 0.04, zFront - ct], [x0, y1 + cw, zFront]);
-    b.box(pal.trimPaint, [x1, y0 - 0.04, zFront - ct], [x1 + cw, y1 + cw, zFront]);
-    b.box(pal.trimPaint, [x0, y1, zFront - ct], [x1, y1 + cw, zFront]);
-  }
-  {
-    // One mesh for all panes (transparent, drawn after opaque).
-    const mergedGlass = new THREE.Mesh(mergeGeometries(glassGeos, false)!, pal.glass);
-    mergedGlass.renderOrder = 10;
-    mergedGlass.name = "window-glass";
-    parent.add(mergedGlass);
+    // Transom bar
+    const ty = WINDOW.transomY;
+    b.box(pal.alum, [x0 + fw, ty - fw / 2, zF0], [x1 - fw, ty + fw / 2, zF1]);
+    // Panes
+    pane(x0 + fw, x1 - fw, y0 + fw, ty - fw / 2);
+    pane(x0 + fw, x1 - fw, ty + fw / 2, y1 - fw);
+    // Interior sill: 40 mm nosing, projects 100 mm, meets the frame; apron below.
+    b.rbox(pal.trimPaint, [x0 - 0.06, y0 - 0.04, zFront - 0.1], [x1 + 0.06, y0, zF0], 0.008, 3);
+    b.rbox(pal.trimPaint, [x0 - 0.05, y0 - 0.12, zFront - 0.016], [x1 + 0.05, y0 - 0.04, zFront], 0.003);
+    // Casing around the reveal on the interior face (60 × 12 mm)
+    const cw = 0.06, ct = 0.012;
+    b.rbox(pal.trimPaint, [x0 - cw, y0 - 0.12, zFront - ct], [x0, y1 + cw, zFront], 0.002);
+    b.rbox(pal.trimPaint, [x1, y0 - 0.12, zFront - ct], [x1 + cw, y1 + cw, zFront], 0.002);
+    b.rbox(pal.trimPaint, [x0, y1, zFront - ct], [x1, y1 + cw, zFront], 0.002);
   }
 
   /* ---------------- door frame (leaf is built in Door.ts) ---------------- */
   {
     const x0 = doorOpening.a0, x1 = doorOpening.a1;
-    const jw = 0.05, jd = 0.12;
+    const jw = DOOR.jamb, jd = 0.1;
     const z0 = zMid - jd / 2, z1 = zMid + jd / 2;
-    b.box(pal.alum, [x0 - jw, 0, z0], [x0, DOOR.height + jw, z1]);
-    b.box(pal.alum, [x1, 0, z0], [x1 + jw, DOOR.height + jw, z1]);
-    b.box(pal.alum, [x0, DOOR.height, z0], [x1, DOOR.height + jw, z1]);
-    // Threshold plate
-    b.box(pal.alum, [x0, -0.002, zFront - 0.02], [x1, 0.012, zFront + T + 0.02]);
+    // Jambs and head sit inside the rough opening, so the wall reveal shows around them.
+    b.box(pal.alum, [x0, 0, z0], [x0 + jw, DOOR.height, z1]);
+    b.box(pal.alum, [x1 - jw, 0, z0], [x1, DOOR.height, z1]);
+    b.box(pal.alum, [x0 + jw, DOOR.height - jw, z0], [x1 - jw, DOOR.height, z1]);
+    // Threshold plate across the full wall depth
+    b.rbox(pal.alum, [x0, -0.002, zFront - 0.02], [x1, 0.012, zFront + T + 0.02], 0.003);
   }
 
-  /* ---------------- kitchen swing door (closed, in the partition) ---------------- */
+  /* ---------------- kitchen swing door (closed, inside its opening) ---------------- */
   {
-    const { centerX, width, height } = KITCHEN_DOOR;
-    const x0 = centerX - width / 2, x1 = centerX + width / 2;
-    const z0 = zBack, z1 = zBack + 0.045;
-    // Painted frame casing
-    b.box(pal.trimPaint, [x0 - 0.06, 0, z0], [x0, height + 0.06, z1 + 0.01]);
-    b.box(pal.trimPaint, [x1, 0, z0], [x1 + 0.06, height + 0.06, z1 + 0.01]);
-    b.box(pal.trimPaint, [x0, height, z0], [x1, height + 0.06, z1 + 0.01]);
-    // Leaf: laminate with a stainless kick plate and a small porthole into the dark kitchen
-    b.box(pal.laminateWood, [x0 + 0.005, 0.015, z0 + 0.001], [x1 - 0.005, height - 0.005, z1]);
-    b.box(pal.stainless, [x0 + 0.03, 0.03, z1], [x1 - 0.03, 0.4, z1 + 0.003]);
-    b.box(pal.stainless, [x0 + 0.03, 0.9, z1], [x1 - 0.03, 0.96, z1 + 0.02]); // push plate rail
-    const port = new THREE.BoxGeometry(0.3, 0.4, 0.02);
-    port.translate(centerX, 1.55, z1);
+    const { a0: x0, a1: x1, y1: h } = kdoor;
+    const cx = (x0 + x1) / 2;
+    const zLeaf0 = zBack - T / 2 - 0.02, zLeaf1 = zBack - T / 2 + 0.02;
+    // Leaf
+    b.rbox(pal.laminateWood, [x0 + 0.005, 0.015, zLeaf0], [x1 - 0.005, h - 0.008, zLeaf1], 0.003);
+    // Kick plate and push plate (dining side, +z)
+    b.rbox(pal.stainless, [x0 + 0.03, 0.03, zLeaf1], [x1 - 0.03, 0.4, zLeaf1 + 0.003], 0.001);
+    b.rbox(pal.stainless, [x0 + 0.03, 0.9, zLeaf1], [x1 - 0.03, 0.96, zLeaf1 + 0.02], 0.003);
+    // Vision window into the dark kitchen
+    const vw = 0.25, vh = 0.35, vy = 1.6;
+    const port = new THREE.BoxGeometry(vw, vh, 0.05);
+    port.translate(cx, vy, (zLeaf0 + zLeaf1) / 2);
     b.add(port, pal.voidBlack);
-    b.box(pal.stainless, [centerX - 0.17, 1.33, z1 - 0.001], [centerX + 0.17, 1.35, z1 + 0.012]);
-    b.box(pal.stainless, [centerX - 0.17, 1.75, z1 - 0.001], [centerX + 0.17, 1.77, z1 + 0.012]);
-    b.box(pal.stainless, [centerX - 0.17, 1.33, z1 - 0.001], [centerX - 0.15, 1.77, z1 + 0.012]);
-    b.box(pal.stainless, [centerX + 0.15, 1.33, z1 - 0.001], [centerX + 0.17, 1.77, z1 + 0.012]);
+    const vf = 0.02;
+    b.rbox(pal.stainless, [cx - vw / 2 - vf, vy - vh / 2 - vf, zLeaf0 - 0.002], [cx + vw / 2 + vf, vy - vh / 2, zLeaf1 + 0.006], 0.002);
+    b.rbox(pal.stainless, [cx - vw / 2 - vf, vy + vh / 2, zLeaf0 - 0.002], [cx + vw / 2 + vf, vy + vh / 2 + vf, zLeaf1 + 0.006], 0.002);
+    b.rbox(pal.stainless, [cx - vw / 2 - vf, vy - vh / 2, zLeaf0 - 0.002], [cx - vw / 2, vy + vh / 2, zLeaf1 + 0.006], 0.002);
+    b.rbox(pal.stainless, [cx + vw / 2, vy - vh / 2, zLeaf0 - 0.002], [cx + vw / 2 + vf, vy + vh / 2, zLeaf1 + 0.006], 0.002);
+    // Painted jamb casings (100 mm) and header on the dining face
+    const j = KITCHEN_DOOR.jamb, ct = 0.015;
+    b.rbox(pal.trimPaint, [x0 - j, 0, zBack], [x0, h + j, zBack + ct], 0.002);
+    b.rbox(pal.trimPaint, [x1, 0, zBack], [x1 + j, h + j, zBack + ct], 0.002);
+    b.rbox(pal.trimPaint, [x0, h, zBack], [x1, h + j, zBack + ct], 0.002);
   }
 
-  /* ---------------- pass-through shelf ---------------- */
+  /* ---------------- pass-through liner, shelf, header ---------------- */
   {
-    const x0 = pass.a0 - 0.06, x1 = pass.a1 + 0.06;
-    b.box(pal.stainless, [x0, pass.y0 - 0.03, zBack - T - 0.05], [x1, pass.y0, zBack + 0.12]);
-    // Stainless jamb liner
-    b.box(pal.stainless, [pass.a0 - 0.02, pass.y0, zBack - T - 0.005], [pass.a0, pass.y1 + 0.02, zBack + 0.005]);
-    b.box(pal.stainless, [pass.a1, pass.y0, zBack - T - 0.005], [pass.a1 + 0.02, pass.y1 + 0.02, zBack + 0.005]);
-    b.box(pal.stainless, [pass.a0 - 0.02, pass.y1, zBack - T - 0.005], [pass.a1 + 0.02, pass.y1 + 0.02, zBack + 0.005]);
+    const j = PASS_THROUGH.jamb;
+    const z0 = zBack - T - 0.005, z1 = zBack + 0.005;
+    b.rbox(pal.stainless, [pass.a0 - j, pass.y0, z0], [pass.a0, pass.y1 + j, z1], 0.002);
+    b.rbox(pal.stainless, [pass.a1, pass.y0, z0], [pass.a1 + j, pass.y1 + j, z1], 0.002);
+    b.rbox(pal.stainless, [pass.a0, pass.y1, z0], [pass.a1, pass.y1 + j, z1], 0.002);
+    // 250 mm shelf, projecting into the dining side
+    b.rbox(pal.stainless, [pass.a0 - j - 0.02, pass.y0 - 0.03, zBack - T + 0.03], [pass.a1 + j + 0.02, pass.y0, zBack - T + 0.03 + PASS_THROUGH.shelfDepth], 0.004, 3);
   }
 
-  /* ---------------- baseboards (black rubber) ---------------- */
+  /* ---------------- cove base (100 × 12 mm) ---------------- */
   {
     const bh = 0.1, bt = 0.012;
-    // Front wall, either side of the door.
-    b.box(pal.baseboard, [-halfX, 0, zFront - bt], [DOOR.hingeX - 0.05, bh, zFront]);
-    b.box(pal.baseboard, [DOOR.hingeX + DOOR.width + 0.05, 0, zFront - bt], [halfX, bh, zFront]);
-    // Back partition (behind the back bar; visible only at the open end).
-    b.box(pal.baseboard, [-halfX, 0, zBack], [halfX, bh, zBack + bt]);
-    // End walls.
-    b.box(pal.baseboard, [-halfX, 0, zBack], [-halfX + bt, bh, zFront]);
-    b.box(pal.baseboard, [halfX - bt, 0, zBack], [halfX, bh, zFront]);
+    const base = (min: [number, number, number], max: [number, number, number]) => b.rbox(pal.baseboard, min, max, 0.004, 2);
+    base([-halfX, 0, zFront - bt], [DOOR.hingeX, bh, zFront]);
+    base([DOOR.hingeX + DOOR.width, 0, zFront - bt], [halfX, bh, zFront]);
+    base([-halfX, 0, zBack], [kdoor.a0 - KITCHEN_DOOR.jamb, bh, zBack + bt]);
+    base([kdoor.a1 + KITCHEN_DOOR.jamb, 0, zBack], [halfX, bh, zBack + bt]);
+    base([-halfX, 0, zBack], [-halfX + bt, bh, zFront]);
+    base([halfX - bt, 0, zBack], [halfX, bh, zFront]);
   }
 
   /* ---------------- roof slab / parapet (exterior only) ---------------- */
@@ -230,28 +252,22 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
   {
     const g = new THREE.BoxGeometry(halfX * 2 + 0.4, H + slabDrop, 3.4);
     g.translate(0, (H - slabDrop) / 2, zBack - T - 1.7);
-    const voidBox = new THREE.Mesh(g, pal.voidBlack);
-    (voidBox.material as THREE.MeshBasicMaterial).side = THREE.BackSide;
+    const voidMat = pal.voidBlack.clone();
+    voidMat.side = THREE.BackSide;
+    const voidBox = new THREE.Mesh(g, voidMat);
     voidBox.name = "kitchen-void";
     parent.add(voidBox);
     // A dark shape: range hood silhouette, barely distinguishable from the void.
-    const hood = new THREE.Mesh(
-      new THREE.BoxGeometry(2.2, 0.5, 0.9),
-      new THREE.MeshBasicMaterial({ color: 0x0c0b0a }),
-    );
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.5, 0.9), new THREE.MeshBasicMaterial({ color: 0x0c0b0a }));
     hood.position.set(-0.5, 2.15, zBack - T - 1.6);
     parent.add(hood);
-    const range = new THREE.Mesh(
-      new THREE.BoxGeometry(1.5, 0.95, 0.8),
-      new THREE.MeshBasicMaterial({ color: 0x0a0909 }),
-    );
+    const range = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.95, 0.8), new THREE.MeshBasicMaterial({ color: 0x0a0909 }));
     range.position.set(-0.5, 0.475, zBack - T - 1.6);
     parent.add(range);
   }
 
   /* ---------------- exterior ground ---------------- */
   {
-    // Concrete apron in front of the diner, top flush with the interior floor.
     b.box(pal.concrete, [-halfX - 1.5, yLow, zFront + T], [halfX + 1.5, 0, zFront + T + 1.8], { uvScale: 1 });
     const g = new THREE.PlaneGeometry(90, 90);
     g.rotateX(-Math.PI / 2);
@@ -261,6 +277,12 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     lot.name = "lot";
     parent.add(lot);
   }
+
+  // Glass last: one transparent mesh for all panes.
+  const glass = new THREE.Mesh(mergeGeometries(glassGeos, false)!, pal.glass);
+  glass.renderOrder = 10;
+  glass.name = "window-glass";
+  parent.add(glass);
 
   b.build(parent, { name: "shell" });
   return { colliders: b.colliders };

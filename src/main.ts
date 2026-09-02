@@ -28,7 +28,9 @@ document.body.appendChild(renderer.domElement);
 if (DEBUG) console.log(`[gpu] ${gpuRendererString(renderer)}`);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.05, 200);
+// Vertical FOV 37° ≈ 61° horizontal at 16:9 — a 32 mm full-frame equivalent.
+// Wider lenses skew every near edge into a trapezoid and read as a game.
+const camera = new THREE.PerspectiveCamera(37, window.innerWidth / window.innerHeight, 0.05, 200);
 
 const diner = new Diner(scene, renderer);
 const player = new FirstPerson(camera, renderer.domElement, diner.colliders);

@@ -1,88 +1,97 @@
 /**
- * Five booths against the window wall: pedestal table with chrome-banded
- * formica top, two facing vinyl benches, laminate dividers between the
- * back-to-back benches. Detail (rolled cushions, napkin dispensers, condiments)
- * is System 2.
+ * Five booths against the window wall, 1.8 m pitch. Each: a formica table with
+ * rounded corners, bullnose and chrome band on a real pedestal; two facing
+ * benches with 140 mm cushions on a plinth and kick, reclined wedge backs with
+ * a rolled top; laminate dividers and end panels with 30 mm caps.
+ * Props (napkin dispensers, condiments, menus) are System 2.
  */
 import * as THREE from "three";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
+import { prismXY, rectXZ, slabGeometry } from "../core/shapes";
 import { BOOTH, ROOM, WINDOW } from "./layout";
 
 export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: MergedBuilder["colliders"] } {
   const b = new MergedBuilder();
-  const zWall = ROOM.zFront;
-  const zOuter = zWall - 0.05; // 5 cm gap to the wall
-  const zInner = zOuter - BOOTH.bench.length;
-  const { table, bench, benchOffset } = BOOTH;
+  const { zInner, zOuter, table, seat, back, divider, cap, kick } = BOOTH;
+  const zEnd0 = zInner - 0.04; // end panel thickness
 
   for (const cx of WINDOW.centersX) {
     /* ---- table ---- */
-    const tx0 = cx - table.width / 2, tx1 = cx + table.width / 2;
-    const tz1 = zOuter, tz0 = zOuter - table.length;
-    const topY1 = table.top, topY0 = table.top - table.thickness;
-    b.box(pal.formica, [tx0, topY0, tz0], [tx1, topY1, tz1]);
-    // Chrome edge band: four thin strips wrapping the top edge.
-    const bt = 0.012, by0 = topY0 - 0.006, by1 = topY1 + 0.002;
-    b.box(pal.formicaEdge, [tx0 - bt, by0, tz0 - bt], [tx0, by1, tz1 + bt]);
-    b.box(pal.formicaEdge, [tx1, by0, tz0 - bt], [tx1 + bt, by1, tz1 + bt]);
-    b.box(pal.formicaEdge, [tx0, by0, tz0 - bt], [tx1, by1, tz0]);
-    b.box(pal.formicaEdge, [tx0, by0, tz1], [tx1, by1, tz1 + bt]);
-    // Pedestal: chrome column on a weighted base.
-    const pz = (tz0 + tz1) / 2 + 0.1;
-    const col = new THREE.CylinderGeometry(0.035, 0.035, topY0 - 0.03, 20);
-    col.translate(cx, 0.03 + (topY0 - 0.03) / 2, pz);
-    b.add(col, pal.chrome);
-    const base = new THREE.CylinderGeometry(0.22, 0.26, 0.03, 28);
-    base.translate(cx, 0.015, pz);
-    b.add(base, pal.chrome);
-    const plate = new THREE.BoxGeometry(0.5, 0.02, 0.5);
-    plate.translate(cx, topY0 - 0.01, pz);
-    b.add(plate, pal.darkMetal);
-    b.collider([tx0, 0, tz0], [tx1, topY1, tz1]);
+    {
+      const pts = rectXZ(cx - table.width / 2, zInner, cx + table.width / 2, zOuter);
+      const [slab, band] = slabGeometry(pts, {
+        radius: table.cornerR,
+        y0: table.top - table.thickness,
+        thickness: table.thickness,
+        bevel: 0.012,
+        bandHeight: table.band,
+        bandProud: 0.003,
+      });
+      b.add(slab, pal.formica);
+      if (band) b.add(band, pal.formicaEdge);
+      // Pedestal: 90 mm chrome column on a 400 × 600 cast foot, mount plate under the top.
+      const pz = (zInner + zOuter) / 2;
+      b.rbox(pal.darkMetal, [cx - 0.2, 0, pz - 0.3], [cx + 0.2, 0.025, pz + 0.3], 0.01, 3);
+      const col = new THREE.CylinderGeometry(0.045, 0.045, table.top - table.thickness - 0.035, 24);
+      col.translate(cx, 0.025 + (table.top - table.thickness - 0.035) / 2, pz);
+      b.add(col, pal.chrome);
+      b.rbox(pal.darkMetal, [cx - 0.15, table.top - table.thickness - 0.012, pz - 0.15], [cx + 0.15, table.top - table.thickness, pz + 0.15], 0.004);
+      b.collider([cx - table.width / 2, 0, zInner], [cx + table.width / 2, table.top, zOuter]);
+    }
 
     /* ---- benches ---- */
-    for (const side of [-1, 1]) {
-      const bcx = cx + side * benchOffset;
-      const bx0 = bcx - bench.depth / 2, bx1 = bcx + bench.depth / 2;
-      const outerX = side < 0 ? bx0 : bx1; // wall-facing (back) edge
-      const innerX = side < 0 ? bx1 : bx0; // table-facing edge
-      // Plinth (laminate), slightly inset.
-      b.box(pal.laminateWood, [bx0 + 0.02, 0, zInner + 0.02], [bx1 - 0.02, bench.seatHeight - 0.08, zOuter]);
-      // Seat cushion (vinyl).
-      b.box(pal.vinylRed, [bx0, bench.seatHeight - 0.08, zInner], [bx1, bench.seatHeight, zOuter]);
-      // Backrest (vinyl), slightly tilted look faked by a thicker top.
-      const backT = 0.11;
-      const bxA = side < 0 ? outerX : outerX - backT;
-      const bxB = side < 0 ? outerX + backT : outerX;
-      b.box(pal.vinylRed, [bxA, bench.seatHeight, zInner], [bxB, bench.backHeight - 0.03, zOuter]);
-      // Laminate cap on top of the back.
-      b.box(pal.laminateWood, [bxA - 0.01, bench.backHeight - 0.03, zInner - 0.01], [bxB + 0.01, bench.backHeight, zOuter]);
-      // End panel on the aisle end (laminate).
-      b.box(pal.laminateWood, [Math.min(bxA, innerX) - 0.005, 0, zInner - 0.02], [Math.max(bxB, innerX) + 0.005, bench.backHeight - 0.05, zInner]);
-      b.collider([bx0, 0, zInner - 0.02], [bx1, bench.backHeight, zOuter]);
+    for (const s of [-1, 1]) {
+      const X = (u: number) => cx + s * u; // booth-local x → world
+      const lo = (a: number, c: number) => Math.min(X(a), X(c));
+      const hi = (a: number, c: number) => Math.max(X(a), X(c));
+      const seatBack = seat.front + seat.depth; // 0.81
+      // Cushion (rounded 40 mm front edge)
+      b.rbox(pal.vinylRed, [lo(seat.front, seatBack), seat.top - seat.thickness, zInner], [hi(seat.front, seatBack), seat.top, zOuter], seat.edgeR, 4);
+      // Plinth (laminate) and kick (rubber, recessed 30 mm)
+      b.rbox(pal.laminateWood, [lo(seat.front + 0.01, divider.x0), kick, zInner], [hi(seat.front + 0.01, divider.x0), seat.top - seat.thickness, zOuter], 0.003);
+      b.box(pal.baseboard, [lo(seat.front + 0.04, divider.x0), 0, zInner], [hi(seat.front + 0.04, divider.x0), kick, zOuter]);
+      // Reclined wedge back: front face leans 8°, rear face vertical against the divider.
+      const lean = Math.tan(THREE.MathUtils.degToRad(back.reclineDeg)) * (back.top - (seat.top + 0.01));
+      const profile: Array<[number, number]> = [
+        [X(back.frontX), seat.top + 0.01],
+        [X(back.rearX), seat.top + 0.01],
+        [X(back.rearX), back.top],
+        [X(back.frontX + lean), back.top],
+      ];
+      b.add(prismXY(profile, zInner, zOuter, 0.008), pal.vinylRed);
+      // Rolled top cushion
+      const rollX = X((back.frontX + lean + back.rearX) / 2);
+      const roll = new THREE.CylinderGeometry(back.rollR, back.rollR, zOuter - zInner - 0.01, 24);
+      roll.rotateX(Math.PI / 2);
+      roll.translate(rollX, back.top - 0.005, (zInner + zOuter) / 2);
+      b.add(roll, pal.vinylRed);
+      // Aisle-end panel: from the seat front to the divider, full bench height, capped.
+      // (butts against the divider partition; no coplanar overlap)
+      b.rbox(pal.laminateWood, [lo(seat.front - 0.02, divider.x0), kick, zEnd0], [hi(seat.front - 0.02, divider.x0), cap.y0, zInner], 0.003);
+      b.box(pal.baseboard, [lo(seat.front + 0.01, divider.x0 - 0.005), 0, zEnd0 + 0.012], [hi(seat.front + 0.01, divider.x0 - 0.005), kick, zInner]);
+      b.rbox(pal.laminateWood, [lo(seat.front - 0.05, divider.x0 - cap.proud), cap.y0, zEnd0 - cap.proud], [hi(seat.front - 0.05, divider.x0 - cap.proud), cap.y1, zInner + 0.02], 0.004, 3);
+      b.collider([lo(seat.front - 0.05, divider.x0), 0, zEnd0 - cap.proud], [hi(seat.front - 0.05, divider.x0), cap.y1, zOuter]);
     }
   }
 
-  /* ---- dividers between back-to-back benches, and end fills ---- */
-  const backOut = benchOffset + bench.depth / 2; // 0.85
+  /* ---- dividers between back-to-back benches, and end partitions ---- */
+  const partition = (x0: number, x1: number) => {
+    b.rbox(pal.laminateWood, [x0, kick, zEnd0], [x1, cap.y0, zOuter], 0.003);
+    b.box(pal.baseboard, [x0 + 0.005, 0, zEnd0 + 0.012], [x1 - 0.005, kick, zOuter]);
+    b.rbox(pal.laminateWood, [x0 - cap.proud, cap.y0, zEnd0 - cap.proud], [x1 + cap.proud, cap.y1, zOuter], 0.004, 3);
+    b.collider([x0 - cap.proud, 0, zEnd0 - cap.proud], [x1 + cap.proud, cap.y1, zOuter]);
+  };
   for (let i = 0; i < WINDOW.centersX.length - 1; i++) {
-    const x0 = WINDOW.centersX[i] + backOut, x1 = WINDOW.centersX[i + 1] - backOut;
-    if (x1 > x0) {
-      b.box(pal.laminateWood, [x0 - 0.002, 0, zInner - 0.02], [x1 + 0.002, bench.backHeight, zOuter]);
-      b.collider([x0, 0, zInner - 0.02], [x1, bench.backHeight, zOuter]);
-    }
+    const x0 = WINDOW.centersX[i] + divider.x0, x1 = WINDOW.centersX[i + 1] - divider.x0;
+    partition(x0, x1);
   }
-  // Left end: fill to the wall.
+  // Left end: partition fills to the wall.
+  partition(-ROOM.halfX + 0.012, WINDOW.centersX[0] - divider.x0);
+  // Right end: proper end partition toward the door.
   {
-    const x1 = WINDOW.centersX[0] - backOut;
-    b.box(pal.laminateWood, [-ROOM.halfX + 0.012, 0, zInner - 0.02], [x1 + 0.002, bench.backHeight, zOuter]);
-    b.collider([-ROOM.halfX, 0, zInner - 0.02], [x1, bench.backHeight, zOuter]);
-  }
-  // Right end: exposed laminate end panel toward the door.
-  {
-    const x0 = WINDOW.centersX[WINDOW.centersX.length - 1] + backOut;
-    b.box(pal.laminateWood, [x0 - 0.002, 0, zInner - 0.02], [x0 + 0.03, bench.backHeight, zOuter]);
+    const x0 = WINDOW.centersX[WINDOW.centersX.length - 1] + divider.x0;
+    partition(x0, x0 + 0.04);
   }
 
   b.build(parent, { name: "booths" });

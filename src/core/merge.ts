@@ -4,12 +4,15 @@
  * hundreds. Also records AABB colliders for the player.
  */
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 export interface Collider {
   min: THREE.Vector3;
   max: THREE.Vector3;
 }
+
+export type V3 = [number, number, number];
 
 export class MergedBuilder {
   private buckets = new Map<THREE.Material, THREE.BufferGeometry[]>();
@@ -23,24 +26,30 @@ export class MergedBuilder {
     list.push(geometry);
   }
 
-  /** Axis-aligned box from min to max corners, in world space. */
-  box(
-    material: THREE.Material,
-    min: [number, number, number],
-    max: [number, number, number],
-    opts: { collide?: boolean; uvScale?: number } = {},
-  ): void {
+  /** Sharp axis-aligned box from min to max corners, in world space. */
+  box(material: THREE.Material, min: V3, max: V3, opts: { collide?: boolean; uvScale?: number } = {}): void {
     const w = max[0] - min[0], h = max[1] - min[1], d = max[2] - min[2];
     const g = new THREE.BoxGeometry(w, h, d);
     if (opts.uvScale) scaleBoxUv(g, w, h, d, opts.uvScale);
     g.translate((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
     this.add(g, material);
-    if (opts.collide) {
-      this.colliders.push({ min: new THREE.Vector3(...min), max: new THREE.Vector3(...max) });
-    }
+    if (opts.collide) this.collider(min, max);
   }
 
-  collider(min: [number, number, number], max: [number, number, number]): void {
+  /**
+   * Bevelled box: every edge rounded with `radius` (default 3 mm). Use for
+   * anything the camera can get close to; razor edges read as CG.
+   */
+  rbox(material: THREE.Material, min: V3, max: V3, radius = 0.003, segments = 2, opts: { collide?: boolean } = {}): void {
+    const w = max[0] - min[0], h = max[1] - min[1], d = max[2] - min[2];
+    const r = Math.min(radius, w / 2 - 1e-4, h / 2 - 1e-4, d / 2 - 1e-4);
+    const g = r > 1e-4 ? new RoundedBoxGeometry(w, h, d, segments, r) : new THREE.BoxGeometry(w, h, d);
+    g.translate((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
+    this.add(g, material);
+    if (opts.collide) this.collider(min, max);
+  }
+
+  collider(min: V3, max: V3): void {
     this.colliders.push({ min: new THREE.Vector3(...min), max: new THREE.Vector3(...max) });
   }
 
@@ -48,14 +57,17 @@ export class MergedBuilder {
   build(parent: THREE.Object3D, opts: { castShadow?: boolean; receiveShadow?: boolean; name?: string } = {}): THREE.Mesh[] {
     const out: THREE.Mesh[] = [];
     for (const [material, list] of this.buckets) {
-      const merged = list.length === 1 ? list[0] : mergeGeometries(list, false);
+      // mergeGeometries needs a consistent index state across inputs.
+      const anyNonIndexed = list.some((g) => !g.index);
+      const normalised = anyNonIndexed ? list.map((g) => (g.index ? g.toNonIndexed() : g)) : list;
+      const merged = normalised.length === 1 ? normalised[0] : mergeGeometries(normalised, false);
       if (!merged) continue;
       merged.computeBoundingBox();
       merged.computeBoundingSphere();
       const mesh = new THREE.Mesh(merged, material);
       mesh.castShadow = opts.castShadow ?? true;
       mesh.receiveShadow = opts.receiveShadow ?? true;
-      if (opts.name) mesh.name = `${opts.name}:${(material as THREE.Material).name || material.uuid.slice(0, 6)}`;
+      if (opts.name) mesh.name = `${opts.name}:${material.name || material.uuid.slice(0, 6)}`;
       parent.add(mesh);
       out.push(mesh);
     }

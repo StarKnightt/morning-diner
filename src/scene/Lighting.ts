@@ -4,7 +4,7 @@
  */
 import * as THREE from "three";
 import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
-import { CEILING, ROOM } from "./layout";
+import { CEILING, ROOM, trofferCenter } from "./layout";
 
 export interface LightingResult {
   sun: THREE.DirectionalLight;
@@ -41,15 +41,16 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   // stops under the sunlit patches, and that contrast is the picture.
   // The warm ground colour stands in for bounce off the sunlit floor and
   // tables until System 4 does it properly.
-  const hemi = new THREE.HemisphereLight(0xcfe0f5, 0xa8977f, 1.0);
+  const hemi = new THREE.HemisphereLight(0xcfe0f5, 0xbdb3a4, 1.0);
   scene.add(hemi);
   scene.add(new THREE.AmbientLight(0xfff2e2, 0.1));
 
   // Fluorescent troffers: low-intensity rect area lights under each lens.
   RectAreaLightUniformsLib.init();
-  for (const [x, z] of CEILING.troffers) {
-    const l = new THREE.RectAreaLight(0xfff0d8, 2.8, CEILING.troffer.w - 0.09, CEILING.troffer.d - 0.09);
-    l.position.set(x, ROOM.height - 0.01, z);
+  for (const cell of CEILING.troffers) {
+    const [x, z] = trofferCenter(cell);
+    const l = new THREE.RectAreaLight(0xfff0d8, 3.2, CEILING.tile * 2 - 0.09, CEILING.tile - 0.09);
+    l.position.set(x, ROOM.height - CEILING.teeDepth + 0.015, z);
     l.lookAt(x, 0, z);
     scene.add(l);
   }

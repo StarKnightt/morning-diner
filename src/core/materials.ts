@@ -23,6 +23,7 @@ export interface Palette {
   glass: THREE.MeshPhysicalMaterial;
   laminateWood: THREE.MeshStandardMaterial;
   kickPanel: THREE.MeshStandardMaterial;
+  tileBacking: THREE.MeshStandardMaterial;
   fixtureWhite: THREE.MeshStandardMaterial;
   fixtureLens: THREE.MeshStandardMaterial;
   fanBlade: THREE.MeshStandardMaterial;
@@ -76,10 +77,10 @@ export function createPalette(maxAnisotropy: number): Palette {
     trimPaint: new THREE.MeshStandardMaterial({ color: 0xf1ede2, roughness: 0.5, metalness: 0 }),
     vinylRed: new THREE.MeshStandardMaterial({ color: 0x8a1a1a, roughness: 0.45, metalness: 0 }),
     formica: new THREE.MeshStandardMaterial({ color: 0xe8dcc0, roughness: 0.35, metalness: 0 }),
-    formicaEdge: new THREE.MeshStandardMaterial({ color: 0xc9c9c9, roughness: 0.25, metalness: 0.9 }),
-    chrome: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.15, metalness: 1.0 }),
+    formicaEdge: new THREE.MeshStandardMaterial({ color: 0xd4d4d4, roughness: 0.3, metalness: 0.6 }),
+    chrome: new THREE.MeshStandardMaterial({ color: 0xf0f0f0, roughness: 0.2, metalness: 0.8 }),
     darkMetal: new THREE.MeshStandardMaterial({ color: 0x2b2a28, roughness: 0.5, metalness: 0.8 }),
-    alum: new THREE.MeshStandardMaterial({ color: 0x9a9da0, roughness: 0.4, metalness: 0.9 }),
+    alum: new THREE.MeshStandardMaterial({ color: 0x8e9194, roughness: 0.45, metalness: 0.6 }),
     glass: new THREE.MeshPhysicalMaterial({
       color: 0xdfe8ea,
       roughness: 0.02,
@@ -92,6 +93,7 @@ export function createPalette(maxAnisotropy: number): Palette {
     }),
     laminateWood: new THREE.MeshStandardMaterial({ color: 0x6b4a2e, roughness: 0.5, metalness: 0 }),
     kickPanel: new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.6, metalness: 0.3 }),
+    tileBacking: new THREE.MeshStandardMaterial({ color: 0x5a5650, roughness: 1, metalness: 0 }),
     fixtureWhite: new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.4, metalness: 0.1 }),
     fixtureLens: new THREE.MeshStandardMaterial({
       color: 0xffffff,
@@ -105,6 +107,6 @@ export function createPalette(maxAnisotropy: number): Palette {
     asphalt,
     concrete,
     acUnit: new THREE.MeshStandardMaterial({ color: 0xd8d6cf, roughness: 0.6, metalness: 0.2 }),
-    stainless: new THREE.MeshStandardMaterial({ color: 0xb8bcbe, roughness: 0.35, metalness: 0.95 }),
+    stainless: new THREE.MeshStandardMaterial({ color: 0xc4c8ca, roughness: 0.38, metalness: 0.6 }),
   };
 }

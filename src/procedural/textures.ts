@@ -133,8 +133,8 @@ export function acousticTile(size: number): TextureSet {
   }
   ctx.putImageData(img, 0, 0);
   // Pinholes and fissures.
-  ctx.fillStyle = "rgba(90,85,78,0.55)";
-  for (let i = 0; i < size * 6; i++) {
+  ctx.fillStyle = "rgba(90,85,78,0.4)";
+  for (let i = 0; i < size * 3; i++) {
     const x = rng() * size, y = rng() * size, r = 0.6 + rng() * 1.4;
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
   }
