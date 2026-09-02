@@ -16,6 +16,8 @@
  *   yolkFilm    a thin dried egg-yolk film, ALPHA, feathered, four tine drag streaks
  *   crumb       toast-crumb colour for the flakes
  *   contactAO   soft dark disc, ALPHA (the cup's contact shadow in the saucer well)
+ *   dreg        cold coffee, opaque, gloss 0.08 (the 4 mm left in the cup - hosted by the decal
+ *               bucket because `pal.coffee` lives only on the pot and the pour mug)
  *   residue     coffee residue ring for the inside of the cup, ALPHA, ragged tide line
  *   label       printed band for the filter box: brand block, word lines, a filter graphic
  *
@@ -38,10 +40,11 @@ export const PRESENCE_UV = {
   pocket: [0.5, 0.5, 0.75, 0.75],
   lipstick: [0.5, 0.75, 0.75, 1.0],
   yolkFilm: [0.75, 0.75, 1.0, 1.0],
-  label: [0.75, 0.6875, 1.0, 0.75],
-  residue: [0.75, 0.625, 1.0, 0.6875],
-  crumb: [0.75, 0.5, 0.875, 0.625],
-  contactAO: [0.875, 0.5, 1.0, 0.625],
+  label: [0.75, 0.65625, 1.0, 0.75],
+  residue: [0.75, 0.59375, 1.0, 0.65625],
+  crumb: [0.75, 0.5, 0.84375, 0.59375],
+  contactAO: [0.84375, 0.5, 0.9375, 0.59375],
+  dreg: [0.9375, 0.5, 1.0, 0.59375],
   quarry: [0.0, 0.0, 0.5, 0.5],
   wallTile: [0.5, 0.0, 1.0, 0.5],
 } as const satisfies Record<string, readonly [number, number, number, number]>;
@@ -73,7 +76,7 @@ const smooth01 = (v: number) => {
 };
 
 export function presenceAtlas(size = 1024): PresenceSet {
-  const S = size, R = S / 2, Q = S / 4, E = S / 8;
+  const S = size, R = S / 2, Q = S / 4;
   const { c, ctx } = canvas(S, S);
   const rough = new Float32Array(S * S).fill(0.9);
   const height = new Float32Array(S * S).fill(0.5);
@@ -90,7 +93,7 @@ export function presenceAtlas(size = 1024): PresenceSet {
 
   /* ---------------- cotton canvas (top-left, R × R) — the skirt maps 1:1 ---------------- */
   // Pocket footprint on the skirt (t down, s across → u = s, v = 1 − t; canvas y = 1 − v = t).
-  const POCKET = { t0: 0.44, t1: 0.8, s0: 0.55, s1: 0.9 };
+  const POCKET = { t0: 0.42, t1: 0.78, s0: 0.2, s1: 0.8 };
   const cottonPixel = (u: number, v: number, x: number, y: number) => {
     // Twill: a 2 px diagonal in the height field only (albedo ± 1.5 %) — sub-texel at frame
     // scale, so the mips average it to a matte surface; fibre grain on top.
@@ -111,14 +114,16 @@ export function presenceAtlas(size = 1024): PresenceSet {
       const u = x / R, v = y / R; // v here is canvas-down (t of the skirt)
       const p = cottonPixel(u, 1 - v, x, y);
       let { r, g, b } = p;
-      // Two old coffee blots: dark ragged tide line, lighter mottled interior.
-      for (const [sx, sy, sr, k0] of [[0.34, 0.62, 0.055, 1], [0.66, 0.33, 0.032, 0.8]]) {
-        const rag = 1 + 0.5 * (fbmB(u * 5 + 3, v * 5) - 0.5) + 0.35 * (fbmC(u * 2, v * 2) - 0.5);
-        const d = (Math.hypot(u - sx, (v - sy) * 1.25) / sr) * rag;
+      // Two old coffee blots (45 and 32 mm on the 160 × 340 mm skirt — the tile is 1:1 with it,
+      // so a round blot is 2.1× taller in u than in v): a continuous dark tide line, lighter
+      // mottled interior.
+      for (const [sx, sy, sr, k0] of [[0.3, 0.3, 0.14, 1], [0.58, 0.9, 0.1, 0.8]]) {
+        const rag = 1 + 0.22 * (fbmB(u * 2.5 + 3, v * 2.5) - 0.5) + 0.12 * (fbmC(u * 2, v * 2) - 0.5);
+        const d = (Math.hypot(u - sx, (v - sy) * 2.1) / sr) * rag;
         if (d < 1.05) {
-          const tide = Math.exp(-Math.pow((d - 0.93) / 0.07, 2)); // the ring
-          const inner = clamp01((0.93 - d) / 0.93) * (0.35 + 0.35 * fbmB(u * 9, v * 9 + 7));
-          const k = (0.16 * inner + 0.42 * tide) * k0 * clamp01((1.05 - d) / 0.08);
+          const tide = Math.exp(-Math.pow((d - 0.94) / 0.06, 2)); // the darker tide line
+          const inner = 0.6 + 0.4 * fbmB(u * 9, v * 9 + 7); // the whole interior is tinted
+          const k = (0.2 * inner + 0.14 * tide) * k0 * clamp01((1.05 - d) / 0.07);
           r = r * (1 - k) + 0.33 * k;
           g = g * (1 - k) + 0.2 * k;
           b = b * (1 - k) + 0.1 * k;
@@ -139,9 +144,9 @@ export function presenceAtlas(size = 1024): PresenceSet {
       height[y * S + x] = p.h;
     }
 
-  /* ---------------- pocket face (Q × Q at x R.., y R..): canvas + hem rows + stitch line ---------------- */
+  /* ---------------- pocket face (Q × Q at x R.., y Q..): canvas + hem rows + stitch line ---------------- */
   {
-    const X0 = R, Y0 = R;
+    const X0 = R, Y0 = Q;
     for (let y = 0; y < Q; y++)
       for (let x = 0; x < Q; x++) {
         const u = x / Q, v = y / Q;
@@ -189,8 +194,9 @@ export function presenceAtlas(size = 1024): PresenceSet {
           const e = Math.sqrt(Math.max(0, 1 - Math.min(1, xi * xi)));
           // Upper lip: two lobes with the cupid's bow dip between them; the lower edge (contact
           // line) is nearly straight with the tubercle's bulge at the centre.
-          const top = 0.5 + 0.135 * e * (1 - 0.38 * Math.exp(-Math.pow(xi / 0.17, 2))) + 0.01 * (lipN(u * 2, v) - 0.5);
-          const bot = 0.5 - 0.03 - 0.035 * Math.sqrt(e) - 0.045 * Math.exp(-Math.pow(xi / 0.32, 2));
+          // 17 × 7.5 mm: lobe tops at v ≈ 0.69, contact line at ≈ 0.38.
+          const top = 0.5 + 0.19 * e * (1 - 0.36 * Math.exp(-Math.pow(xi / 0.17, 2))) + 0.01 * (lipN(u * 2, v) - 0.5);
+          const bot = 0.5 - 0.035 - 0.04 * Math.sqrt(e) - 0.05 * Math.exp(-Math.pow(xi / 0.32, 2));
           const inside = Math.min(top - v, v - bot); // > 0 inside
           const soft = 0.018;
           a = smooth01((inside + soft) / (2 * soft)) * clamp01((1.03 - Math.abs(xi)) / 0.06);
@@ -238,9 +244,12 @@ export function presenceAtlas(size = 1024): PresenceSet {
       }
   }
 
-  /* ---------------- label band (2Q × E at x R+Q.., y Q..) ---------------- */
+  // Right-top quadrant under the yolk tile (x R+Q.., y Q..R): label 256 × 96, residue 256 × 64,
+  // crumb 96 × 96 and contact AO 96 × 96 — the canvas rows match PRESENCE_UV (flipY: UV v = 1 − y/S).
+  const LH = 96, RH = 64, CE = 96;
+  /* ---------------- label band (Q × LH at x R+Q.., y Q..) ---------------- */
   {
-    const X0 = R + Q, Y0 = Q, W = Q, H = E;
+    const X0 = R + Q, Y0 = Q, W = Q, H = LH;
     for (let y = 0; y < H; y++)
       for (let x = 0; x < W; x++) {
         const u = x / W, v = y / H;
@@ -284,12 +293,12 @@ export function presenceAtlas(size = 1024): PresenceSet {
       }
     };
     const lx0 = W * 0.41, lx1 = W * 0.84;
-    word(lx0, lx1, 10, 14, "rgb(60,32,18)", 6); // COFFEE FILTERS
-    word(lx0, lx1 - 30, 30, 7, "rgb(70,40,22)", 4);
-    word(lx0, lx1 - 60, 42, 5, "rgb(80,48,28)", 3);
+    word(lx0, lx1, H * 0.08, H * 0.11, "rgb(60,32,18)", 6); // COFFEE FILTERS
+    word(lx0, lx1 - 30, H * 0.24, H * 0.055, "rgb(70,40,22)", 4);
+    word(lx0, lx1 - 60, H * 0.33, H * 0.04, "rgb(80,48,28)", 3);
     sc.ctx.fillStyle = "rgb(250,244,230)";
-    sc.ctx.fillRect(W * 0.885, 14, W * 0.09, 18); // "500"
-    sc.ctx.fillRect(W * 0.895, 38, W * 0.07, 8); // "CT"
+    sc.ctx.fillRect(W * 0.885, H * 0.11, W * 0.09, H * 0.14); // "500"
+    sc.ctx.fillRect(W * 0.895, H * 0.3, W * 0.07, H * 0.06); // "CT"
     const ink = sc.ctx.getImageData(0, 0, W, H).data;
     for (let y = 0; y < H; y++)
       for (let x = 0; x < W; x++) {
@@ -298,9 +307,9 @@ export function presenceAtlas(size = 1024): PresenceSet {
       }
   }
 
-  /* ---------------- residue ring (2Q × E at x R+Q.., y Q+E..), alpha; u tiles by fold-back ---------------- */
+  /* ---------------- residue ring (Q × RH at x R+Q.., y Q+LH..), alpha; u tiles by fold-back ---------------- */
   {
-    const X0 = R + Q, Y0 = Q + E, W = Q, H = E;
+    const X0 = R + Q, Y0 = Q + LH, W = Q, H = RH;
     const rN = makeFbm(104, 6, 3);
     for (let y = 0; y < H; y++)
       for (let x = 0; x < W; x++) {
@@ -316,9 +325,9 @@ export function presenceAtlas(size = 1024): PresenceSet {
       }
   }
 
-  /* ---------------- crumb (E × E at x R+Q.., y Q+2E..) and contact AO (E × E at x R+Q+E..) ---------------- */
+  /* ---------------- crumb (CE × CE at x R+Q.., y Q+LH+RH..) and contact AO (CE × CE at x R+Q+CE..) ---------------- */
   {
-    const Y0 = Q + 2 * E;
+    const Y0 = Q + LH + RH, E = CE;
     const pores = makeFbm(98, 30, 3), crumb = makeFbm(99, 10, 3);
     for (let y = 0; y < E; y++)
       for (let x = 0; x < E; x++) {
@@ -337,6 +346,13 @@ export function presenceAtlas(size = 1024): PresenceSet {
         px(R + Q + E + x, Y0 + y, 0.05, 0.04, 0.03, a);
         rough[(Y0 + y) * S + R + Q + E + x] = 0.9;
         height[(Y0 + y) * S + R + Q + E + x] = 0.5;
+        // Dreg: cold coffee - a little lighter and browner at the meniscus (thinner film over
+        // the pale glaze), a skin of dust dulling the middle.
+        const rim = clamp01((d - 0.82) / 0.16);
+        const skin = 0.5 + 0.5 * crumb(u * 3 + 5, v * 3);
+        px(R + Q + 2 * E + x, Y0 + y, 0.17 + 0.14 * rim, 0.09 + 0.07 * rim, 0.04 + 0.03 * rim, 1);
+        rough[(Y0 + y) * S + R + Q + 2 * E + x] = 0.06 + 0.1 * skin;
+        height[(Y0 + y) * S + R + Q + 2 * E + x] = 0.5;
       }
   }
 

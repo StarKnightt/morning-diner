@@ -28,6 +28,9 @@
  * `HingedLeaf.sign` carries that so an interaction can think in "degrees open".
  */
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { makePaneGlass } from "./Exterior";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { PRESENCE_UV } from "../procedural/presence";
@@ -56,21 +59,49 @@ export interface OpenablesResult {
 
 const V2 = (x: number, y: number) => new THREE.Vector2(x, y);
 const V3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+/**
+ * Vertex alpha 0 -> polished metal (metalness 1, roughness `rough`, colour from the vertex, the
+ * maps ignored); alpha 1 -> the material as authored. Lets one vertex-coloured bucket hold paint
+ * and stainless, or laminate and chrome.
+ */
+function metalByVertexAlpha(m: THREE.MeshStandardMaterial, rough: number, key: string): void {
+  m.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <metalnessmap_fragment>",
+      [
+        "#include <metalnessmap_fragment>",
+        "#ifdef USE_COLOR_ALPHA",
+        `if ( vColor.a < 0.5 ) { metalnessFactor = 1.0; roughnessFactor = ${rough.toFixed(3)}; diffuseColor.rgb = vColor.rgb; }`,
+        "diffuseColor.a = 1.0;",
+        "#endif",
+      ].join("\n"),
+    );
+  };
+  m.customProgramCacheKey = () => key;
+}
+
 /** 4 × 4" wall tiles and 4 × 6" quarry tiles per atlas cell. */
 const WALL_TILE_CELL = 4 * 0.1016;
 const QUARRY_CELL = 4 * 0.1524;
 
-/** Give a geometry a flat vertex colour (for the one vertex-coloured leaf material). */
-export function tint(g: THREE.BufferGeometry, hex: number): THREE.BufferGeometry {
+/**
+ * Give a geometry a flat vertex colour (RGBA) for a vertex-coloured leaf material. Alpha is a
+ * flag, not opacity: `metal` writes 0, and `metalByVertexAlpha` renders those vertices as
+ * polished metal in the vertex's colour - so a painted door and its stainless plates, or a
+ * laminate door and its chrome pull, are one bucket and one draw call.
+ */
+export function tint(g: THREE.BufferGeometry, hex: number, metal = false): THREE.BufferGeometry {
   const c = new THREE.Color(hex);
   const n = g.attributes.position.count;
-  const arr = new Float32Array(n * 3);
+  const arr = new Float32Array(n * 4);
+  const a = metal ? 0 : 1;
   for (let i = 0; i < n; i++) {
-    arr[i * 3] = c.r;
-    arr[i * 3 + 1] = c.g;
-    arr[i * 3 + 2] = c.b;
+    arr[i * 4] = c.r;
+    arr[i * 4 + 1] = c.g;
+    arr[i * 4 + 2] = c.b;
+    arr[i * 4 + 3] = a;
   }
-  g.setAttribute("color", new THREE.BufferAttribute(arr, 3));
+  g.setAttribute("color", new THREE.BufferAttribute(arr, 4));
   return g;
 }
 
@@ -205,6 +236,27 @@ function buildCabinet(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth
     s.box(dk, [ox0, oy1, zFront], [ox1, oy1 + g, zFront + 0.0006]);
     s.box(dk, [ox0, oy0 - g, zFront], [ox1, oy0, zFront + 0.0006]);
   }
+  // Both doors are ONE mesh (one draw call — rev 1 spent four: two leaves × {laminate, chrome},
+  // doubled by the transmission pass). Each door's geometry is authored in its hinge's local
+  // frame and baked to world whenever that hinge moves (a CPU transform of ~1.5 k vertices in
+  // `updateMatrixWorld`, so the shadow pass and the main pass see the same frame). The material
+  // is the carcass laminate cloned with vertex colours; vertex alpha 0 flags the chrome parts
+  // (pull, hinge cups), which the fragment shader renders as metal in the vertex's colour.
+  const chromeC = pal.chrome.color;
+  const CHROME: [number, number, number, number] = [chromeC.r, chromeC.g, chromeC.b, 0];
+  const LAM: [number, number, number, number] = [1, 1, 1, 1];
+  const colour4 = (g: THREE.BufferGeometry, c: [number, number, number, number]) => {
+    const n = g.attributes.position.count, arr = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) arr.set(c, i * 4);
+    g.setAttribute("color", new THREE.BufferAttribute(arr, 4));
+    return g;
+  };
+  const doorMat = lam.clone();
+  doorMat.vertexColors = true;
+  doorMat.name = "cabinetDoors";
+  metalByVertexAlpha(doorMat, 0.08, "cabinet-doors");
+
+  const parts: Array<{ hinge: THREE.Group; geo: THREE.BufferGeometry }> = [];
   const make = (side: -1 | 1): HingedLeaf => {
     const hinge = new THREE.Group();
     hinge.name = side < 0 ? "cabinet-door-left" : "cabinet-door-right";
@@ -218,7 +270,7 @@ function buildCabinet(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth
     const ya = y0 - lap, yb = y1 + lap;
     b.rbox(lam, [lo, ya, dz0], [hi, yb, dz1], 0.0025, 2, { metric: true });
     // Chrome wire pull, 96 mm centres, vertical, 45 mm in from the meeting stile at ⅔ height
-    // (second bucket per door: the pulls are what make the pair read as doors from the aisle).
+    // (the pulls are what make the pair read as doors from the aisle).
     const pxl = side < 0 ? hi - 0.045 : lo + 0.045;
     const pyc = ya + (yb - ya) * 0.66;
     const bar = new THREE.CylinderGeometry(0.005, 0.005, 0.12, 14);
@@ -251,7 +303,12 @@ function buildCabinet(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth
       const armLo = Math.min(X(0.0465), X(-0.004)), armHi = Math.max(X(0.0465), X(-0.004));
       b.rbox(pal.chrome, [armLo, hy - 0.009, dz0 - 0.0125], [armHi, hy + 0.009, dz0 - 0.0035], 0.001);
     }
-    b.build(hinge, { name: hinge.name });
+    // Collapse the two buckets into one vertex-coloured geometry (hinge-local).
+    const staging = new THREE.Group();
+    const built = b.build(staging);
+    const pieces = built.map((m) => colour4(m.geometry.index ? m.geometry.toNonIndexed() : m.geometry, m.material === lam ? LAM : CHROME));
+    const geo = mergeGeometries(pieces, false)!;
+    parts.push({ hinge, geo });
     parent.add(hinge);
     const mid = (ya + yb) / 2;
     return {
@@ -262,7 +319,52 @@ function buildCabinet(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth
       width: w,
     };
   };
-  return [make(-1), make(1)];
+  const leaves: [HingedLeaf, HingedLeaf] = [make(-1), make(1)];
+
+  // One mesh for both, baked to world space from the hinges' matrices.
+  const merged = mergeGeometries(parts.map((p) => p.geo), false)!;
+  const local = { pos: (merged.attributes.position.array as Float32Array).slice(), nrm: (merged.attributes.normal.array as Float32Array).slice() };
+  const ranges: Array<[number, number]> = [];
+  for (let i = 0, at = 0; i < parts.length; i++) {
+    const n = parts[i].geo.attributes.position.count;
+    ranges.push([at, at + n]);
+    at += n;
+  }
+  const doors = new THREE.Mesh(merged, doorMat);
+  doors.name = "cabinet-doors";
+  doors.castShadow = true;
+  doors.receiveShadow = true;
+  doors.frustumCulled = false; // bounds change with the doors; the mesh is small and always near the counter
+  parent.add(doors);
+  const M = new THREE.Matrix4(), N = new THREE.Matrix3(), v = new THREE.Vector3();
+  const bake = () => {
+    const pos = merged.attributes.position as THREE.BufferAttribute, nrm = merged.attributes.normal as THREE.BufferAttribute;
+    const P = pos.array as Float32Array, Nn = nrm.array as Float32Array;
+    for (let d = 0; d < parts.length; d++) {
+      M.copy(parts[d].hinge.matrixWorld);
+      N.getNormalMatrix(M);
+      const [a, b2] = ranges[d];
+      for (let i = a; i < b2; i++) {
+        v.fromArray(local.pos, i * 3).applyMatrix4(M).toArray(P, i * 3);
+        v.fromArray(local.nrm, i * 3).applyMatrix3(N).normalize().toArray(Nn, i * 3);
+      }
+    }
+    pos.needsUpdate = true;
+    nrm.needsUpdate = true;
+  };
+  const last = [NaN, NaN];
+  for (let d = 0; d < parts.length; d++) {
+    const hinge = parts[d].hinge;
+    const base = hinge.updateMatrixWorld.bind(hinge);
+    hinge.updateMatrixWorld = (force?: boolean) => {
+      base(force);
+      if (last[d] !== hinge.rotation.y) {
+        last[d] = hinge.rotation.y;
+        bake();
+      }
+    };
+  }
+  return leaves;
 }
 
 /* ------------------------------------------------------------------------------------ */
@@ -287,6 +389,7 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
   const b = new MergedBuilder();
   const leafMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.06 });
   leafMat.name = "kitchenLeaf";
+  metalByVertexAlpha(leafMat, 0.28, "kitchen-leaf"); // the plates: brushed stainless, one bucket with the paint
   const PAINT = 0xf2f1ec, RUBBER = 0x141416, PIVOT = 0x2b2b2d;
   const cx = w / 2;
   const { w: vw, h: vh, centerY: vy } = VISION;
@@ -319,30 +422,49 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
     slab([ox0, oy0, -th / 2], [ox0 + r, oy1, th / 2], RUBBER);
     slab([ox1 - r, oy0, -th / 2], [ox1, oy1, th / 2], RUBBER);
   }
-  // Scuffs: cart-bumper height (0.55–0.7 m, just over the kick plate) and hip height (0.85–1.05):
-  // grey-brown smears of unequal length, 0.2 mm proud, more on the push (dining) face.
+  // Scuffs: cart-bumper height (0.5–0.72 m, just over the kick plate) and hip / hand height
+  // (0.85–1.1) — thin grey-brown streaks of unequal length, angle and depth, 0.2 mm proud,
+  // clustered rather than spaced; more on the push (dining) face, a few on the kitchen face.
   {
-    const scuffs: Array<[number, number, number, number, number]> = [
-      // [x centre, y, length, height, hex]
-      [cx + 0.12, 0.58, 0.22, 0.012, 0x8a8480],
-      [cx - 0.05, 0.62, 0.14, 0.008, 0x9a948e],
-      [cx + 0.25, 0.66, 0.09, 0.006, 0x7d7873],
-      [cx + 0.18, 0.9, 0.16, 0.01, 0x9c968f],
-      [cx + 0.3, 0.97, 0.07, 0.014, 0x8c8781],
-      [cx - 0.12, 1.02, 0.11, 0.006, 0xa19b94],
+    const r = (() => {
+      let q = 0x51ab77;
+      return () => ((q = (q * 1664525 + 1013904223) >>> 0) / 4294967296);
+    })();
+    const tones = [0xb9b3ab, 0xa9a39b, 0xc4beb5, 0x9d978f, 0xb1aba3, 0x8f8a83];
+    const clusters: Array<[number, number, number]> = [
+      [cx + 0.1, 0.56, 7], // cart bumpers
+      [cx + 0.28, 0.66, 4],
+      [cx - 0.08, 0.63, 3],
+      [w - 0.14, 0.92, 5], // hands beside the push plate
+      [cx + 0.02, 1.02, 3],
     ];
-    scuffs.forEach(([x, y, len, hh, hex], i) => {
-      const g = new THREE.BoxGeometry(len, hh, 0.0002);
-      g.rotateZ((i % 2 ? -1 : 1) * 0.04 * (1 + (i % 3)));
-      g.translate(x, y, th / 2 + 0.0001);
-      b.add(tint(g, hex), leafMat);
-      if (i % 2 === 0) {
-        const k = new THREE.BoxGeometry(len * 0.7, hh, 0.0002);
-        k.rotateZ(-0.05);
-        k.translate(w - x, y - 0.02, -th / 2 - 0.0001);
-        b.add(tint(k, hex), leafMat);
+    // A streak is a 6 x 2 plane whose outer vertices carry the paint colour, so it fades to
+    // nothing at its ends and edges - a smudge, not a bar.
+    const streak = (len: number, hh: number, hex: number, ang: number, x: number, y: number, z: number, flip: boolean) => {
+      const g = new THREE.PlaneGeometry(len, hh, 6, 2);
+      const pos = g.attributes.position, n = pos.count, col = new Float32Array(n * 4);
+      const paint = new THREE.Color(PAINT), mark = new THREE.Color(hex);
+      for (let i = 0; i < n; i++) {
+        const u = pos.getX(i) / len, v = pos.getY(i) / hh; // -0.5 ... 0.5
+        const k = Math.max(0, 1 - Math.pow(Math.abs(u) * 2, 1.5)) * (Math.abs(v) < 0.4 ? 1 : 0);
+        col[i * 4] = paint.r + (mark.r - paint.r) * k;
+        col[i * 4 + 1] = paint.g + (mark.g - paint.g) * k;
+        col[i * 4 + 2] = paint.b + (mark.b - paint.b) * k;
+        col[i * 4 + 3] = 1;
       }
-    });
+      g.setAttribute("color", new THREE.BufferAttribute(col, 4));
+      g.rotateZ(ang);
+      if (flip) g.rotateY(Math.PI);
+      g.translate(x, y, z);
+      b.add(g, leafMat);
+    };
+    for (const [x, y, n] of clusters) {
+      for (let i = 0; i < n; i++) {
+        const len = 0.03 + 0.13 * r() * r(), hh = 0.004 + 0.009 * r();
+        streak(len, hh, tones[Math.floor(r() * tones.length)], (r() - 0.5) * 0.5, x + (r() - 0.5) * 0.14, y + (r() - 0.5) * 0.09, th / 2 + 0.0002, false);
+        if (r() < 0.35) streak(len * (0.5 + 0.5 * r()), hh, tones[Math.floor(r() * tones.length)], (r() - 0.5) * 0.5, w - x + (r() - 0.5) * 0.14, y + (r() - 0.5) * 0.09, -th / 2 - 0.0002, true);
+      }
+    }
   }
   // Pivots: top and bottom on the hinge stile (dark, same bucket).
   for (const y of [0.05, h - 0.06]) {
@@ -353,18 +475,30 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
   // Stainless: 16" kick plates on both faces, 4 × 16 in push plates at 1.0–1.4 m near the free
   // edge on both faces (a double-acting door is pushed from either side), 1.2 mm proud.
   {
-    const ss = pal.stainlessCool;
+    const STEEL = pal.stainlessCool.color.getHex(THREE.LinearSRGBColorSpace);
+    const plate = (a: readonly [number, number, number], c: readonly [number, number, number]) => {
+      const g = new RoundedBoxGeometry(c[0] - a[0], c[1] - a[1], c[2] - a[2], 2, 0.0006);
+      g.translate((a[0] + c[0]) / 2, (a[1] + c[1]) / 2, (a[2] + c[2]) / 2);
+      b.add(tint(g, STEEL, true), leafMat);
+    };
     for (const [za, zb] of [[-th / 2 - 0.0012, -th / 2], [th / 2, th / 2 + 0.0012]] as const) {
-      b.rbox(ss, [sx0 + 0.02, yBot + 0.012, za], [sx1 - 0.02, yBot + 0.012 + 0.406, zb], 0.0006);
-      b.rbox(ss, [w - 0.06 - 0.1, 1.0, za], [w - 0.06, 1.4, zb], 0.0006);
+      plate([sx0 + 0.02, yBot + 0.012, za], [sx1 - 0.02, yBot + 0.012 + 0.406, zb]);
+      plate([w - 0.06 - 0.1, 1.0, za], [w - 0.06, 1.4, zb]);
     }
   }
-  // The vision glass: a 6 mm pane in the leaf's mid-plane (transmissive palette glass — the
-  // transmission pass draws the lit kitchen behind it; DoubleSide, so it works from both faces).
+  // The vision glass: a 6 mm pane in the leaf's mid-plane. Not the transmissive palette glass -
+  // that would switch the transmission pass on (every opaque draw twice) at poses where no
+  // window is in view. A blended dielectric pane instead (System 3's car glass): 6 % base
+  // reflectance rising with Fresnel, the lit kitchen shows straight through the blend.
   {
     const g = new THREE.PlaneGeometry(vw - 0.012, vh - 0.012);
     g.translate(cx, vy, 0);
-    b.add(g, pal.glass);
+    const pane = makePaneGlass(0.06, 1.0);
+    pane.transparent = true;
+    pane.forceSinglePass = true; // one draw, not back + front passes
+    pane.userData.noCast = true; // glass does not shadow the kitchen
+    pane.name = "kitchenVisionGlass";
+    b.add(g, pane);
   }
   b.build(hinge, { name: "kitchen-door" });
   parent.add(hinge);
@@ -415,7 +549,7 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
     }
     s.rbox(ss, [tx0 + 0.04, 0.25, tz0 + 0.04], [tx1 - 0.04, 0.28, tz1 - 0.04], 0.003);
     // Sheet pans (half size, 13 × 18 in), three stacked; a bus tub under the shelf.
-    for (let i = 0; i < 3; i++) s.rbox(pal.stainlessBrushed, [tx0 + 0.12, top + i * 0.02, tz0 + 0.1], [tx0 + 0.45, top + 0.025 + i * 0.02, tz0 + 0.56], 0.006, 2);
+    for (let i = 0; i < 3; i++) s.rbox(pal.stainless, [tx0 + 0.12, top + i * 0.02, tz0 + 0.1], [tx0 + 0.45, top + 0.025 + i * 0.02, tz0 + 0.56], 0.006, 2);
     s.rbox(pal.fixtureWhite, [tx0 + 0.2, top, tz1 - 0.6], [tx0 + 0.65, top + 0.015, tz1 - 0.15], 0.006, 2); // cutting board
     s.rbox(pal.fixtureWhite, [tx0 + 0.16, top + 0.015, tz1 - 0.5], [tx0 + 0.44, top + 0.165, tz1 - 0.32], 0.008, 2); // Cambro
     s.rbox(pal.blackPowder, [tx0 + 0.1, 0.28, tz0 + 0.3], [tx0 + 0.62, 0.43, tz0 + 0.86], 0.01, 2); // bus tub
@@ -427,7 +561,7 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
     for (const cz of [tz0 + 0.3, tz0 + 0.5, tz0 + 0.7]) {
       const can = new THREE.CylinderGeometry(0.0785, 0.0785, 0.178, 24);
       can.translate(kx0 + 0.15, sy + 0.02 + 0.089, cz);
-      s.add(can, pal.stainlessBrushed);
+      s.add(can, pal.stainless);
     }
     for (let i = 0; i < 4; i++) {
       const bowl = lathe([V2(0, 0), V2(0.05, 0), V2(0.085, 0.045), V2(0.088, 0.05), V2(0.08, 0.048), V2(0.046, 0.004), V2(0, 0.004)], 32);
@@ -468,7 +602,7 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
       const baffle = new THREE.BoxGeometry(0.4, 0.5, 0.02);
       baffle.rotateX(THREE.MathUtils.degToRad(-50));
       baffle.translate(hx0 + 0.3 + i * 0.45, 2.15, zFar + 0.32);
-      s.add(baffle, pal.stainlessBrushed);
+      s.add(baffle, pal.stainless);
     }
   }
   // Wire shelving on the +x wall, chrome, with white bus tubs — the kitchen proper beyond.
@@ -487,17 +621,16 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
   }
 
   // One shadowless 4100 K spot for the slice: 16,000 lm (four 2-lamp strips — a working
-  // kitchen's 600+ lux; the far wall's white tile at ≈ 450 lux → 115 nits, a shade brighter
-  // than the diner under its troffers) at the ceiling 0.8 m off the -x wall, aimed down and
-  // 17.5° away from the door. Its 46° cone covers the far wall, the floor, the table and the
-  // -x wall from the table forward, and its +z edge (49° to the nearest dining-room floor
-  // point, through the partition — no shadow map) stays inside the kitchen: no pool on the
-  // dining floor. `distance` 6 m clips the rest.
+  // kitchen's 600+ lux) at the ceiling just inside the door header, aimed 43° down into the
+  // kitchen. Its 46° cone covers the far wall, the floor, the table and the -x wall beside
+  // the door (what the vision glass shows); its +z edge misses every dining-room point
+  // (≥ 52° off-axis at the wall's foot, through the partition — there is no shadow map), so
+  // no light pools on the dining floor. `distance` 6 m clips the rest.
   const light = new THREE.SpotLight(FLUORESCENT, nits(16_000 / Math.PI), 6, THREE.MathUtils.degToRad(46), 0.35, 2);
   light.castShadow = false;
   light.name = "kitchen-fluorescent";
-  light.position.set(kx0 + 0.8, H - 0.05, zIn - 1.5);
-  light.target.position.set(kx0 + 0.8, 0, zIn - 2.4);
+  light.position.set(kx0 + 0.3, H - 0.1, zIn - 0.2);
+  light.target.position.set(kx0 + 0.3, 0.4, zIn - 2.45);
   parent.add(light, light.target);
 
   return {
