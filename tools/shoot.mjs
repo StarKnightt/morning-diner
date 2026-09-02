@@ -30,8 +30,11 @@ const arg = (name, fallback) => {
   const hit = argv.find((a) => a.startsWith(`--${name}=`));
   return hit ? hit.slice(name.length + 3) : fallback;
 };
-/** `--port=N`: the machine is shared with other worktrees' harnesses; pick a free one. */
-const PORT = Number(arg("port", "5210"));
+/**
+ * `--port=N` (or the SHOOT_PORT env var): the machine is shared with other worktrees'
+ * harnesses and each preview server needs its own port; pick a free one.
+ */
+const PORT = Number(arg("port", process.env.SHOOT_PORT ?? "5210"));
 const TAG = arg("tag", "sys1");
 const QUERY = arg("query", "");
 const ONLY = arg("poses", "").split(",").filter(Boolean);

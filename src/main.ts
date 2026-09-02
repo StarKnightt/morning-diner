@@ -5,8 +5,10 @@
  * Boot order (see BUILD.md "Startup"): the palette dispatches its canvas
  * textures to the TextureBank workers; the geometry is built stage by stage on
  * the main thread with a paint between stages; every shader variant is linked
- * in parallel; the three reflection probes are baked; the first two frames
- * render; then the overlay offers "Click to enter" (the harness auto-enters).
+ * in parallel; the three reflection probes are baked (both shadow maps render once
+ * inside the first probe face); the System 8 post pipeline is created; the first two
+ * frames render through it; then the overlay offers "Click to enter" (the harness
+ * auto-enters).
  *
  * Frame cap: ~120 fps while focused and visible, ~10 fps when the tab is
  * hidden or the window is blurred (the machine is shared with a game on the
@@ -19,6 +21,7 @@ import { BootTimeline, Progress, yieldToPaint } from "./core/scheduler";
 import { TextureBank } from "./core/textureBank";
 import { initInteractions, type Interactions } from "./interactions";
 import { FirstPerson } from "./player/FirstPerson";
+import { createPostPipeline, type PostPipeline } from "./post/PostPipeline";
 import { Diner } from "./scene/Diner";
 import { Loader } from "./ui/Loader";
 
@@ -74,6 +77,8 @@ let player: FirstPerson | undefined;
 // (`interactions.audio`) and its listener update. Built after `diner.build()` resolves:
 // it needs `diner.door`, `diner.coffeePot`, `diner.pourMug` and the palette.
 let interactions: Interactions | undefined;
+/** System 8 pipeline; built after `diner.build()` because its dust/haze read the sun's shadow map. */
+let post: PostPipeline | undefined;
 
 const perf = (): PerfReport => ({
   marks: timeline.list(),
@@ -109,11 +114,19 @@ async function boot(): Promise<void> {
   player = new FirstPerson(camera, renderer.domElement, diner.colliders);
   installCaptureApi(renderer, scene, camera, player, perf);
   interactions = initInteractions({ renderer, scene, camera, player, diner });
+  // System 8: dust, haze, shimmer, steam, photographic finish. `?post=0` → plain renderer.render.
+  // Created here, after build(): the lights exist, both shadow maps have rendered once (inside the
+  // first probe face) and the sun-beam dust samples its spawn volume from the live `diner.sun`.
+  post = createPostPipeline(renderer, scene, camera, { sun: diner.sun });
+  timeline.mark("post");
   // The pour's four materials (clipped decanter coffee, rippled mug surface, stream, steam)
-  // enter the scene here, after Diner.build()'s compile batch. Issue their programs now, in
-  // both output variants (canvas, and render target for the transmission pass behind the
-  // decanter glass), so they link in the driver's background threads instead of on the
-  // first E at the mug — measured 3.7 s of synchronous links on ANGLE/D3D11 otherwise.
+  // and the post pipeline's scene objects (dust motes, decanter steam) enter the scene here,
+  // after Diner.build()'s compile batch. Issue their programs now, in both output variants
+  // (canvas, and render target — the transmission pass behind the decanter glass, and the
+  // MSAA scene target the post pipeline draws into), so they link in the driver's background
+  // threads instead of on the first E at the mug — measured 3.7 s of synchronous links on
+  // ANGLE/D3D11 otherwise. The screen passes' own materials (full-screen quads, not scene
+  // objects) still link on the first frame.
   issueCompile(renderer, scene, camera, null);
   const rt = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType });
   issueCompile(renderer, scene, camera, rt);
@@ -152,8 +165,10 @@ function frame(now: number): void {
 
   player!.update(dt);
   diner.update(dt);
+  // Interactions first: a moved door/decanter calls diner.invalidateShadows(), and the post
+  // pipeline's scene pass (renderer.render inside post.render) is what re-renders the maps.
   interactions!.update(dt); // also moves the audio listener with the camera
-  renderer.render(scene, camera);
+  post!.render();
 
   frames++;
   if (frames === 2) void onFirstFrames();
