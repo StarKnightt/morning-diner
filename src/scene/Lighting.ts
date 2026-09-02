@@ -29,9 +29,9 @@
  * undersides comes from there, not from a uniform ambient). Two probe passes in
  * Diner.build() give a two-bounce approximation.
  *
- * Fluorescents: one RectAreaLight per 2×4 troffer, 4100 K + a 4 % green bias, 5,900 lm
- * (four aged F32T8 through a dirty prismatic lens), and the lens emissive calibrated
- * to 4,000 nits — about two stops under a sunlit white surface, "on but losing".
+ * Fluorescents: one RectAreaLight per 2×4 troffer, 4100 K + a 4 % green bias, 7,500 lm
+ * (four F32T8 through a prismatic lens, see TROFFER_LUMENS), and the lens emissive
+ * calibrated to 4,500 nits — about 1.7 stops under a sunlit white surface, "on but losing".
  *
  * three.js cannot mask a LIGHT per object (layers are tested against the render
  * camera, even in the shadow pass), so `installShadowMasks` wraps
@@ -109,10 +109,14 @@ const SPOT_DIST = 150;
 /** 4100 K cool-white fluorescent (255, 224, 190) with the mercury-line green bias (+4 % G). */
 const FLUORESCENT = new THREE.Color().setRGB(255 / 255, (224 / 255) * 1.04, 190 / 255, THREE.SRGBColorSpace);
 /**
- * Luminaire output of a four-lamp F32T8 2×4 (4 × 2,850 lm lamps, ballast factor 0.88,
- * ≈ 0.75 fixture efficiency through a prismatic lens, a little lamp ageing): 10,500 lm.
+ * Luminaire output of a four-lamp F32T8 2×4: 4 × 2,850 lm initial lamp lumens = 11,400
+ * (the "10–12 klm" of the brief), × 0.68 luminaire efficiency through a prismatic lens
+ * × 0.88 ballast factor × 0.85 lamp depreciation ≈ 5,800 lm maintained; set at 7,500 so
+ * the fixtures still visibly light the counter side (≈ 900 lux over the 68 m² room).
+ * At 10,500 (rev 1 trial) the ceiling sat at 0 EV and the fluorescent side read as a
+ * lit office, not a room the sun is winning.
  */
-const TROFFER_LUMENS = 10_500;
+const TROFFER_LUMENS = 7_500;
 /**
  * Sky + lot seen through the glass and the half-open slats, as one Lambertian rectangle
  * in the glass plane: (½ sky at ≈ 10,000 nits + ½ lot at ≈ 3,000) × 0.88 glass × 0.5
@@ -122,11 +126,15 @@ const TROFFER_LUMENS = 10_500;
 const WINDOW_SKY = new THREE.Color().setRGB(205 / 255, 215 / 255, 232 / 255, THREE.SRGBColorSpace);
 const WINDOW_SKY_NITS = 1_200;
 /**
- * Sky dome: the shader's horizon (≈ 0.9) is authored at display scale; ×0.77 puts the
- * horizon haze at 7,000 nits. `scaleSky` adds the circumsolar brightening on top (up to
- * ×3 at the sun, ×1.9 at 35° from it — the part of the sky the windows look at, ≈ 13,000).
+ * Sky dome: the shader's horizon (≈ 0.9) is authored at display scale; ×0.6 puts the
+ * horizon haze at 5,500 nits (zenith ≈ 2,800). `scaleSky` adds the circumsolar brightening
+ * on top (×2.5 at the sun, ×1.67 at 35° from it — the part of the sky the windows look at,
+ * ≈ 9,000 nits). Hemisphere average ≈ 4,500 nits → ≈ 15 klux of diffuse skylight on the
+ * lot against 51.6 klux of direct sun (90 klux · sin 35°): a 3.4:1 lit/shadow ratio. At
+ * 7,000 + ×3 (rev 1 trial) the diffuse term reached 25 klux and the pole and wheel-stop
+ * shadows on the asphalt went 1.8 stops instead of 2.3.
  */
-const SKY_HORIZON_NITS = 7_000;
+const SKY_HORIZON_NITS = 5_500;
 /**
  * Aisle floor under a window's beam, averaged over lit and shaded stripes: ρ 0.45 × 22.7
  * klux / π = 3,250 nits for a clear patch; ×0.6 because the booth backs and the stools
@@ -505,7 +513,7 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
 
   /* ---------------- fluorescent troffers ---------------- */
   // RectAreaLight `power` is lumens → intensity = power / (w·h·π) in nits (× K here):
-  // 5,900 lm over 1.11 × 0.51 m ≈ 3,300 nits of Lambertian emission per troffer.
+  // 7,500 lm over 1.11 × 0.51 m ≈ 4,200 nits of Lambertian emission per troffer.
   const troffers: THREE.RectAreaLight[] = [];
   if (!q.has("nofluor")) {
     for (const cell of CEILING.troffers) {
@@ -570,7 +578,7 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
  * Multiply the sky shader's output before tone mapping, through an injected uniform, so
  * System 3's authored gradient keeps its shape while reading in nits (horizon ≈ 7,000,
  * zenith ≈ 3,800, glare and disc above that). A circumsolar term is added on top: on a
- * hazy summer morning the sky within ~40° of the sun is 2–3× brighter than the opposite
+ * hazy summer morning the sky within ~40° of the sun is 1.7–2.5× brighter than the opposite
  * horizon (forward scattering by dust; CIE clear-sky types 11–12), and that is the part
  * of the sky the windows face (sun 38° off the window normal). `c` = cos(angle to the
  * sun) is a local of the sky shader's main(). Done here rather than in Exterior.ts so the
@@ -583,7 +591,7 @@ export function scaleSky(sky: THREE.Mesh, scale: number): void {
     prev?.call(mat, shader, renderer);
     shader.uniforms.skyScale = { value: scale };
     const boost = shader.fragmentShader.includes("float c = clamp( dot( d, sunDir )") || shader.fragmentShader.includes("float c = clamp(dot(d, sunDir)")
-      ? "gl_FragColor.rgb *= skyScale * ( 1.0 + 2.0 * pow( c, 4.0 ) );"
+      ? "gl_FragColor.rgb *= skyScale * ( 1.0 + 1.5 * pow( c, 4.0 ) );"
       : "gl_FragColor.rgb *= skyScale;";
     shader.fragmentShader = shader.fragmentShader
       .replace("varying vec3 vDir;", "varying vec3 vDir;\nuniform float skyScale;")
