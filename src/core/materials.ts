@@ -123,7 +123,10 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   /* ---- System 2 surfaces (REFERENCE.md §4 + critic rev 2) ---- */
   // Vinyl: canvas covers 0.4 m; upholstery geometry carries metric UVs (1 unit = 1 m).
   // Two variants share colour/gloss; only the head roll and channel crowns craze.
-  const vinylColor = new THREE.Color("#A8141C"); // reads ≈ #AD161E after the crown vertex tint
+  // #A8141C (System 2) had B > G — a crimson that the bluish window fill pushed to magenta,
+  // and AgX then rendered its sunlit stripes pink. Warmed to a cherry red (G ≥ B) so the
+  // sunlit crowns roll off toward orange-white and the shade stays a deep red (System 4).
+  const vinylColor = new THREE.Color("#AA1A15"); // reads ≈ #AF1C17 after the crown vertex tint
   const mkVinyl = (crazed: boolean) => {
     const t = tex.vinylSurface(1024, 0.4, crazed);
     // Canvas covers 0.1 m so the ~1.5 mm leather grain lands at ~0.4 mm: highlights break up.
@@ -390,17 +393,18 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     kickPanel: new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.6, metalness: 0.3 }),
     tileBacking: new THREE.MeshStandardMaterial({ color: 0x5a5650, roughness: 1, metalness: 0 }),
     fixtureWhite: new THREE.MeshStandardMaterial({ color: 0xf4f4f0, roughness: 0.4, metalness: 0.1 }),
-    // Prismatic lens of a lit 2×4 troffer: 4,000 nits at nadir (REFERENCE §2, Metalux 2GC
-    // photometry scaled to four aged lamps) = 0.4 scene units at K = 1e-4, in the same
-    // 4100 K + green-bias tint as the RectAreaLight under it (Lighting.ts). The lens
-    // luminance (0.83 for this colour) × 0.48 ≈ 0.4. Roughly two stops under a sunlit
-    // white surface — the fixture is on and visibly losing to the window light.
+    // Prismatic lens of a lit 2×4 troffer: 4,500 nits at nadir (REFERENCE §2/§8 — a 10,500 lm
+    // luminaire over 1.11 × 0.51 m emits 5,900 nits Lambertian; the lens map's dark prisms
+    // bring the mean down) = 0.45 scene units at K = 1e-4, in the same 4100 K + green-bias
+    // tint as the RectAreaLight under it (Lighting.ts). The lens luminance (0.83 for this
+    // colour) × 0.54 ≈ 0.45. About 1.5 stops under a sunlit white Formica table (≈ 12,000
+    // nits) — the fixture is on and visibly losing to the window light.
     fixtureLens: new THREE.MeshStandardMaterial({
       color: 0xf4f2ee,
       roughness: 0.35,
       metalness: 0,
       emissive: new THREE.Color().setRGB(255 / 255, (224 / 255) * 1.04, 190 / 255, THREE.SRGBColorSpace),
-      emissiveIntensity: 0.48,
+      emissiveIntensity: 0.54,
       map: lens.map,
       emissiveMap: lens.map,
       normalMap: lens.normalMap,

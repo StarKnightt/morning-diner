@@ -122,8 +122,10 @@ async function boot(): Promise<void> {
   interactions = initInteractions({ renderer, scene, camera, player, diner });
   // System 8: dust, haze, shimmer, steam, photographic finish. `?post=0` → plain renderer.render.
   // Created here, after build(): the lights exist, both shadow maps have rendered once (inside the
-  // first probe face) and the sun-beam dust samples its spawn volume from the live `diner.sun`.
-  post = createPostPipeline(renderer, scene, camera, { sun: diner.sun });
+  // first probe face) and the sun-beam dust samples its spawn volume from the live sun. It gets
+  // `diner.sunBeam`, the sun's twin whose map is a compare-mode depth texture (System 4 filters
+  // `diner.sun`'s own map with PCSS from a raw depth texture, which `sampler2DShadow` cannot read).
+  post = createPostPipeline(renderer, scene, camera, { sun: diner.sunBeam });
   timeline.mark("post");
   // The pour's four materials (clipped decanter coffee, rippled mug surface, stream, steam)
   // and the post pipeline's scene objects (dust motes, decanter steam) enter the scene here,

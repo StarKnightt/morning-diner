@@ -48,6 +48,12 @@ export class Diner {
   /** Interior sun (narrow distant spot) and the lot sun (wide directional); see Lighting.ts. */
   sun!: THREE.SpotLight;
   sunLot!: THREE.DirectionalLight;
+  /**
+   * `sun`'s detached twin with a compare-mode (`sampler2DShadow`) copy of the building
+   * shadow map, for the post pipeline's haze/dust march — `sun`'s own map is a raw depth
+   * texture for the PCSS stripes. See Lighting.ts → LightingResult.sunBeam.
+   */
+  sunBeam!: THREE.SpotLight;
   /** Named props later systems animate: the mug that gets filled, the decanter that pours. */
   pourMug!: THREE.Mesh;
   coffeePot!: THREE.Group;
@@ -90,6 +96,7 @@ export class Diner {
     scene.add(this.group);
     const lights = buildLighting(scene);
     this.sun = lights.sun;
+    this.sunBeam = lights.sunBeam;
     this.sunLot = lights.sunLot;
     // Interior casters stay out of the lot sun's shadow map: the cone occluder already
     // blacks the whole building out of that light, and this saves ~120 depth draws/frame.
@@ -147,6 +154,16 @@ export class Diner {
         }
       });
       const propMats = [this.palette.glassClear, this.palette.glassFluted, this.palette.coffee, this.palette.coffeeStain, this.palette.ceramic, this.palette.bisque, this.palette.chromeSoft, this.palette.sugar, this.palette.salt];
+      // Interior metals (chrome, stool rings, edge banding, T-bar): a mirror shows the room as
+      // it is, sun stripes included, so they take the probe captured WITH the sun. Dielectrics
+      // take `scene.environment`, captured with the interior sun off: their first bounce off
+      // the sun patches comes from the floor-patch RectAreaLights instead (Lighting.ts), which
+      // fall off with distance — a probe cannot — and would otherwise be counted twice.
+      const propSet = new Set<THREE.Material>(propMats);
+      const metalMats: THREE.MeshStandardMaterial[] = [];
+      for (const m of Object.values(this.palette)) {
+        if (m instanceof THREE.MeshStandardMaterial && m.metalness >= 0.9 && !propSet.has(m) && !exteriorMats.has(m)) metalMats.push(m);
+      }
       const assign = (mats: Iterable<THREE.MeshStandardMaterial>, env: THREE.Texture | null) => {
         for (const m of mats) {
           m.envMap = env;
@@ -198,12 +215,23 @@ export class Diner {
       renderer.shadowMap.needsUpdate = true;
 
       let roomEnv: THREE.WebGLRenderTarget | null = null;
+      let roomSpecEnv: THREE.WebGLRenderTarget | null = null;
       let propEnv: THREE.WebGLRenderTarget | null = null;
       let lotEnv: THREE.WebGLRenderTarget | null = null;
       for (let pass = 0; pass < 2; pass++) {
-        // Room probe (aisle, counter height): chrome, stools, footrail, T-mould — and the
-        // sunlit floor / red seats in its lower hemisphere, which is the bounce term.
-        const room = probe(-2.3, 0.8, 0.95);
+        // Metals' probe first, with the sun (both maps render inside its first face).
+        const roomSpec = probe(-2.3, 1.3, -0.2);
+        const sunIntensity = this.sun.intensity;
+        this.sun.intensity = 0;
+        // Room probe: over the counter's front edge at 1.3 m. It is the far-field ambient of
+        // the whole interior (walls, ceiling, floor, chrome, stools), so it must NOT sit over
+        // the aisle sun patches — from there (rev 1: (-2.3, 0.8, 0.95)) the bounce off the
+        // patches filled its lower hemisphere and every counter-side surface read 1.3 stops
+        // over the daylight-factor estimate (REFERENCE §8). From the counter edge the patches
+        // are 1.5–2.5 m away and oblique; the near-window daylight comes from the window and
+        // floor-patch RectAreaLights (Lighting.ts), which fall off with distance as it should.
+        const room = probe(-2.3, 1.3, -0.2);
+        this.sun.intensity = sunIntensity;
         if (pass === 0) await hooks.probes(1);
         // Prop probe: taken 0.5 m in front of the brewer at 1.1 m, so the back-counter
         // props (decanter glass, coffee, mugs) reflect cabinets, wall and counter top —
@@ -221,12 +249,15 @@ export class Diner {
         const lot = probe(1.0, 1.4, 8.0);
 
         roomEnv?.dispose();
+        roomSpecEnv?.dispose();
         propEnv?.dispose();
         lotEnv?.dispose();
         roomEnv = room;
+        roomSpecEnv = roomSpec;
         propEnv = prop;
         lotEnv = lot;
         scene.environment = room.texture;
+        assign(metalMats, roomSpec.texture);
         assign(propMats, prop.texture);
         assign(exteriorMats, lot.texture);
       }
