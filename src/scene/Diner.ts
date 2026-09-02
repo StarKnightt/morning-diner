@@ -23,6 +23,7 @@ import { buildExterior } from "./Exterior";
 import { ROOM_PROBE_INTENSITY, buildContactShadows, buildLighting, installShadowMasks, sunDirection } from "./Lighting";
 import { buildProps } from "./Props";
 import { buildShell } from "./Shell";
+import { buildSystem9, type System9 } from "./Sys9";
 import { FAN } from "./layout";
 
 export interface BuildHooks {
@@ -57,6 +58,8 @@ export class Diner {
   /** Named props later systems animate: the mug that gets filled, the decanter that pours. */
   pourMug!: THREE.Mesh;
   coffeePot!: THREE.Group;
+  /** System 9: the openables' hinges and the presence props (Sys9.ts). */
+  sys9!: System9;
   private fanRotor!: THREE.Group;
 
   constructor(
@@ -81,6 +84,7 @@ export class Diner {
     this.door = buildDoor(this.group, this.palette);
     await hooks.stage("Fitting the door", 5 / 8);
     const props = buildProps(this.group, this.palette);
+    this.sys9 = buildSystem9(this.group, this.palette, this.bank);
     await hooks.stage("Setting the tables", 6 / 8);
     buildBlinds(this.group, this.palette);
     await hooks.stage("Hanging the blinds", 7 / 8);

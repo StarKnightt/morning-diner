@@ -66,6 +66,10 @@ const SHAPES: Record<string, Record<string, Shape>> = {
     blockWall: ["map", "roughnessMap"],
     contactShadowAlpha: "direct",
   },
+  // System 9 (src/procedural/presence.ts): the apron / cardigan / newspaper / plate atlas.
+  pres: {
+    presenceAtlas: ["map", "roughnessMap", "normalMap"],
+  },
 };
 
 /** Loader stage labels ("Generating <label>…"). */
@@ -103,6 +107,7 @@ const LABELS: Record<string, string> = {
   tideLineAlpha: "coffee tide line",
   baseboardScuff: "cove base",
   doorDecals: "door signage",
+  presenceAtlas: "the apron and the paper",
 };
 
 /** Rough pixel count so the pool starts the big jobs first (longest-processing-time first). */

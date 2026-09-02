@@ -280,25 +280,9 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     b.rbox(pal.darkMetal, [x0 + jw + 0.08, DOOR.height - jw - 0.004, zFront + 0.01], [x0 + jw + 0.34, DOOR.height - jw, zFront + 0.07], 0.002);
   }
 
-  /* ---------------- kitchen swing door (closed, inside its opening) ---------------- */
+  /* ---------------- kitchen swing door casings (the leaf itself swings: Openables.ts, System 9) ---------------- */
   {
     const { a0: x0, a1: x1, y1: h } = kdoor;
-    const cx = (x0 + x1) / 2;
-    const zLeaf0 = zBack - T / 2 - 0.02, zLeaf1 = zBack - T / 2 + 0.02;
-    // Leaf: painted (light, so it reads against the dark cabinets), stainless kick and push plates
-    b.rbox(pal.fixtureWhite, [x0 + 0.005, 0.015, zLeaf0], [x1 - 0.005, h - 0.008, zLeaf1], 0.003);
-    b.rbox(pal.stainless, [x0 + 0.03, 0.03, zLeaf1], [x1 - 0.03, 0.45, zLeaf1 + 0.003], 0.001);
-    b.rbox(pal.stainless, [x0 + 0.03, 0.9, zLeaf1], [x1 - 0.03, 0.96, zLeaf1 + 0.02], 0.003);
-    // Vision lite (250 × 750) — dark glass, not a black hole
-    const { w: vw, h: vh, centerY: vy } = KITCHEN_DOOR.lite;
-    const port = new THREE.BoxGeometry(vw, vh, 0.05);
-    port.translate(cx, vy, (zLeaf0 + zLeaf1) / 2);
-    b.add(port, pal.darkGlass);
-    const vf = 0.02;
-    b.rbox(pal.stainless, [cx - vw / 2 - vf, vy - vh / 2 - vf, zLeaf0 - 0.002], [cx + vw / 2 + vf, vy - vh / 2, zLeaf1 + 0.006], 0.002);
-    b.rbox(pal.stainless, [cx - vw / 2 - vf, vy + vh / 2, zLeaf0 - 0.002], [cx + vw / 2 + vf, vy + vh / 2 + vf, zLeaf1 + 0.006], 0.002);
-    b.rbox(pal.stainless, [cx - vw / 2 - vf, vy - vh / 2, zLeaf0 - 0.002], [cx - vw / 2, vy + vh / 2, zLeaf1 + 0.006], 0.002);
-    b.rbox(pal.stainless, [cx + vw / 2, vy - vh / 2, zLeaf0 - 0.002], [cx + vw / 2 + vf, vy + vh / 2, zLeaf1 + 0.006], 0.002);
     // Painted jamb casings (100 mm) and header on the dining face
     const j = KITCHEN_DOOR.jamb, ct = 0.015;
     b.rbox(pal.trimPaint, [x0 - j, 0, zBack], [x0, h + j, zBack + ct], 0.002);

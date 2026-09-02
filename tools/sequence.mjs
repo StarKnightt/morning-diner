@@ -55,6 +55,11 @@ const POUR_CAMERA = { x: -0.55, y: 1.42, z: -2.15, yaw: 83, pitch: -28 };
 const DOOR_CAMERA = { x: 5.5, y: 1.62, z: 1.7, yaw: 156, pitch: -12 };
 // Outside on the sidewalk, 3/4 view back at the door: the leaf swings toward the camera so its angle reads.
 const DOOR_EXT_CAMERA = { x: 6.3, y: 1.62, z: 4.7, yaw: 46, pitch: -8 };
+// System 9 (DRINK_CAMERA in debug.ts): first person in the service aisle at the mug.
+const DRINK_CAMERA = { x: -1.25, y: 1.62, z: -1.5, yaw: 8, pitch: -28 };
+// System 9 openables (CABINET_CAMERA / KITCHEN_DOOR_CAMERA in debug.ts).
+const CABINET_CAMERA = { x: -1.35, y: 1.25, z: -0.7, yaw: 22, pitch: -30 };
+const KITCHEN_DOOR_CAMERA = { x: -4.0, y: 1.55, z: -0.9, yaw: 34, pitch: -8 };
 
 /**
  * name → { interact, opts, camera, t0, t1, step, keys, cols, title }
@@ -103,6 +108,46 @@ const SEQUENCES = {
     keys: [],
     cols: 6,
     title: "DOOR  exterior 3/4 camera  0-7.25 s @ 0.25 s",
+  },
+  drink: {
+    interact: "drink",
+    camera: DRINK_CAMERA,
+    t0: 0,
+    t1: 1.6,
+    step: 0.1,
+    keys: [0, 0.5, 0.8, 1.0, 1.2, 1.6],
+    cols: 6,
+    title: "DRINK  first person at the mug (full)  0-1.6 s @ 0.1 s",
+  },
+  cabinet: {
+    interact: "cabinet",
+    camera: CABINET_CAMERA,
+    t0: 0,
+    t1: 0.8,
+    step: 0.05,
+    keys: [0, 0.25, 0.35, 0.5, 0.65, 0.8],
+    cols: 6,
+    title: "CABINET  left door opens, aisle camera  0-0.8 s @ 0.05 s",
+  },
+  "cabinet-close": {
+    interact: "cabinet-close",
+    camera: CABINET_CAMERA,
+    t0: 0,
+    t1: 0.75,
+    step: 0.05,
+    keys: [],
+    cols: 6,
+    title: "CABINET  left door closes  0-0.75 s @ 0.05 s",
+  },
+  "kitchen-door": {
+    interact: "kitchen-door",
+    camera: KITCHEN_DOOR_CAMERA,
+    t0: 0,
+    t1: 2.8,
+    step: 0.1,
+    keys: [0, 0.4, 0.7, 1.1, 1.4, 2.1],
+    cols: 6,
+    title: "KITCHEN DOOR  push + spring return, aisle camera  0-2.8 s @ 0.1 s",
   },
 };
 const NAMES = ONLY.length ? Object.keys(SEQUENCES).filter((s) => ONLY.includes(s)) : Object.keys(SEQUENCES);
@@ -368,6 +413,9 @@ async function main() {
           if (s.interact === "door") return `${(ix.door.angleDeg ?? ix.door.progress * 85).toFixed(1)}DEG`;
           if (s.interact === "pour") return ix.pour.state.toUpperCase().slice(0, 7);
           if (s.interact === "sit") return ix.sit.state.toUpperCase().replace("-", " ").slice(0, 12);
+          if (s.interact === "drink") return `FILL ${(ix.drink.fill * 100).toFixed(0)}%`;
+          if (s.interact === "cabinet" || s.interact === "cabinet-close") return `${ix.cabinet[0].angleDeg.toFixed(1)}DEG`;
+          if (s.interact === "kitchen-door") return `${ix.kitchenDoor.angleDeg.toFixed(1)}DEG`;
           return "";
         },
         { s: seq, t, cam: seq.camera },

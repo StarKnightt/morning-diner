@@ -172,6 +172,11 @@ export class DoorInteraction {
     this.apply(-1);
   }
 
+  /** True while the door cycle runs and the player stands in the threshold zone (System 9: no hopping in the swing). */
+  get inSwing(): boolean {
+    return this.t >= 0 && this.playerInDoorway();
+  }
+
   /** True while the player's centre is in the threshold zone (the closer waits for them). */
   private playerInDoorway(): boolean {
     const p = this.player.position;

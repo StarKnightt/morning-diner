@@ -55,8 +55,17 @@ src/
                           directional lot sun, troffer / window / floor-bounce RectAreaLights, sky
                           dome scaled to nits), `installShadowMasks` (per-light caster lists,
                           shadow-once), `buildContactShadows()` (multiply decals)
-  player/FirstPerson.ts   pointer-lock look, WASD at 1.4 m/s, eye 1.62 m, AABB sliding collision
+    Openables.ts          System 9: under-counter cabinet bay (carcass, shelf, saucers, filters, spray
+                          bottle; two overlay laminate leaves on hinge Groups with chrome pulls) and the
+                          kitchen swing-door leaf + dim vestibule (Shell.ts keeps the casings only)
+    Presence.ts           System 9 implied presence: apron on a hook, cardigan over a stool, half-finished
+                          plate + folded newspaper (booth 2), lipstick cup — lofts + lathes on the
+                          `presenceAtlas` material, statics merged into existing buckets
+    Sys9.ts               buildSystem9(): the two above → one statics builder → core/mergeInto.ts
+  player/FirstPerson.ts   pointer-lock look, WASD at 1.4 m/s (Shift 2.6), Space hop, eye 1.62 m, AABB sliding collision
   core/
+    mergeInto.ts          mergeIntoHosts(): append a MergedBuilder's buckets to existing same-material
+                          meshes (no new draw calls); unmatched materials become their own meshes
     materials.ts          shared material palette: vinyl (plain + crazed), boomerang / speckle
                           Formica, solid cap wood vs two woodgrain laminates, chrome (r 0.08),
                           anisotropic brushed stainless, ceramic, glass, coffee; System 5 refines
@@ -77,6 +86,7 @@ src/
                           concrete, vinyl micro-grain + crazing (normal/roughness only), boomerang
                           and speckle laminate, wood grain (map/rough/normal), glaze speckle,
                           brushed-metal roughness, prismatic lens normal
+    presence.ts           System 9 atlas: cotton canvas, knit, newsprint, toast/yolk, lipstick strip
     exterior.ts           System 3 canvases: lot surface (drift, tyre-polish, sealcoat patches,
                           alligator + long cracks, oil drips, faded/re-striped stalls) + aggregate
                           normal/roughness, glass dust/wipe/handprint roughness + handprint alpha,
@@ -1371,7 +1381,18 @@ src/audio/wiring.ts   createDinerAudio() with the warmer at the brewer's lower p
 ```
 
 Controls: E (F, or click under pointer lock) on the highlighted target. Reach:
-benches 1.4 m, mug 1.25 m, door 1.4 m; look cone 22–30° half-angle.
+benches 1.4 m, mug 1.25 m, door 1.4 m, cabinet doors 1.5 m, kitchen door 1.6 m (System 9);
+look cone 22–30° half-angle.
+System 9 keys (`src/player/FirstPerson.ts`, feature 5): **WASD / arrows** walk 1.4 m/s;
+**Shift** walk fast (2.6 m/s, 0.2 s blend in/out, same 0.15 / 0.12 s accel/decel *times*,
+head-bob 1.8 → 2.4 Hz phase and 1.4 → 2.2 cm p-p with speed); **Space** a hop (0.32 m apex,
+g = 9.81, 0.51 s in the air, 2 cm landing dip over 0.15 s + `sfx.footfall`; one hop per
+press, no bunny-hop on a held key); **E** the prompt action (interact / sit / pour / open —
+"Stand" when seated); **Q** stand up. Shift and Space are refused while seated (controller
+disabled by Sit) and mid-interaction (`player.blocked()`: pouring, drinking, or standing in the
+door swing while the leaf cycles); a sprint in progress blends out. The hop and the bob are camera
+offsets only — `position.y`, the colliders and `setPose()` never see them, and both are
+exactly 0 at rest. The loader shows the keys under "Click to enter".
 
 Debug / capture API (`src/interactions/debug.ts`, on `window`):
 
@@ -1380,9 +1401,10 @@ Debug / capture API (`src/interactions/debug.ts`, on `window`):
 | `__interact("sit" \| "pour" \| "door")` | run the interaction live (sit picks the nearest bench; `{booth, side}` as 3rd arg) |
 | `__interact(name, t)` | seek to `t` seconds into that interaction and freeze the clocks (silent) |
 | `__interact("stand" \| "resume" \| "reset")` | stand up / unfreeze / everything back to rest |
-| `__interactPose("sit-seated" \| "pour-mid" \| "pour-full" \| "door-open")` | state + camera for `tools/shoot.mjs` |
-| `__interactions` | the live object: `.sit.state`, `.pour.state`, `.door.progress`, `.door.angleDeg`, `.target`, `.audio.state()`, `.startAudio()` |
-| `__player` | the `FirstPerson` controller (harness feel checks: `.position`, `.camera`, `.setPose`) |
+| `__interact("drink" \| "cabinet" \| "cabinet-right" \| "cabinet-close" \| "kitchen-door", t?)` | System 9: drink (1.6 s; a seek fills the mug first), toggle the left / right cabinet door (`t` seeks the 0.8 s opening), close the left door (`t` seeks the 0.75 s closing), push the kitchen door (`t` seeks the 2.8 s cycle) |
+| `__interactPose("sit-seated" \| "pour-mid" \| "pour-full" \| "door-open" \| "drink-sip" \| "cabinet-open" \| "kitchen-door-open" \| "kitchen-door-back")` | state + camera for `tools/shoot.mjs` |
+| `__interactions` | the live object: `.sit.state`, `.pour.state`, `.pour.fill`, `.door.progress`, `.door.angleDeg`, `.drink.state`, `.cabinet[0..1].{state,angleDeg}`, `.kitchenDoor.{busy,angleDeg}`, `.target`, `.audio.state()`, `.startAudio()` |
+| `__player` | the `FirstPerson` controller (harness feel checks: `.position`, `.camera`, `.setPose`, `.keys` (a `Set` of key codes — add `"KeyW"` / `"ShiftLeft"` / `"Space"` and call `.update(dt)`), `.speed`, `.sprintAmount`, `.inAir`, `.jumpHeight`, `.blocked`) |
 
 Poses (`tools/shoot.mjs --tag=sys7 --poses=sit-seated,pour-mid,pour-full,door-open`,
 `--port=` to run beside another worktree's harness): `sit-seated` = booth 2,
@@ -1647,6 +1669,124 @@ lazily, once).
 - **Scene cost is the elephant.** The scene pass is 6–11 ms at 1080p before any post; MSAA and the whole post chain together add ≈ 2.6 ms. System 4/5 should look at the shadow-map pass and draw-call count before worrying about post. (Post-merge bench: post total 1.35–1.41 ms at `beam` / `length` / `window` — haze 1.00, composite 0.10, bloom 0.15–0.17, finish 0.13–0.14 — unchanged; the scene numbers that run (7.3 / 12.5–13.4 / 25 ms) were taken while other worktrees were shooting on the same GPU and are not a measurement.)
 - **A scene can have more than one shadow-casting "sun".** `findSun()` looked for the first shadow-casting DirectionalLight; after the two-sun split that is the *lot* light, whose map never sees the room — every mote would have read "lit" (or "shadowed" by the cone). Take the light from `Diner` rather than searching the graph, and keep the search as a typed fallback only.
 
+## System 9 — extended interactions and implied presence (`sys9-interactions`)
+
+Five features, all in new files hooked into the existing ones by a few lines each:
+`scene/Sys9.ts` (one call in `Diner.build` after `buildProps`), `interactions/Openables.ts`
++ `Drink.ts` (registered in `interactions/index.ts`), `audio/ambience/Kitchen.ts` + `sfx/Player.ts`
++ `sfx/Openables.ts` (positions + entries in `audio/index.ts`), `player/FirstPerson.ts` (feature 5).
+Frames: `shots/sys9-sys9-{apron,cardigan,plate,cup,cabinet,cabinet-open,kitchen-door,kitchen-door-open,kitchen-door-back}.png`,
+sheets `shots/sys9-seq-{drink,cabinet,cabinet-close,kitchen-door}.png` + key frames.
+
+**1 · Drink the coffee** (`interactions/Drink.ts`; hooks in `Pour.ts`: `fill`, `setFill`, `levelFor`,
+steam scale). Once the mug holds more than `EMPTY_FILL` (15 %) the mug's target is "Drink"
+instead of "Pour". 1.6 s from E in four beats: 0.22 s reach (nothing moves, hint fades) →
+0.5 s lift on a quadratic arc up and in to a point low-right of the lens (camera-attached, so
+looking around carries the mug) → 0.43 s sip: the mug closes to 0.21 m and tips 20–45° (enough
+to bring the surface to the rim for the level it starts at, plus a few degrees), the head
+tilts back 4° with 1.5° roll (`player.lean`), the level falls by ⅓ of a mug between 0.82 and
+1.08 s through the pour's volume LUT, the rim steam scales with the level, `sfx.sip` at 0.78 →
+0.45 s set-down, decelerating, quiet clink. The liquid disc is counter-rotated each frame to
+stay world-horizontal and slid to the low side, so it reads as liquid in a tilted mug. Three
+sips empty a full mug (1 → 0.667 → 0.333 → 0); below 15 % "Pour" is offered again and a pour
+tops it up. Movement locked and `blocked()` true for the 1.6 s. `__interact("drink", t)` seeks
+(filling the mug first if empty); `drink-sip` pose.
+
+**2 · Openables** (`scene/Openables.ts` geometry, `interactions/Openables.ts` motion).
+*Cabinet*: `BACK_BAR.cabinet` = a 1.0 m bay under the brewer that `Counter.ts` now leaves open
+(one entry in its `openings` list; the laminate bay gets no stainless face frame). Carcass, shelf,
+stacked saucers, an open box of filters, a paper-towel roll and a spray bottle are static and go
+into existing buckets; two overlay laminate doors (8 mm lap, 2.5 mm arris) each hang on their own
+hinge Group with a chrome wire pull, and a 4 mm dark reveal on the die face frames the pair so it
+reads as doors in the flat service-side light (head-on it was invisible — the grain runs through).
+One press toggles: open = 0.2 s reach, catch `release` tick, 0.6 s swing to 95° — quick off the
+catch, the damper takes the last quarter, a 1.5° overshoot settles (soft stop); close = 0.15 s
+reach, shove to 20°, damper to 3°, the magnetic catch pulls the last 3° home with a `close`
+click at 0.75 s. *Kitchen door*: `Shell.ts` keeps only the casings; the leaf (0.9 × 2.1 m, paint +
+dark lite + grey plates + pivots, one vertex-coloured mesh) is pushed from the dining room:
+0.2 s reach → 0.5 s ease-out to 90° into the kitchen (push thud + frame-pass whoosh) → released
+from rest, θ = 90°·e^(−2τ)·(cos 4.6τ + 0.43 sin 4.6τ): through the frame at 0.43 s to −23° into
+the dining room, through again to +6°, once more, the check blends the last 0.3 s to rest —
+2.8 s in all, a whoosh on each pass scaled by angular speed, a bumper thud on the settle. Behind
+it a dim vestibule in the pass-through's `kitchenDim` (walls, floor, a wire shelving silhouette,
+a mop bucket) with two `rockerLit` glow strips — no lights. Both are shadow-once: `consumeSettled()`
+is true exactly once when a leaf comes to rest and `index.ts` calls `invalidateShadows()` then, not
+per frame. Neither blocks sprint/jump (the player does not move). Reach 1.5 / 1.6 m — the service
+aisle is walkable round the L-return, so both are reachable on foot.
+
+**3 · Implied presence** (`scene/Presence.ts`, `procedural/presence.ts`). One 1024² atlas
+(`presenceAtlas`, registered in `SHAPES`/`texWorker`; map + roughness + normal) holds four
+materials — 2/1 basket-weave cotton canvas with hand-wipe grime and two ragged coffee blots,
+rust stockinette knit, an aged newsprint page (masthead, rules, columns, a halftone photo), toast
+crumb + dried yolk — plus a flat lipstick-red strip, so every soft prop is one `presence` bucket.
+The apron hangs from a hook by the pass-through: a 20 × 32 loft of six catenary pleats opening
+toward the hem, gathered waistband, straps; the cardigan is a lofted mound over stool 6's seat
+with a rolled collar, a sleeve hanging down the front and three buttons; booth 2 has a plate
+(lathe) with a bitten toast crust (extruded, UV'd to the toast tile), a yolk smear, a fork and
+crumbs, and a folded newspaper (three lofted leaves over a fold, newsprint on both faces); the
+cup on the saucer at stool 3 keeps 2 cm of cold coffee and a lipstick crescent on the rim opposite
+the handle. Everything static is appended into the scene's existing material buckets by
+`core/mergeInto.ts` (`mergeIntoHosts`: find a non-instanced `name:material` mesh with the same
+material, merge geometries, recompute bounds) — 9 buckets hosted, 0 new draw calls for the
+statics.
+
+**4 · Kitchen presence audio** (`audio/ambience/Kitchen.ts`, positions `kitchenSink` / `kitchenRadio`
+just behind the pass-through opening). Muffled talk murmur (pink noise through a wandering
+320–700 Hz band-pass and a 900 Hz low-pass ×2, a 3.5–5.5 Hz syllabic envelope inside 1.5–4 s
+phrases with 0.6–2.5 s gaps, a lower "cook" register answering 30 % of the time — no formants,
+never a word), dish clusters (2–5 inharmonic ceramic contacts low-passed at 3.8 kHz + a cutlery
+tinkle, every 20–60 s), the tap running 3–6 s (stream hiss + splash burble + valve onset + drips,
+every 20–60 s). Harness (`tools/audio-harness.mjs`, `kitchen` bus, 40 s): **−48.2 LUFS at the
+counter** (service aisle at the brewer, 1.7 m), −51.4 aisle centre, −56.6 at the door; the aisle
+bed is −36.1 LUFS (was −36.2). One-shots (`--scenario=sys9`, 1.2 m from the cabinet, 3.9 m
+from the kitchen door): footfall −28.6 dBFS, sip −32.1, catch release −31.0 / close −20.6,
+kitchen-door push −30.6 / pass −32.9 / settle −26.5; no discontinuities.
+
+**5 · Player controls** (`player/FirstPerson.ts`; keys documented under System 7 "Controls" and in
+the loader). Shift blends the top speed 1.4 → 2.6 m/s over 0.2 s with the same accel/decel
+times, head-bob 1.8 → 2.4 Hz and 1.4 → 2.2 cm p-p with speed; Space is one 0.32 m hop under
+9.81 (0.51 s), 2 cm landing dip over 0.15 s + `sfx.footfall`; E is the prompt action, Q (or E
+seated) stands. Both refused seated and mid-interaction (`blocked()`: pouring, drinking, in the
+door swing). Harness (live `__player.keys` + `update()`): walk 1.4 at 0.15 s; sprint 1.45 → 2.6
+over 0.2 s, release 2.55 → 1.4 over 0.2 s; bob p-p 1.39 / 2.08 cm walk / sprint, **0 at rest**
+and after stopping; apex 0.320 m, flight 0.508 s, dip −2.0 cm at 67 ms, 0 at 150 ms, one footfall;
+collision holds mid-hop; blocked → speed 1.4 / sprint 0 / apex 0; seated → speed 0, camera still.
+
+**Verification.** `tsc --noEmit` and `npm run build` clean. Live openables harness 17/17
+(target pick from the aisle, anticipation beat, 95° at 0.8 s, label flips to "Close", closed at
+0.75 s, other door untouched, kitchen door 90.0° → −23.0° → 3 frame passes → rest by 3 s,
+`blocked()` false during a swing, seeks deterministic); drink harness (3 sips → empty → Pour
+re-armed → refill; seeks deterministic). **Draw calls vs `origin/main` (same build, same GPU,
+other agents shooting):** boot 179 → 183 (+4), `door` 197 → 197, `aisle` 265 → 269 (+4),
+`warmer` 217 → 225 (+8), `counter` 263 → 273 (+10), `length` 306 → 316 (+10) — six own meshes
+(two cabinet leaves × {laminate, chrome}, the kitchen leaf, the presence bucket), doubled where
+the transmission pass draws the opaques twice. Triangles 1.220 → 1.225 M. Boot 33.7 → 34.2 s
+under the same contention (+0.5 s, within the run-to-run noise of a shared GPU). `tools/gpu.mjs`
+passes.
+
+### Lessons
+- **"Merge into the existing buckets" needs a host.** Palette materials that only live on an
+  `InstancedMesh` (the mugs' `bisque` foot ring), on a per-prop clone (`vinylRed` on the booths
+  is a different instance) or nowhere yet (`orangeBand`) have no mesh to join, and each became
+  its own draw call — the probe (traverse for meshes under `sys9`) found 11 where the design said
+  6. Check the host list before choosing a material; when there is none, paint the colour into
+  an atlas you already own (the lipstick strip) or pick a hosted neighbour.
+- **Transmission doubles every opaque draw.** With glass in view the renderer draws the opaque
+  list twice, so a "+6 meshes" budget line reads as +12 in `counter`/`length`. Budget own
+  meshes, not draw calls, and measure at the transmissive poses.
+- **A door you cannot see is a wall.** Overlay doors in the same laminate as the die, lit flat
+  from the service side, were invisible in the frame (the grain ran straight through). What
+  made them read was not geometry but a shadow gap — a 4 mm dark reveal — plus a pull.
+- **Release a swing door from rest.** `θ = A·e^(−λτ)·cos ωτ` has velocity −λA at τ = 0, a
+  visible kick after an ease-out push; the `(cos + λ/ω·sin)` form starts at zero velocity and
+  the hand-over is continuous. Blend the last 0.3 s to zero rather than cutting at an envelope
+  threshold (a 1.5° cut is 23 mm at the free edge).
+- **Seek before the timeline exists.** `drink.seek(t)` on an empty mug is meaningless; the
+  debug seek fills it first (`pour.seek(6)`), and the harness must do the same or the results
+  are order-dependent.
+- **Harness time is float.** Stepping `0.8 s` as 96 × 1/120 lands at 0.79999; a state that
+  flips at exactly `end` reads one frame late. Step past the end by a frame.
+
 ## System status
 
 | # | System | Status |
@@ -1659,6 +1799,7 @@ lazily, once).
 | 6 | Sound design | **built, rev 3** (section above) — 100 % synthesised: AM-radio speech rhythm, AC drone + rattle, fan whoosh, warmer ticks/gurgle, room tone; pour / clink / door one-shots and the exterior heat wall. Rev 3 measured the live mix at six listener poses (BS.1770 LUFS per bus) and re-levelled it: aisle bed −36.2 LUFS, room −44.5, AC / fan / radio −35 / −39 / −33 at 1 m, warmer near-field; pour lands with the stream, clinks −12 dBFS, heat wall −26 LUFS with an equal-power swell, room ducks 3 dB while the door is open, latch on close |
 | 7 | The 3 interactions (sit, pour coffee, open door) | **built, rev 2 — feel polish** (`shots/sys7-seq-{sit,pour,door,door-ext}.png` time-series sheets + 18 key frames from `tools/sequence.mjs`; anticipation beats, arced/tilting pour with continuity-thinning stream, drips and volume-true fill, closer-profile door with hold-while-in-doorway and latch SFX, four-beat sit with lean and cushion settle, System 8 `SteamEmitter` reused (duplicate `interactions/Steam.ts` deleted), first-pour 0.7 s link hitch removed; player accel/decel 0.15/0.12 s, 1.4 cm head-bob, push-out collision that slides round stool bases — see "System 7 rev 2" above). Rev 1 was: (merged into `main` over the loader + System 3 rev 2: shadow-once invalidation on door/pour, audio on the loader's enter click, pour programs pre-issued) — `src/interactions/*` + `src/audio/wiring.ts` (System 6 wired: gesture start, positional beds, pour/clink/door SFX, exterior crossfade). Frames `shots/sys7-{sit-seated,pour-mid,pour-full,door-open}.png`; 23/23 live Playwright checks; update ≈ 0.01 ms; +6 draw calls only while pouring |
 | 8 | Post-processing and final polish | **built, rev 1** (`src/post/`, section above), merged with the loader + System 3 rev 2 (spot sun, shadow-once — see "Integration" above) — MSAA 4× scene target, sun-beam dust (5 k shadow-map-lit motes), half-res volumetric haze through the beam prisms, exterior-only heat shimmer, ambient decanter steam (`SteamEmitter`; System 7 rev 2's pour steam is a second instance of the same class), high-threshold bloom, CA 0.5 px, 0.3 EV vignette, corner softness, ACES/AgX/Neutral tone map, luminance-dependent procedural grain; ~1.3 ms post + ~1.3 ms MSAA at 1080p on the 4060; `?post=0` bypasses everything |
+| 9 | Extended interactions and implied presence | **built, rev 1** (branch `sys9-interactions`, section above; frames `shots/sys9-sys9-*.png`, sheets `shots/sys9-seq-{drink,cabinet,cabinet-close,kitchen-door}.png`) — drink from the mug (1.6 s camera-attached raise, ⅓ per sip, volume-true, steam with level, Pour re-arms under 15 %); openable cabinet doors (soft stop, magnetic catch SFX, shelf of saucers/filters/spray bottle) and a double-acting kitchen swing door (push to 90°, spring return with two decaying oscillations, dim vestibule, no lights), shadow-once at rest; implied presence — apron on a hook, cardigan over a stool, half-finished plate + folded newspaper in booth 2, lipstick cup at the counter — on one atlas material with the statics merged into existing buckets; kitchen presence audio (murmur, dishes, tap; −48 LUFS at the counter, aisle bed unchanged); Shift sprint / Space hop / E + Q keys. +4…+10 draw calls by pose, 6 own meshes |
 
 Known simplifications after System 3: no heat shimmer (System 8 post), no
 chain fence, the cars have no interiors (dark glass hides it at 10–30 m), the

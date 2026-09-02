@@ -291,7 +291,7 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     const { zFront, depth, height, xMin, xMax, coffeeX } = BACK_BAR;
     const zBack = zFront - depth;
     const kickH = 0.1, topT = 0.03;
-    const openings = [BACK_BAR.cooler, BACK_BAR.drawers];
+    const openings = [BACK_BAR.cooler, BACK_BAR.drawers, BACK_BAR.cabinet]; // the cabinet bay's carcass + doors: Openables.ts (System 9)
     const yTop = height - topT - 0.02;
     // Die with two equipment bays
     punchedWall(
@@ -302,7 +302,7 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
       openings.map(([a0, a1]) => ({ a0, a1, y0: kickH, y1: yTop })),
       (x0, x1, y0, y1) => b.box(pal.laminateCabinet, [x0, y0, zBack], [x1, y1, zFront], { metric: true }),
     );
-    for (const [a0, a1] of openings) {
+    for (const [a0, a1] of [BACK_BAR.cooler, BACK_BAR.drawers]) {
       // Stainless face frame; the bay is backed 60 mm deep so nothing reads as a hole
       b.box(pal.stainless, [a0 - 0.005, kickH, zBack], [a1 + 0.005, yTop, zFront - 0.06]);
       b.rbox(pal.stainless, [a0 - 0.02, kickH - 0.005, zFront - 0.02], [a0 + 0.01, yTop, zFront + 0.004], 0.002);
