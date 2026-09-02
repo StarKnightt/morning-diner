@@ -366,12 +366,16 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     ceilingTileStained,
     // Door / window dressing: an RGBA atlas on thin quads 1.5 mm off the glass. Opaque
     // regions only where a sign or sticker is; drawn after the glass (renderOrder in Door.ts).
+    // FrontSide: every quad is built facing the room (mirrored UVs where the vinyl is meant
+    // for the street), and the flip sign's two faces are two quads, so a DoubleSide quad
+    // would show the wrong face through the other.
     decal: new THREE.MeshStandardMaterial({
-      map: tex.doorDecals(1024),
+      map: tex.doorDecals(2048),
       transparent: true,
+      alphaTest: 0.02,
       roughness: 0.55,
       metalness: 0,
-      side: THREE.DoubleSide,
+      side: THREE.FrontSide,
       depthWrite: false,
       polygonOffset: true,
       polygonOffsetFactor: -1,

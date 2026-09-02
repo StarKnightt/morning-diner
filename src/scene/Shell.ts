@@ -196,6 +196,7 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     {
       const fx0 = x0 + fw + stop, fx1 = x1 - fw - stop, fy0 = y0 + fw + stop, fy1 = ty - fw / 2 - stop;
       const film = atlasQuad(fx1 - fx0, fy1 - fy0, DECAL.film);
+      film.rotateY(Math.PI); // decal material is FrontSide: face the room (−z)
       film.translate((fx0 + fx1) / 2, (fy0 + fy1) / 2, zMid - 0.0015);
       filmGeos.push(film);
     }

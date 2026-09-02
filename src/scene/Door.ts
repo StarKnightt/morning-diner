@@ -110,25 +110,30 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   smudge.name = "door-smudge";
   hinge.add(smudge);
 
-  // Dressing (System 5): one atlas material (materials.ts decal), quads 1.5 mm inside the
-  // glass. Everything is applied to the INSIDE face, as diners do to keep vinyl out of the
-  // weather: the OPEN card (suction hooks, high on the light) and the PUSH sticker face the
-  // room; the hours lettering and the card-acceptance sticker are applied reversed so they
-  // read from the lot, and from inside they read mirrored through the glass — as in life.
-  // (Inside is also the only place they can be: three.js's transmission buffer holds opaque
-  // objects only, so a transparent decal on the far side of transmissive glass never shows.)
+  // Dressing (System 5 rev 2): one atlas material (materials.ts decal, FrontSide), quads
+  // 1.5 mm inside the glass, every quad facing the room. Everything is applied to the
+  // INSIDE face, as diners do to keep vinyl out of the weather. The rule for what the room
+  // sees: vinyl meant for the street (hours, card-acceptance sticker) is applied reversed,
+  // so from inside it reads mirrored (`mirrorU`); the PUSH sticker is for people leaving,
+  // so it reads forwards. The OPEN sign is a two-sided flip card on suction hooks: at 8 AM
+  // OPEN faces the lot, so the room sees its back — SORRY WE'RE CLOSED — reading forwards.
+  // The OPEN face is a second quad facing the street (culled from inside).
+  // (Inside is also the only place decals can be: three.js's transmission buffer holds
+  // opaque objects only, so a transparent decal on the far side of transmissive glass
+  // never shows.)
   const decals: THREE.BufferGeometry[] = [];
-  const stick = (w: number, h: number, x: number, y: number, region: readonly [number, number, number, number], readsFromInside: boolean) => {
-    const g = atlasQuad(w, h, region);
-    if (readsFromInside) g.rotateY(Math.PI); // face −z (the room)
-    g.translate(x, y, -0.0015);
+  const stick = (w: number, h: number, x: number, y: number, region: readonly [number, number, number, number], mirrored: boolean, z = -0.0015, faceStreet = false) => {
+    const g = atlasQuad(w, h, region, mirrored);
+    if (!faceStreet) g.rotateY(Math.PI); // face −z (the room)
+    g.translate(x, y, z);
     decals.push(g);
   };
   const glassMidX = leafW / 2;
-  stick(0.3, 0.2, glassMidX + 0.05, gy1 - 0.16, DECAL.open, true);
-  stick(0.12, 0.05, glassMidX, barY + 0.095, DECAL.push, true);
-  stick(0.2, 0.26, gx1 - 0.15, 1.45, DECAL.hours, false);
-  stick(0.085, 0.055, gx1 - 0.09, 1.12, DECAL.cards, false);
+  stick(0.3, 0.2, glassMidX + 0.05, gy1 - 0.16, DECAL.open, false, -0.0015, true);
+  stick(0.3, 0.2, glassMidX + 0.05, gy1 - 0.16, DECAL.closed, false, -0.0025);
+  stick(0.12, 0.05, glassMidX, barY + 0.095, DECAL.push, false);
+  stick(0.2, 0.26, gx1 - 0.15, 1.45, DECAL.hours, true);
+  stick(0.085, 0.055, gx1 - 0.09, 1.12, DECAL.cards, true);
   const decalMesh = new THREE.Mesh(mergeGeometries(decals, false)!, pal.decal);
   decalMesh.renderOrder = 12;
   decalMesh.name = "door-decals";

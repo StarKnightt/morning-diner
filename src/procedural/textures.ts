@@ -595,33 +595,99 @@ export function acousticTile(size: number, seed = 555, stain = false): TextureSe
       d[i * 4] = v; d[i * 4 + 1] = v * 0.985; d[i * 4 + 2] = v * 0.955; d[i * 4 + 3] = 255;
       rough[i] = 0.9 + n * 0.5 - hf[i] * 0.04;
     }
-  if (stain) {
-    // Water stain: an off-centre blob whose radius wanders with angle; the wash inside is a
-    // weak tan, the rim a darker tide line (minerals dry at the edge), plus 2 fainter inner rims.
-    const cx = size * (0.38 + rng() * 0.2), cy = size * (0.4 + rng() * 0.2);
-    const R = (0.13 + rng() * 0.07) / 0.6 * size; // 130–200 mm radius
-    const wobble = makeFbm(seed + 9, 3, 2);
-    const rings = [1, 0.78 + rng() * 0.08, 0.5 + rng() * 0.1];
-    for (let y = 0; y < size; y++)
-      for (let x = 0; x < size; x++) {
+  if (!stain) {
+    ctx.putImageData(img, 0, 0);
+    return { map: finish(c, true, 4), roughnessMap: greyFromField(rough, size, size, 4), normalMap: normalFromHeight(hf, size, size, 0.5 / mmPerPx, 4) };
+  }
+  // Stained variant (rev 2): a 2 × 1 atlas — two different stains on the same base tile,
+  // so the two stained tiles in the room do not share an outline (Ceiling.ts picks u halves).
+  // A real ceiling-tile leak: an irregular, lobed outline (the union of two or three blobs
+  // whose radius wanders with angle and grows a few tongues), a thin dark-brown perimeter
+  // line where the minerals dried, a pale tan interior lighter than the rim, and inside it
+  // the board has swelled (a low dome in the height field) and the paint crazed (fine
+  // dark cracks). An older, fainter tide line sits off-centre inside — the first leak.
+  const W = size * 2;
+  const { c: c2, ctx: ctx2 } = canvas(W, size);
+  const img2 = ctx2.createImageData(W, size);
+  const d2 = img2.data;
+  const rough2 = new Float32Array(W * size), hf2 = new Float32Array(W * size);
+  for (let y = 0; y < size; y++)
+    for (let k = 0; k < 2; k++) {
+      d2.set(d.subarray(y * size * 4, (y + 1) * size * 4), (y * W + k * size) * 4);
+      rough2.set(rough.subarray(y * size, (y + 1) * size), y * W + k * size);
+      hf2.set(hf.subarray(y * size, (y + 1) * size), y * W + k * size);
+    }
+  for (let k = 0; k < 2; k++) {
+    const srng = makeRng(seed * 7 + k * 131);
+    const wob = makeFbm(seed + 9 + k * 5, 3, 2);
+    // Blobs: [cx, cy, R, lobe phase, lobe count]. Variant 0 is the big one under the AC line
+    // (two overlapping leaks + a tongue running toward one edge); variant 1 a smaller single leak.
+    const blobs: Array<[number, number, number, number, number]> = [];
+    const px = (mm: number) => (mm / 600) * size;
+    if (k === 0) {
+      const cx = size * 0.5, cy = size * 0.48;
+      blobs.push([cx, cy, px(150), srng() * 6.3, 3]);
+      blobs.push([cx + px(95), cy - px(60), px(105), srng() * 6.3, 4]);
+      blobs.push([cx - px(60), cy + px(130), px(70), srng() * 6.3, 2]); // tongue
+    } else {
+      const cx = size * 0.42, cy = size * 0.55;
+      blobs.push([cx, cy, px(110), srng() * 6.3, 4]);
+      blobs.push([cx + px(70), cy + px(40), px(60), srng() * 6.3, 3]);
+    }
+    // Older inner tide: a smaller blob, off-centre, only its rim
+    const inner: [number, number, number, number, number] = [blobs[0][0] - px(30), blobs[0][1] + px(20), blobs[0][2] * 0.58, srng() * 6.3, 3];
+    const field = (bl: Array<[number, number, number, number, number]>, x: number, y: number, wobK: number) => {
+      // Signed "inside-ness": max over blobs of 1 − r/R(θ). > 0 inside.
+      let best = -1e9;
+      for (const [cx, cy, R, ph, lobes] of bl) {
         const dx = x - cx, dy = y - cy;
         const ang = Math.atan2(dy, dx);
-        const rad = Math.hypot(dx, dy) / (R * (0.72 + 0.56 * wobble((ang + Math.PI) / (2 * Math.PI), 0.5)));
-        if (rad > 1.05) continue;
-        let a = 0.22 * (1 - smoothstep(0.96, 1.03, rad)); // wash
-        for (let k = 0; k < rings.length; k++) {
-          const w = k === 0 ? 0.035 : 0.02;
-          const ring = Math.exp(-((rad - rings[k]) * (rad - rings[k])) / (w * w));
-          a += ring * (k === 0 ? 0.42 : 0.14);
-        }
-        a = Math.min(0.75, a);
-        const i = (y * size + x) * 4;
-        d[i] = d[i] * (1 - a) + 168 * a; d[i + 1] = d[i + 1] * (1 - a) + 138 * a; d[i + 2] = d[i + 2] * (1 - a) + 92 * a;
-        rough[y * size + x] = Math.max(rough[y * size + x] - a * 0.1, 0.75);
+        const lobe = 1 + 0.18 * Math.cos(lobes * ang + ph) + 0.1 * Math.cos((lobes * 2 + 1) * ang - ph);
+        const w = 0.8 + 0.5 * wob(wobK + 0.3 * Math.cos(ang), wobK + 0.3 * Math.sin(ang)); // periodic in θ
+        best = Math.max(best, 1 - Math.hypot(dx, dy) / (R * lobe * w));
+      }
+      return best;
+    };
+    const craze = makeFbm(seed + 21 + k, 40, 3);
+    const mottle = makeFbm(seed + 33 + k, 9, 3);
+    for (let y = 0; y < size; y++)
+      for (let x = 0; x < size; x++) {
+        const s = field(blobs, x, y, 0.3 + k);
+        if (s < -0.06) continue;
+        const i = (y * W + k * size + x) * 4, j = y * W + k * size + x;
+        // Perimeter: a 3–5 mm dark brown line just inside the edge, sharper outside
+        const edge = smoothstep(-0.02, 0.0, s) * (1 - smoothstep(0.012, 0.045, s));
+        // Interior wash: pale tan, weaker toward the centre (dried from the middle out),
+        // with a darker mottled halo band a little inside the rim
+        const inside = smoothstep(0.0, 0.02, s);
+        const halo = inside * (1 - smoothstep(0.05, 0.16, s)) * (0.5 + 0.5 * mottle(x / size, y / size));
+        const wash = inside * (0.10 + 0.08 * (1 - smoothstep(0.1, 0.5, s)) + 0.06 * mottle(x / size + 3, y / size));
+        // Older tide line inside: fainter, its own outline
+        const si = field([inner], x, y, 0.7 + k);
+        const tide = smoothstep(-0.02, 0.0, si) * (1 - smoothstep(0.008, 0.03, si)) * inside;
+        // Blend: perimeter in dark brown, wash/halo in tan
+        const aLine = Math.min(1, edge * 0.85 + tide * 0.35);
+        const aWash = Math.min(1, wash + halo * 0.22);
+        let r = d2[i], g = d2[i + 1], b = d2[i + 2];
+        r = r * (1 - aWash) + 196 * aWash; g = g * (1 - aWash) + 168 * aWash; b = b * (1 - aWash) + 118 * aWash;
+        r = r * (1 - aLine) + 104 * aLine; g = g * (1 - aLine) + 72 * aLine; b = b * (1 - aLine) + 38 * aLine;
+        // Swelling: the board domes up to 1.2 mm inside the stain; crazing: dark hairline
+        // cracks where the paint film broke over the swell (thresholded noise ridges)
+        const dome = inside * smoothstep(0.0, 0.25, s) * 1.2;
+        const cz = craze(x / size, y / size);
+        const crack = inside * smoothstep(0.0, 0.1, s) * (1 - smoothstep(0.012, 0.03, Math.abs(cz - 0.5)));
+        hf2[j] += dome - crack * 0.5;
+        const ck = crack * 0.35;
+        r = r * (1 - ck) + 90 * ck; g = g * (1 - ck) + 70 * ck; b = b * (1 - ck) + 48 * ck;
+        // Flaked paint: a few lighter chalky patches where the film lifted
+        const flake = inside * smoothstep(0.62, 0.7, mottle(x / size + 7, y / size + 2));
+        r = r * (1 - flake * 0.5) + 232 * flake * 0.5; g = g * (1 - flake * 0.5) + 226 * flake * 0.5; b = b * (1 - flake * 0.5) + 214 * flake * 0.5;
+        d2[i] = r; d2[i + 1] = g; d2[i + 2] = b;
+        rough2[j] = Math.max(rough2[j] - aWash * 0.15 - aLine * 0.1 + flake * 0.1, 0.7);
       }
   }
-  ctx.putImageData(img, 0, 0);
-  return { map: finish(c, true, 4), roughnessMap: greyFromField(rough, size, size, 4), normalMap: normalFromHeight(hf, size, size, 0.5 / mmPerPx, 4) };
+  ctx2.putImageData(img2, 0, 0);
+  return { map: finish(c2, true, 4), roughnessMap: greyFromField(rough2, W, size, 4), normalMap: normalFromHeight(hf2, W, size, 0.5 / mmPerPx, 4) };
 }
 
 /**
@@ -1439,19 +1505,24 @@ export function baseboardScuff(size: number, seed: number): TextureSet {
 }
 
 /**
- * RGBA atlas for the door and window dressing (sRGB, clamp). 1024²:
- *  A [0,0]–[512,512]      OPEN sign (300 × 200 mm card, hung inside the glass)
- *  B [512,0]–[1024,512]   hours decal (white vinyl lettering, ~200 × 260 mm)
- *  C [0,512]–[512,768]    PUSH sticker (120 × 50 mm, red)
- *  D [512,512]–[768,768]  card-acceptance sticker (85 × 55 mm, generic marks)
- *  E [768,512]–[1024,1024] window-film edge: clear, with the 3 mm cut-back line at the
- *                          frame and a lifted corner
- * Text is drawn with the platform sans; the regions are read by DOOR_ATLAS in Door.ts.
+ * RGBA atlas for the door and window dressing (sRGB, clamp). Regions in 2048-space, each
+ * with the aspect of the quad it dresses (core/shapes.ts DECAL is the same table in UV):
+ *  open   [0,0]–[1024,683]          flip sign, STREET face: OPEN (300 × 200 mm card)
+ *  closed [1024,0]–[2048,683]       flip sign, ROOM face: SORRY WE'RE CLOSED
+ *  hours  [0,683]–[800,1723]        hours vinyl (white lettering, 200 × 260 mm)
+ *  push   [800,683]–[1760,1083]     PUSH sticker (120 × 50 mm, red)
+ *  cards  [800,1083]–[1480,1523]    card-acceptance sticker (85 × 55 mm, generic marks)
+ *  film   [1480,1083]–[2048,1651]   window-film edge: clear, with the 3 mm cut-back line
+ *                                   at the frame and a lifted corner
+ * Text is drawn with the platform sans. After drawing, the colour of every opaque texel is
+ * dilated into the transparent surround (rev 2): the atlas is not premultiplied, so with
+ * black-transparent neighbours every mip level below 0 pulled the letters toward black and
+ * the hours vinyl read as a grey blur from 3 m — the rev 1 "blurred decals".
  */
 export function doorDecals(size: number): THREE.Texture {
   const { c, ctx } = canvas(size, size);
   ctx.clearRect(0, 0, size, size);
-  const S = size / 1024;
+  const S = size / 2048;
   const font = (px: number, weight = "bold") => `${weight} ${Math.round(px * S)}px Arial, Helvetica, sans-serif`;
   const rr = (x: number, y: number, w: number, h: number, r: number) => {
     ctx.beginPath();
@@ -1462,92 +1533,145 @@ export function doorDecals(size: number): THREE.Texture {
     ctx.arcTo(x, y, x + w, y, r);
     ctx.closePath();
   };
+  /** Draw `t` centred at (cx, cy) in `px` font, shrinking until it fits `maxW`. */
+  const fit = (t: string, cx: number, cy: number, px: number, maxW: number, weight = "bold") => {
+    let p = px;
+    ctx.font = font(p, weight);
+    while (ctx.measureText(t).width > maxW * S && p > 8) { p *= 0.94; ctx.font = font(p, weight); }
+    ctx.fillText(t, cx * S, cy * S);
+  };
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  // A: OPEN — white card (slightly yellowed), red border, red block letters, small black line
-  {
-    const x = 16 * S, y = 60 * S, w = 480 * S, h = 320 * S;
-    ctx.fillStyle = "#f4efe2";
-    rr(x, y, w, h, 10 * S); ctx.fill();
-    ctx.lineWidth = 9 * S; ctx.strokeStyle = "#b8262a";
-    rr(x + 16 * S, y + 16 * S, w - 32 * S, h - 32 * S, 6 * S); ctx.stroke();
-    ctx.fillStyle = "#b8262a";
-    ctx.font = font(170);
-    ctx.fillText("OPEN", x + w / 2, y + h * 0.46);
+  const M = 8; // transparent margin inside each region (bilinear guard at the quad edge)
+
+  // Flip sign: one 300 × 200 mm card, both faces the same yellowed stock with a red border,
+  // two suction-hook discs and a sag of string at the top. OPEN face red, CLOSED face black
+  // with a red SORRY, as on the ubiquitous drugstore sign.
+  const card = (x0: number, y0: number, w: number, h: number, draw: () => void) => {
+    const x = (x0 + M) * S, y = (y0 + M) * S, cw = (w - 2 * M) * S, ch = (h - 2 * M) * S;
+    ctx.fillStyle = "#f3eee0";
+    rr(x, y, cw, ch, 14 * S); ctx.fill();
+    // Slight age: a warm tint towards the bottom corners and a faint scuff
+    const g = ctx.createLinearGradient(x, y, x, y + ch);
+    g.addColorStop(0, "rgba(255,255,255,0)"); g.addColorStop(1, "rgba(180,150,90,0.10)");
+    ctx.fillStyle = g; rr(x, y, cw, ch, 14 * S); ctx.fill();
+    ctx.lineWidth = 16 * S; ctx.strokeStyle = "#b5262a";
+    rr(x + 34 * S, y + 34 * S, cw - 68 * S, ch - 68 * S, 8 * S); ctx.stroke();
+    // Hooks + string: two grey suction discs at the top corners, thin white cord down to the card
+    ctx.fillStyle = "rgba(180,180,178,0.95)";
+    for (const hx of [x + 80 * S, x + cw - 80 * S]) { ctx.beginPath(); ctx.arc(hx, y + 10 * S, 22 * S, 0, Math.PI * 2); ctx.fill(); }
+    ctx.strokeStyle = "rgba(120,118,112,0.8)"; ctx.lineWidth = 3 * S;
+    ctx.beginPath(); ctx.moveTo(x + 80 * S, y + 10 * S); ctx.lineTo(x + 80 * S, y + 40 * S); ctx.moveTo(x + cw - 80 * S, y + 10 * S); ctx.lineTo(x + cw - 80 * S, y + 40 * S); ctx.stroke();
+    draw();
+  };
+  card(0, 0, 1024, 683, () => {
     ctx.fillStyle = "#2a2622";
-    ctx.font = font(34, "normal");
-    ctx.fillText("COME IN — WE'RE", x + w / 2, y + h * 0.14);
-    ctx.font = font(30, "normal");
-    ctx.fillText("BREAKFAST ALL DAY", x + w / 2, y + h * 0.86);
-    // Suction-cup hooks: two grey discs at the top corners
-    ctx.fillStyle = "rgba(190,190,186,0.9)";
-    for (const hx of [x + 40 * S, x + w - 40 * S]) { ctx.beginPath(); ctx.arc(hx, y + 8 * S, 14 * S, 0, Math.PI * 2); ctx.fill(); }
-  }
-  // B: HOURS — white vinyl letters with a thin dark keyline so they read on a bright lot too
+    fit("COME IN — WE'RE", 512, 118, 62, 760, "normal");
+    ctx.fillStyle = "#b5262a";
+    fit("OPEN", 512, 350, 420, 800);
+    ctx.fillStyle = "#2a2622";
+    fit("BREAKFAST ALL DAY", 512, 586, 54, 760, "normal");
+  });
+  card(1024, 0, 1024, 683, () => {
+    ctx.fillStyle = "#b5262a";
+    fit("SORRY", 1536, 110, 76, 760);
+    ctx.fillStyle = "#2a2622";
+    fit("WE'RE", 1536, 190, 62, 760, "normal");
+    fit("CLOSED", 1536, 380, 330, 820);
+    fit("PLEASE CALL AGAIN", 1536, 586, 50, 760, "normal");
+  });
+
+  // Hours: white vinyl letters, 200 × 260 mm at 4 px/mm, 1 mm dark keyline so they still
+  // read against a bright lot. Drawn forwards here; Door.ts mirrors the quad's UVs because
+  // this vinyl is applied reversed on the inside face to read from the street.
   {
-    const cx = 768 * S, top = 60 * S;
+    const cx = 400, top = 683 + 120;
     const line = (t: string, dy: number, px: number, weight = "bold") => {
       ctx.font = font(px, weight);
-      ctx.lineWidth = 3 * S; ctx.strokeStyle = "rgba(30,28,26,0.55)";
-      ctx.strokeText(t, cx, top + dy * S);
-      ctx.fillStyle = "#f2f0ea";
-      ctx.fillText(t, cx, top + dy * S);
+      ctx.lineWidth = 5 * S; ctx.strokeStyle = "rgba(30,28,26,0.85)";
+      ctx.strokeText(t, cx * S, (top + dy) * S);
+      ctx.fillStyle = "#e9e7e1"; // adhesive side of white vinyl, a touch grey from inside
+      ctx.fillText(t, cx * S, (top + dy) * S);
     };
-    line("HOURS", 40, 66);
-    line("MON – SAT", 130, 42);
-    line("6 AM – 3 PM", 180, 42, "normal");
-    line("SUNDAY", 260, 42);
-    line("7 AM – 2 PM", 310, 42, "normal");
-    line("CLOSED HOLIDAYS", 400, 30, "normal");
+    line("HOURS", 0, 124);
+    line("MON – SAT", 170, 76);
+    line("6 AM – 3 PM", 262, 76, "normal");
+    line("SUNDAY", 420, 76);
+    line("7 AM – 2 PM", 512, 76, "normal");
+    line("CLOSED HOLIDAYS", 690, 56, "normal");
   }
-  // C: PUSH — red sticker, white text, one corner lifting (lighter triangle)
+  // PUSH: red sticker (120 × 50 mm at 8 px/mm), white text, one corner lifting
   {
-    const x = 20 * S, y = 540 * S, w = 470 * S, h = 200 * S;
+    const x = (800 + M) * S, y = (683 + M) * S, w = (960 - 2 * M) * S, h = (400 - 2 * M) * S;
     ctx.fillStyle = "#c0292c";
-    rr(x, y, w, h, 14 * S); ctx.fill();
+    rr(x, y, w, h, 24 * S); ctx.fill();
     ctx.fillStyle = "#f6f2ea";
-    ctx.font = font(150);
-    ctx.fillText("PUSH", x + w / 2, y + h / 2 + 4 * S);
+    fit("PUSH", 1280, 683 + 208, 300, 860);
     ctx.fillStyle = "rgba(255,255,255,0.35)";
-    ctx.beginPath(); ctx.moveTo(x + w, y + h); ctx.lineTo(x + w - 40 * S, y + h); ctx.lineTo(x + w, y + h - 40 * S); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x + w, y + h); ctx.lineTo(x + w - 80 * S, y + h); ctx.lineTo(x + w, y + h - 80 * S); ctx.fill();
   }
-  // D: card sticker — "WE ACCEPT" over four generic marks (no trademarks)
+  // Card sticker (85 × 55 mm at 8 px/mm): "WE ACCEPT" over four generic marks (no trademarks)
   {
-    const x = 524 * S, y = 530 * S, w = 232 * S, h = 150 * S;
+    const k = 2.93;
+    const x = (800 + M) * S, y = (1083 + M) * S, w = (680 - 2 * M) * S, h = (440 - 2 * M) * S;
     ctx.fillStyle = "#f5f3ee";
-    rr(x, y, w, h, 8 * S); ctx.fill();
+    rr(x, y, w, h, 20 * S); ctx.fill();
     ctx.fillStyle = "#2a2a30";
-    ctx.font = font(26);
-    ctx.fillText("WE ACCEPT", x + w / 2, y + 26 * S);
+    fit("WE ACCEPT", 800 + 340, 1083 + 78, 74, 600);
     const marks: Array<[string, string]> = [["#1a3f8f", "#f0b323"], ["#d12b2b", "#f39c12"], ["#0a6fb5", "#f4f4f2"], ["#0d7a4a", "#f4f4f2"]];
     marks.forEach(([bg, fg], i) => {
-      const mx = x + 14 * S + i * 54 * S, my = y + 52 * S;
-      ctx.fillStyle = bg; rr(mx, my, 46 * S, 30 * S, 4 * S); ctx.fill();
+      const mx = x + (14 + i * 54) * k * S, my = y + 52 * k * S, mw = 46 * k * S, mh = 30 * k * S;
+      ctx.fillStyle = bg; rr(mx, my, mw, mh, 10 * S); ctx.fill();
       ctx.fillStyle = fg;
-      if (i === 1) { ctx.beginPath(); ctx.arc(mx + 18 * S, my + 15 * S, 9 * S, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#e8b41a"; ctx.beginPath(); ctx.arc(mx + 29 * S, my + 15 * S, 9 * S, 0, Math.PI * 2); ctx.fill(); }
-      else if (i === 0) ctx.fillRect(mx + 8 * S, my + 18 * S, 30 * S, 5 * S);
-      else { ctx.font = font(14); ctx.fillText(i === 2 ? "CARD" : "DEBIT", mx + 23 * S, my + 16 * S); }
+      if (i === 1) { ctx.beginPath(); ctx.arc(mx + 18 * k * S, my + mh / 2, 9 * k * S, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = "#e8b41a"; ctx.beginPath(); ctx.arc(mx + 29 * k * S, my + mh / 2, 9 * k * S, 0, Math.PI * 2); ctx.fill(); }
+      else if (i === 0) ctx.fillRect(mx + 8 * k * S, my + 18 * k * S, 30 * k * S, 5 * k * S);
+      else { ctx.font = font(14 * k); ctx.fillText(i === 2 ? "CARD" : "DEBIT", mx + mw / 2, my + mh / 2 + 2 * S); }
     });
     ctx.fillStyle = "#6a6a70";
-    ctx.font = font(16, "normal");
-    ctx.fillText("$10 MINIMUM", x + w / 2, y + 122 * S);
+    fit("$10 MINIMUM", 800 + 340, 1083 + 122 * k, 46, 600, "normal");
   }
-  // E: window film edge — transparent; the film stops 3 mm short of the frame (a brighter
+  // Window film edge — transparent; the film stops 3 mm short of the frame (a brighter
   // hairline where bare glass shows), one lifted corner with a trapped-air sheen.
   {
-    const x = 768 * S, y = 512 * S, w = 256 * S, h = 512 * S;
+    const x = 1480 * S, y = 1083 * S, w = 568 * S, h = 568 * S;
     ctx.strokeStyle = "rgba(255,255,255,0.28)";
-    ctx.lineWidth = 2 * S;
-    ctx.strokeRect(x + 5 * S, y + 5 * S, w - 10 * S, h - 10 * S);
+    ctx.lineWidth = 3 * S;
+    ctx.strokeRect(x + 6 * S, y + 6 * S, w - 12 * S, h - 12 * S);
     ctx.fillStyle = "rgba(235,240,245,0.22)";
-    ctx.beginPath(); ctx.moveTo(x + w - 5 * S, y + 5 * S); ctx.lineTo(x + w - 60 * S, y + 5 * S); ctx.lineTo(x + w - 5 * S, y + 80 * S); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(x + w - 6 * S, y + 6 * S); ctx.lineTo(x + w - 120 * S, y + 6 * S); ctx.lineTo(x + w - 6 * S, y + 160 * S); ctx.fill();
     ctx.strokeStyle = "rgba(255,255,255,0.5)";
-    ctx.lineWidth = 1.5 * S;
-    ctx.beginPath(); ctx.moveTo(x + w - 60 * S, y + 5 * S); ctx.lineTo(x + w - 5 * S, y + 80 * S); ctx.stroke();
-    // A few trapped dust motes under the film
+    ctx.lineWidth = 2 * S;
+    ctx.beginPath(); ctx.moveTo(x + w - 120 * S, y + 6 * S); ctx.lineTo(x + w - 6 * S, y + 160 * S); ctx.stroke();
     ctx.fillStyle = "rgba(255,255,255,0.35)";
     const rng = makeRng(77);
-    for (let k = 0; k < 14; k++) { ctx.beginPath(); ctx.arc(x + 10 * S + rng() * (w - 20 * S), y + 10 * S + rng() * (h - 20 * S), (0.6 + rng()) * S, 0, Math.PI * 2); ctx.fill(); }
+    for (let k = 0; k < 14; k++) { ctx.beginPath(); ctx.arc(x + 12 * S + rng() * (w - 24 * S), y + 12 * S + rng() * (h - 24 * S), (1 + 2 * rng()) * S, 0, Math.PI * 2); ctx.fill(); }
+  }
+
+  // Mip guard: push each opaque texel's colour into the transparent surround (6 texel
+  // dilation), then give the rest a neutral light stock, so no mip level averages in black.
+  {
+    const img = ctx.getImageData(0, 0, size, size);
+    const d = img.data;
+    const n = size * size;
+    const done = new Uint8Array(n);
+    for (let i = 0; i < n; i++) done[i] = d[i * 4 + 3] > 0 ? 1 : 0;
+    const passes = Math.max(3, Math.round(6 * S));
+    for (let p = 0; p < passes; p++) {
+      const next = new Uint8Array(done);
+      for (let yy = 0; yy < size; yy++) {
+        for (let xx = 0; xx < size; xx++) {
+          const i = yy * size + xx;
+          if (done[i]) continue;
+          const nb = [xx > 0 ? i - 1 : -1, xx < size - 1 ? i + 1 : -1, yy > 0 ? i - size : -1, yy < size - 1 ? i + size : -1];
+          let r = 0, g = 0, b = 0, cnt = 0;
+          for (const j of nb) if (j >= 0 && done[j]) { r += d[j * 4]; g += d[j * 4 + 1]; b += d[j * 4 + 2]; cnt++; }
+          if (cnt) { d[i * 4] = r / cnt; d[i * 4 + 1] = g / cnt; d[i * 4 + 2] = b / cnt; next[i] = 1; }
+        }
+      }
+      done.set(next);
+    }
+    for (let i = 0; i < n; i++) if (!done[i]) { d[i * 4] = 236; d[i * 4 + 1] = 234; d[i * 4 + 2] = 228; }
+    ctx.putImageData(img, 0, 0);
   }
   const t = finish(c, true, 8);
   t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
