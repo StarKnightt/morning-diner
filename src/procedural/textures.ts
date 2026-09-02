@@ -4,7 +4,7 @@
  * the real material set.
  */
 import * as THREE from "three";
-import { makeFbm, makeFbm2, makeRng } from "../core/rng";
+import { makeFbm, makeFbm2, makeRng, makeValueNoise2 } from "../core/rng";
 import { BACK_BAR, BOOTH, COUNTER, DOOR, KITCHEN_DOOR, ROOM, STOOL, WINDOW } from "../scene/layout";
 
 function canvas(w: number, h: number) {
@@ -111,16 +111,15 @@ export interface FloorWear {
 }
 
 /**
- * 300 mm glazed ceramic checker with a 6 mm sanded grout joint (TCNA: 1/4" is
- * the standard joint for 12" quarry/ceramic floor tile; grout sits ~1.5 mm below
- * the glaze). `tilesX` × `tilesY` tiles on the canvas, `tilePx` per tile, so
- * one canvas is the whole floor and everything in `wear` is authored where it
- * happens: lanes (matte, greyed whites / scuffed-lighter blacks, heel marks),
- * factory sheen under the booths, dust-filled grout along the walls, one
- * hairline crack. Tile-to-tile tone ±1.5 % (whites) / ±3 % (blacks), a hint of
- * cream in the whites and blue-black in the blacks. The grout *depth* lives in
- * `normalMap`, a separate 2 × 2-tile detail canvas (see `floorGrout`) — this
- * canvas is 5.9 mm/texel, far too coarse for a joint profile.
+ * 12-inch (300 mm) vinyl composition tile, butt-joined (rev 3 — the diner setting: VCT, not
+ * quarry tile; see BUILD.md "VCT"). Seams are a 1–2 mm hairline holding grime, no bevel, no
+ * grout. `tilesX` × `tilesY` tiles on the canvas, `tilePx` per tile, so one canvas is the
+ * whole floor and everything in `wear` is authored where it happens: lanes (wax dulled,
+ * greyed whites / hazed blacks), factory sheen under the booths, mop residue along the
+ * walls, rubber transfer, one crack. Tile-to-tile tone ±3.5 % (whites) / ±8 % (blacks); the
+ * through-body chip mottle of VCT (2–6 mm streaks, laid a quarter-turn per tile) at ±4 %.
+ * Seam relief lives in `normalMap`, a separate 2 × 2-tile canvas (`floorGrout`) — this
+ * canvas is 3.75 mm/texel.
  */
 export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, anisotropy: number, wear?: FloorWear): TextureSet {
   const w = tilesX * tilePx, h = tilesY * tilePx;
@@ -128,18 +127,15 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
   const rng = makeRng(wear?.seed ?? 1234);
   const fbm = makeFbm(77, 8, 4);
   const dirt = makeFbm(78, 40, 3);
-  const grout = Math.max(1, Math.round(tilePx * 0.02)); // 6 mm at 51 px / 300 mm
+  // VCT chip mottle: streaky at ~4 mm, stretched 3:1, alternating direction per tile.
+  const chipH = makeValueNoise2(79, Math.round(w / 3), Math.round(h / 1.2));
+  const chipV = makeValueNoise2(80, Math.round(w / 1.2), Math.round(h / 3));
   const mPerPx = wear ? wear.metresPerTile / tilePx : 0.3 / tilePx;
   const toWorld = (px: number, py: number): [number, number] =>
     wear ? [wear.originX + px * mPerPx, wear.originZ + py * mPerPx] : [px * mPerPx, py * mPerPx];
 
-  // Grout: sanded cementitious grey, already a shade darker than it would be in the open
-  // because the joint is a 1.5 mm trench (baked AO; the normal map supplies the slope).
-  ctx.fillStyle = "#7c766c";
-  ctx.fillRect(0, 0, w, h);
   const isBlack = new Uint8Array(tilesX * tilesY);
-  const tone = new Float32Array(tilesX * tilesY);
-  const gloss = new Float32Array(tilesX * tilesY); // per-tile roughness offset (batch/glaze drift)
+  const gloss = new Float32Array(tilesX * tilesY); // per-tile roughness offset (batch/wax drift)
   // One replaced tile (a later batch: whiter, cooler, glossier), in the aisle short of the door.
   const replaced = wear ? [Math.floor((DOOR.centerX - 1.35 - wear.originX) / wear.metresPerTile), Math.floor((1.24 - wear.originZ) / wear.metresPerTile)] : [-1, -1];
   if (wear && (replaced[0] + replaced[1]) % 2 === 0) replaced[0] += 1; // must land on a white
@@ -149,13 +145,12 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
       const v = (rng() - 0.5) * 2; // −1..1 tone
       const hue = (rng() - 0.5) * 2; // −1 cool .. +1 warm
       isBlack[ty * tilesX + tx] = black ? 1 : 0;
-      tone[ty * tilesX + tx] = v;
-      gloss[ty * tilesX + tx] = (rng() - 0.5) * 0.12;
+      gloss[ty * tilesX + tx] = (rng() - 0.5) * 0.1;
       let r: number, g: number, b: number;
       if (black) {
-        // Blue-black glaze, ±8 % between tiles, some pulled brownish, some bluer
-        const base = 26 * (1 + v * 0.08);
-        r = base * (0.96 + hue * 0.06); g = base * 0.98; b = base * (1.05 - hue * 0.06);
+        // Charcoal VCT, ±8 % between tiles, some pulled brownish, some bluer
+        const base = 30 * (1 + v * 0.08);
+        r = base * (0.98 + hue * 0.05); g = base * 0.98; b = base * (1.02 - hue * 0.05);
       } else if (tx === replaced[0] && ty === replaced[1]) {
         r = 236; g = 236; b = 234;
         gloss[ty * tilesX + tx] = -0.1;
@@ -165,10 +160,10 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
         r = base * (1 + hue * 0.012); g = base * 0.985; b = base * (0.95 - hue * 0.025);
       }
       ctx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
-      ctx.fillRect(tx * tilePx + grout, ty * tilePx + grout, tilePx - grout * 2, tilePx - grout * 2);
+      ctx.fillRect(tx * tilePx, ty * tilePx, tilePx, tilePx);
     }
 
-  // The slow fields (fbm, lane distances, wall distances) live on a 4 px grid — 23 mm on the
+  // The slow fields (fbm, lane distances, wall distances) live on a 4 px grid — 15 mm on the
   // floor, well under the 0.3–0.4 m feather of any lane or dust falloff — and are bilinearly
   // sampled per pixel. (Per-pixel polyline distances were 10 s of the boot; this is 0.5 s.)
   const G = 4, gw = Math.ceil(w / G) + 1, gh = Math.ceil(h / G) + 1;
@@ -196,69 +191,20 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
     return (f[k] * (1 - tx) + f[k + 1] * tx) * (1 - ty) + (f[k + gw] * (1 - tx) + f[k + gw + 1] * tx) * ty;
   };
 
-  const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data;
-  const rough = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    const ty = Math.floor(y / tilePx), gy = y % tilePx < grout || y % tilePx >= tilePx - grout;
-    for (let x = 0; x < w; x++) {
-      const tx = Math.floor(x / tilePx), gx = x % tilePx < grout || x % tilePx >= tilePx - grout;
-      const i = y * w + x, o = i * 4;
-      const inGrout = gx || gy;
-      const black = isBlack[ty * tilesX + tx] === 1;
-      const n = sample(gN, x, y);
-      const fine = sample(gFine, x, y);
-      // Roughness (× material 1.0): glazed whites ~0.37, blacks ~0.47 (dark glaze shows every
-      // haze), grout 0.9. Whole-floor mottle ±0.06.
-      let r = inGrout ? 0.9 : (black ? 0.47 : 0.37) + gloss[ty * tilesX + tx] + n * 0.12 + fine * 0.04;
-      let k = 1 + n * 0.04; // faint large-scale mottle in the glaze/dirt film
-      let greyMix = 0; // pull toward the dirt-grey of a walked lane
-      if (wear) {
-        const [wx, wz] = toWorld(x, y);
-        const lane = sample(gLane, x, y);
-        let shelter = 0;
-        for (const [x0, z0, x1, z1] of wear.sheltered)
-          if (wx > x0 && wx < x1 && wz > z0 && wz < z1) shelter = 1;
-        const dust = sample(gDust, x, y);
-        if (inGrout) {
-          // Dust and mop residue fill the joint near the walls: pale, matte. In the lanes the
-          // joint goes darker (ground-in grime).
-          const dr = 194, dg = 186, db = 172;
-          const a = dust * 0.8;
-          d[o] = d[o] * (1 - a) + dr * a; d[o + 1] = d[o + 1] * (1 - a) + dg * a; d[o + 2] = d[o + 2] * (1 - a) + db * a;
-          k *= 1 - lane * 0.2;
-          r = 0.9 + dust * 0.08;
-        } else {
-          // Traffic: the glaze dulls (roughness up), whites grey off by a clear step (rev 2:
-          // 0.1 → 0.5 — rev 1's 4 % was lost under tone mapping, and 0.32 still measured only
-          // a 5 % step in the frame against 10 % in the map), blacks scuff to a grey haze.
-          r += lane * 0.3 - shelter * 0.12;
-          greyMix = lane * (black ? 0.34 : 0.5);
-          k *= 1 + dust * 0.03 * (black ? 2 : 1); // a dust film reads lighter on the blacks
-        }
-      }
-      if (greyMix > 0) {
-        const gr = 138, gg = 134, gb = 128;
-        d[o] = d[o] * (1 - greyMix) + gr * greyMix; d[o + 1] = d[o + 1] * (1 - greyMix) + gg * greyMix; d[o + 2] = d[o + 2] * (1 - greyMix) + gb * greyMix;
-      }
-      d[o] = Math.min(255, d[o] * k); d[o + 1] = Math.min(255, d[o + 1] * k); d[o + 2] = Math.min(255, d[o + 2] * k);
-      rough[i] = r;
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-
+  // Rubber transfer (rev 3): a sole dragging over waxed VCT leaves a SMEAR, not a stroke — a
+  // dense core, feathered edges, broken along its length where the sole lifted, its width and
+  // weight varying along. Authored as a float transfer field T (0..1) and MULTIPLIED into the
+  // albedo: black rubber on the white tile is a dark grey mark, on the charcoal tile it is
+  // all but invisible (the same physics for both — no per-substrate colour). Where the rubber
+  // sits the wax is dulled (roughness up). 85 % of the marks fall in the lanes, weighted by
+  // lane strength; the sheltered floor under the booths gets almost none.
+  const T = new Float32Array(w * h);
   if (wear) {
-    // Rubber transfer (rev 2): hard-edged black marks left by shoe soles — no blur, each one
-    // its own width (4–14 mm), length (20–180 mm), curvature (straight drags to tight hooks)
-    // and weight. They land where feet go: 85 % are drawn from the lanes, weighted by lane
-    // strength, so the aisle and the door fan carry most, the counter standing zone some,
-    // and the sheltered floor under the booths almost none. On the black glaze rubber does
-    // not show; there the sole leaves a grey abrasion haze instead.
     const toPx = (wx: number, wz: number): [number, number] => [(wx - wear.originX) / mPerPx, (wz - wear.originZ) / mPerPx];
     const laneW = wear.lanes.map((L) => L.k * L.k);
     const laneTot = laneW.reduce((a, b) => a + b, 0);
-    ctx.lineCap = "butt";
-    for (let s = 0; s < 340; s++) {
+    const smearN = makeFbm(wear.seed + 7, 64, 2);
+    for (let s = 0; s < 560; s++) {
       let wx: number, wz: number;
       if (rng() < 0.85 && wear.lanes.length) {
         let pick = rng() * laneTot, li = 0;
@@ -266,8 +212,7 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
         const L = wear.lanes[li];
         const seg = Math.floor(rng() * (L.pts.length - 1));
         const t = rng();
-        // Gaussian-ish across the lane: most marks near the centre line
-        const across = (rng() + rng() - 1) * L.half * 1.6;
+        const across = (rng() + rng() - 1) * L.half * 1.6; // most marks near the centre line
         const dx = L.pts[seg + 1][0] - L.pts[seg][0], dz = L.pts[seg + 1][1] - L.pts[seg][1], ln = Math.hypot(dx, dz) || 1;
         wx = L.pts[seg][0] + dx * t - (dz / ln) * across;
         wz = L.pts[seg][1] + dz * t + (dx / ln) * across;
@@ -276,52 +221,132 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
         wz = wear.originZ + rng() * h * mPerPx;
         let shelter = false;
         for (const [x0, z0, x1, z1] of wear.sheltered) if (wx > x0 && wx < x1 && wz > z0 && wz < z1) shelter = true;
-        if (shelter && rng() < 0.9) continue;
+        if (shelter && rng() < 0.92) continue;
       }
       const [px, py] = toPx(wx, wz);
       if (px < 2 || py < 2 || px > w - 2 || py > h - 2) continue;
-      const black = isBlack[Math.floor(py / tilePx) * tilesX + Math.floor(px / tilePx)] === 1;
       const kind = rng();
-      const len = (kind < 0.15 ? 0.12 + rng() * 0.16 : 0.02 + rng() * 0.09) / mPerPx; // a few long skids
+      const lenM = kind < 0.15 ? 0.1 + rng() * 0.18 : 0.02 + rng() * 0.08; // a few long skids
       const ang = rng() * Math.PI * 2;
-      const bend = kind < 0.4 ? (rng() - 0.5) * 0.3 : (rng() - 0.5) * 2.6; // straight drags vs hooks
-      const wMm = kind < 0.15 ? 3 + rng() * 5 : 4 + rng() * 10;
-      ctx.lineWidth = Math.max(0.8, wMm / (mPerPx * 1000));
-      ctx.strokeStyle = black ? `rgba(160,156,150,${0.12 + rng() * 0.2})` : `rgba(24,20,17,${0.45 + rng() * 0.5})`;
-      ctx.beginPath();
-      ctx.moveTo(px, py);
-      ctx.quadraticCurveTo(px + Math.cos(ang + bend) * len * 0.5, py + Math.sin(ang + bend) * len * 0.5, px + Math.cos(ang) * len, py + Math.sin(ang) * len);
-      ctx.stroke();
+      const bend = kind < 0.4 ? (rng() - 0.5) * 0.3 : (rng() - 0.5) * 2.4; // straight drags vs hooks
+      const wMm = 5 + rng() * rng() * 20; // 5–25 mm, mostly narrow
+      const weight = 0.35 + rng() * 0.65;
+      const seed2 = rng() * 10;
+      // March along the quadratic with a step of ~1 texel; the core density and the width
+      // vary along; gaps where the sole lifted.
+      const lenPx = lenM / mPerPx;
+      const cxp = px + Math.cos(ang + bend) * lenPx * 0.5, cyp = py + Math.sin(ang + bend) * lenPx * 0.5;
+      const exp_ = px + Math.cos(ang) * lenPx, eyp = py + Math.sin(ang) * lenPx;
+      const steps = Math.max(3, Math.ceil(lenPx * 1.2));
+      for (let k = 0; k <= steps; k++) {
+        const t = k / steps;
+        const qx = (1 - t) * (1 - t) * px + 2 * (1 - t) * t * cxp + t * t * exp_;
+        const qy = (1 - t) * (1 - t) * py + 2 * (1 - t) * t * cyp + t * t * eyp;
+        const along = smearN(t * 0.6 + seed2, seed2 * 0.3); // 0..1 along the mark
+        const gap = smoothstep(0.36, 0.44, along); // 0 where the sole lifted
+        if (gap <= 0) continue;
+        const ends = smoothstep(0, 0.12, t) * smoothstep(1, 0.85, t);
+        const widthPx = (wMm / 1000 / mPerPx) * (0.55 + 0.45 * smearN(t * 1.3 + seed2 + 3, 0.7)) * (0.5 + 0.5 * ends);
+        const R = Math.ceil(widthPx / 2 + 1);
+        const dens = weight * gap * ends;
+        for (let dy = -R; dy <= R; dy++)
+          for (let dx = -R; dx <= R; dx++) {
+            const xx = Math.round(qx) + dx, yy = Math.round(qy) + dy;
+            if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+            const dd = Math.hypot(xx - qx, yy - qy) / (widthPx / 2 + 0.5);
+            if (dd > 1) continue;
+            // dense core, feathered edge: (1 − d²)^1.5, with a fine grain so it is not a tube
+            const prof = (1 - dd * dd) ** 1.5 * (0.7 + 0.6 * smearN(xx / w * 40, yy / h * 40));
+            const i = yy * w + xx;
+            T[i] = Math.min(1, T[i] + dens * prof * 0.5);
+          }
+      }
     }
-    // Hairline crack: a jittered polyline through several tiles — one dark line over a faint
-    // wider shadow. (Rev 2: no offset light "catch" line — two 1-texel lines a fraction of a
-    // texel apart beat against the texel grid and the crack rendered as a twisted rope.)
-    // The dark line itself is a 2 mm ribbon mesh in Shell.ts (floorCrackPath — same polyline):
-    // at 3.75 mm per texel a 1-texel antialiased diagonal magnifies into a string of beads.
-    // The map carries only its soft shadow and a faint darkening so it survives at distance.
-    const path: Array<[number, number]> = floorCrackPath(wear).map(([x, z]) => toPx(x, z));
+  }
+
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const rough = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const ty = Math.floor(y / tilePx);
+    for (let x = 0; x < w; x++) {
+      const tx = Math.floor(x / tilePx);
+      const i = y * w + x, o = i * 4;
+      const black = isBlack[ty * tilesX + tx] === 1;
+      const n = sample(gN, x, y);
+      const fine = sample(gFine, x, y);
+      // Chip mottle (quarter-turn per tile): ±4 % on the whites, grey flecks +18 % on the blacks.
+      const chip = ((tx + ty) & 1 ? chipH : chipV)(x / w, y / h) - 0.5;
+      // Roughness (× material 1.0): waxed VCT ~0.3 (whites) / 0.36 (blacks, the wax haze shows),
+      // seams 0.7. Whole-floor mottle ±0.06.
+      let r = (black ? 0.36 : 0.3) + gloss[ty * tilesX + tx] + n * 0.1 + fine * 0.04;
+      let k = (1 + n * 0.04) * (black ? 1 + Math.max(0, chip) * 0.36 : 1 + chip * 0.08);
+      let greyMix = 0; // pull toward the dirt-grey of a walked lane
+      if (wear) {
+        const [wx, wz] = toWorld(x, y);
+        const lane = sample(gLane, x, y);
+        let shelter = 0;
+        for (const [x0, z0, x1, z1] of wear.sheltered)
+          if (wx > x0 && wx < x1 && wz > z0 && wz < z1) shelter = 1;
+        const dust = sample(gDust, x, y);
+        // Traffic: the wax dulls (roughness up), whites grey off by a clear step (rev 2:
+        // 0.5), blacks abrade to a grey haze. Mop residue near the walls: a dust film that
+        // reads lighter on the blacks.
+        r += lane * 0.32 - shelter * 0.08;
+        greyMix = lane * (black ? 0.34 : 0.5);
+        k *= 1 + dust * 0.03 * (black ? 2 : 1);
+      }
+      if (greyMix > 0) {
+        const gr = 138, gg = 134, gb = 128;
+        d[o] = d[o] * (1 - greyMix) + gr * greyMix; d[o + 1] = d[o + 1] * (1 - greyMix) + gg * greyMix; d[o + 2] = d[o + 2] * (1 - greyMix) + gb * greyMix;
+      }
+      // Rubber transfer multiplies (see T above): × 0.25 at full density.
+      const t = T[i];
+      k *= 1 - 0.75 * t;
+      r += t * 0.3;
+      d[o] = Math.min(255, d[o] * k); d[o + 1] = Math.min(255, d[o + 1] * k); d[o + 2] = Math.min(255, d[o + 2] * k);
+      rough[i] = r;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  // Seams: butt joints, a 1.5 mm grime line — drawn as a sub-texel stroke so the canvas's
+  // coverage antialiasing gives the texel the right mean darkness (a whole dark texel would
+  // be a 3.75 mm grout line). Rougher along the seam (matte grime).
+  ctx.strokeStyle = "rgba(38,34,30,0.85)";
+  ctx.lineWidth = 1.5 / (mPerPx * 1000);
+  ctx.beginPath();
+  for (let tx = 1; tx < tilesX; tx++) { ctx.moveTo(tx * tilePx, 0); ctx.lineTo(tx * tilePx, h); }
+  for (let ty = 1; ty < tilesY; ty++) { ctx.moveTo(0, ty * tilePx); ctx.lineTo(w, ty * tilePx); }
+  ctx.stroke();
+  for (let ty = 1; ty < tilesY; ty++) for (let x = 0; x < w; x++) { const i = ty * tilePx * w + x; rough[i] += 0.3; rough[i - w] += 0.3; }
+  for (let tx = 1; tx < tilesX; tx++) for (let y = 0; y < h; y++) { const i = y * w + tx * tilePx; rough[i] += 0.3; rough[i - 1] += 0.3; }
+
+  if (wear) {
+    // The crack (rev 3, `floorCrackSegments`): the dark floor and the two lips are geometry in
+    // Shell.ts; the map carries a soft shadow band beside it and a matte break in the wax so the
+    // line survives at distance and in the roughness.
+    const toPx = (wx: number, wz: number): [number, number] => [(wx - wear.originX) / mPerPx, (wz - wear.originZ) / mPerPx];
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    for (const [col, off, lw] of [["rgba(40,34,28,0.16)", 0, 2.6], ["rgba(22,18,14,0.3)", 0, 1.2]] as Array<[string, number, number]>) {
-      ctx.strokeStyle = col;
-      ctx.lineWidth = lw;
+    for (const seg of floorCrackSegments(wear)) {
+      const path = seg.map(([x, z]) => toPx(x, z));
+      ctx.strokeStyle = "rgba(40,34,28,0.18)";
+      ctx.lineWidth = 2.4;
       ctx.beginPath();
-      path.forEach(([px, py], i) => (i ? ctx.lineTo(px + off, py + off) : ctx.moveTo(px + off, py + off)));
+      path.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)));
       ctx.stroke();
-    }
-    // The crack also breaks the glaze: matte along it. Anti-aliased by distance to the
-    // polyline — a 3×3 texel stamp at rounded positions gave a stair-stepped matte band whose
-    // jaggies beat against the dark line and read as a twisted rope in specular.
-    for (let k = 0; k + 1 < path.length; k++) {
-      const [ax, ay] = path[k], [bx, by] = path[k + 1];
-      const x0 = Math.max(0, Math.floor(Math.min(ax, bx)) - 2), x1 = Math.min(w - 1, Math.ceil(Math.max(ax, bx)) + 2);
-      const y0 = Math.max(0, Math.floor(Math.min(ay, by)) - 2), y1 = Math.min(h - 1, Math.ceil(Math.max(ay, by)) + 2);
-      const vx = bx - ax, vy = by - ay, vv = vx * vx + vy * vy || 1;
-      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-        const t = Math.max(0, Math.min(1, ((x + 0.5 - ax) * vx + (y + 0.5 - ay) * vy) / vv));
-        const d = Math.hypot(x + 0.5 - ax - vx * t, y + 0.5 - ay - vy * t);
-        const m = 1 - THREE.MathUtils.smoothstep(d, 0.5, 1.6);
-        if (m > 0) { const i = y * w + x; rough[i] = Math.max(rough[i], rough[i] + (0.62 - rough[i]) * m); }
+      for (let k = 0; k + 1 < path.length; k++) {
+        const [ax, ay] = path[k], [bx, by] = path[k + 1];
+        const x0 = Math.max(0, Math.floor(Math.min(ax, bx)) - 2), x1 = Math.min(w - 1, Math.ceil(Math.max(ax, bx)) + 2);
+        const y0 = Math.max(0, Math.floor(Math.min(ay, by)) - 2), y1 = Math.min(h - 1, Math.ceil(Math.max(ay, by)) + 2);
+        const vx = bx - ax, vy = by - ay, vv = vx * vx + vy * vy || 1;
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+          const t = Math.max(0, Math.min(1, ((x + 0.5 - ax) * vx + (y + 0.5 - ay) * vy) / vv));
+          const dd = Math.hypot(x + 0.5 - ax - vx * t, y + 0.5 - ay - vy * t);
+          const m = 1 - THREE.MathUtils.smoothstep(dd, 0.5, 1.8);
+          if (m > 0) { const i = y * w + x; rough[i] = Math.max(rough[i], rough[i] + (0.62 - rough[i]) * m); }
+        }
       }
     }
   }
@@ -329,22 +354,70 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
 }
 
 /**
- * The hairline crack's polyline in world metres (x, z): a gentle two-frequency wander about
- * the heading in `wear.crack`. Shared by the floor map (shadow + matte band) and the 2 mm
- * ribbon Shell.ts lays on the tile so both stay registered.
+ * The crack (rev 3): where the slab moved, the VCT above split — a jagged line (a random
+ * walk about the heading in `wear.crack`, steps ~12 mm, heading wandering ±25° with a pull
+ * back to the mean), its half-width `hw` varying 0.4–1.8 mm along and tapering at the ends.
+ * At every tile seam it crosses it does what a crack in tile does: runs along the seam for
+ * 5–25 mm before continuing (the seam is the weak line), and one crossing in three is a clean
+ * break — the crack stops and restarts a few mm over. Segments are `[x, z, hw]` polylines in
+ * world metres, shared by the floor map (shadow + matte band) and the ribbon + lips Shell.ts
+ * lays on the tile, so both stay registered.
  */
-export function floorCrackPath(wear: FloorWear): Array<[number, number]> {
+export function floorCrackSegments(wear: FloorWear): Array<Array<[number, number, number]>> {
   const { x, z, len, deg } = wear.crack;
-  const a = THREE.MathUtils.degToRad(deg);
-  const steps = 22;
-  const pts: Array<[number, number]> = [];
-  for (let k = 0; k <= steps; k++) {
-    const t = k / steps;
-    const wob = Math.sin(t * 9.1) * 0.008 + Math.sin(t * 4.3 + 1.3) * 0.006 + Math.sin(t * 23.7 + 0.4) * 0.0012;
-    pts.push([x + Math.cos(a) * len * t - Math.sin(a) * wob, z + Math.sin(a) * len * t + Math.cos(a) * wob]);
+  const rng = makeRng(wear.seed + 31);
+  const a0 = THREE.MathUtils.degToRad(deg);
+  const tile = wear.metresPerTile;
+  const cellX = (px: number) => Math.floor((px - wear.originX) / tile), cellZ = (pz: number) => Math.floor((pz - wear.originZ) / tile);
+  const segs: Array<Array<[number, number, number]>> = [];
+  let cur: Array<[number, number, number]> = [];
+  let px = x, pz = z, ang = a0, dist = 0;
+  const step = 0.012;
+  const hwAt = (t: number) => {
+    const taper = Math.min(1, t / 0.06, (len - t) / 0.06);
+    const wander = 0.5 + 0.5 * Math.sin(t * 37 + 1.1) * Math.sin(t * 13.3 + 0.4) * 0.8 + (rng() - 0.5) * 0.2;
+    return (0.0004 + 0.0014 * wander) * Math.max(0.2, taper);
+  };
+  cur.push([px, pz, hwAt(0)]);
+  while (dist < len) {
+    ang += (rng() - 0.5) * 0.9 + (a0 - ang) * 0.35;
+    const nx = px + Math.cos(ang) * step, nz = pz + Math.sin(ang) * step;
+    dist += step;
+    const crossX = cellX(nx) !== cellX(px), crossZ = cellZ(nz) !== cellZ(pz);
+    if (crossX || crossZ) {
+      // the seam line and the crossing point on it
+      const seamX = wear.originX + Math.max(cellX(nx), cellX(px)) * tile, seamZ = wear.originZ + Math.max(cellZ(nz), cellZ(pz)) * tile;
+      const tX = crossX ? (seamX - px) / (nx - px) : 2, tZ = crossZ ? (seamZ - pz) / (nz - pz) : 2;
+      const t = Math.min(tX, tZ);
+      const cx = px + (nx - px) * t, cz = pz + (nz - pz) * t;
+      cur.push([cx, cz, hwAt(dist)]);
+      const alongSeam = (0.005 + rng() * 0.02) * (rng() < 0.5 ? 1 : -1);
+      const ox = tX < tZ ? 0 : alongSeam, oz = tX < tZ ? alongSeam : 0;
+      if (rng() < 0.33) {
+        // clean break: end here, restart a few mm over
+        segs.push(cur);
+        cur = [];
+        px = cx + ox + Math.cos(ang) * 0.004; pz = cz + oz + Math.sin(ang) * 0.004;
+        cur.push([px, pz, hwAt(dist) * 0.5]);
+      } else {
+        // run along the seam (a hairline; the seam itself is the crack here)
+        cur.push([cx + ox, cz + oz, Math.min(0.0006, hwAt(dist))]);
+        px = cx + ox; pz = cz + oz;
+      }
+      continue;
+    }
+    px = nx; pz = nz;
+    cur.push([px, pz, hwAt(dist)]);
   }
-  return pts;
+  if (cur.length > 1) segs.push(cur);
+  return segs;
 }
+
+/** Flattened crack polyline (x, z) for callers that only need the line. */
+export function floorCrackPath(wear: FloorWear): Array<[number, number]> {
+  return floorCrackSegments(wear).flat().map(([x, z]) => [x, z]);
+}
+
 
 /**
  * The diner's floor history from the plan (layout.ts): the customer aisle between
@@ -400,30 +473,30 @@ export function dinerFloorWear(): FloorWear {
 }
 
 /**
- * Grout-joint relief for `checkerFloor`: a 2 × 2-tile canvas (`size` px over
- * 600 mm → 0.59 mm/texel) tiled with repeat = tiles / 2. Joint 6 mm wide, 1.5 mm
- * deep with a 1 mm rounded glaze arris, ±0.25 mm lippage between the four tiles,
- * orange-peel waviness on the glaze (±0.03 mm at ~30 mm) and a per-texel
- * 0.01 mm speckle so the glaze highlight never reads as a mirror.
+ * Seam relief for `checkerFloor`: a 2 × 2-tile canvas (`size` px over 600 mm →
+ * 0.59 mm/texel) tiled with repeat = tiles / 2.
  */
 export function floorGrout(size: number, seed: number): THREE.Texture {
+  // Rev 3 (VCT): a 1.5 mm butt seam 0.4 mm deep (the tiles' cut edges), the edges curled up
+  // 0.12 mm over the outer 5 mm (old VCT lifts at the seams), ±0.1 mm lippage between the
+  // four tiles, the sheet's own ±0.03 mm waviness at ~30 mm and a 0.01 mm speckle.
   const mmPerPx = 600 / size;
   const tile = size / 2;
-  const groutPx = 6 / mmPerPx, arris = 1 / mmPerPx;
+  const seamPx = 1.5 / mmPerPx, curl = 5 / mmPerPx;
   const rng = makeRng(seed + 99);
   const wave = makeFbm(seed + 3, 20, 3);
-  const lip = [0.25, -0.15, 0.1, -0.25].map((v) => v + (rng() - 0.5) * 0.1);
+  const lip = [0.1, -0.06, 0.04, -0.1].map((v) => v + (rng() - 0.5) * 0.04);
   const hf = new Float32Array(size * size);
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
       const tx = Math.floor(x / tile), ty = Math.floor(y / tile);
-      // Distance to the nearest joint centre line (joints run along the tile boundaries).
+      // Distance to the nearest seam centre line (seams run along the tile boundaries).
       const ex = Math.min(x % tile, tile - (x % tile)), ey = Math.min(y % tile, tile - (y % tile));
       const e = Math.min(ex, ey); // px from the tile edge
-      const half = groutPx / 2;
+      const half = seamPx / 2;
       let hgt: number;
-      if (e < half) hgt = -1.5 + 0.3 * (1 - e / half) * (rng() - 0.5); // sandy joint floor
-      else hgt = -1.5 * (1 - smoothstep(half, half + arris, e)) + lip[ty * 2 + tx];
+      if (e < half) hgt = -0.4 * (1 - (e / half) ** 2); // V seam
+      else hgt = 0.12 * (1 - smoothstep(half, half + curl, e)) + lip[ty * 2 + tx];
       hgt += (wave(x / size, y / size) - 0.5) * 0.06 + (rng() - 0.5) * 0.01;
       hf[y * size + x] = hgt;
     }
