@@ -30,7 +30,9 @@ export const PRESENCE_UV = {
   knit: [0.5, 0.5, 1.0, 1.0],
   newsprint: [0.0, 0.0, 0.5, 0.5],
   toast: [0.5, 0.0, 0.75, 0.5],
-  yolk: [0.75, 0.0, 1.0, 0.5],
+  yolk: [0.75, 0.0625, 1.0, 0.5],
+  /** Flat waxy lipstick red (the cup's rim mark samples its centre) — keeps the mark in this bucket. */
+  lipstick: [0.75, 0.0, 1.0, 0.0625],
 } as const satisfies Record<string, readonly [number, number, number, number]>;
 
 function canvas(w: number, h: number) {
@@ -239,9 +241,15 @@ export function presenceAtlas(size = 1024): PresenceSet {
           px(X, Y, r, g, b);
           rough[Y * S + X] = 0.92;
           height[Y * S + X] = 0.6 - 0.6 * pore + 0.15 * (crumb(u, v) - 0.5);
+        } else if (y >= R - R / 8) {
+          // Lipstick strip (bottom 1/8 of the yolk column): waxy red, flat, semi-gloss.
+          const n = yolkN(x / R + 3, y / R);
+          px(X, Y, 0.6 + 0.05 * (n - 0.5), 0.07, 0.1);
+          rough[Y * S + X] = 0.42;
+          height[Y * S + X] = 0.5;
         } else {
           // Yolk: a dried smear — deep yellow, darker skin at the edge, a couple of streaks.
-          const u = (x - half) / half, v = y / R;
+          const u = (x - half) / half, v = y / (R - R / 8);
           const n = yolkN(u, v);
           const edge = clamp01(Math.max(Math.abs(u - 0.5), Math.abs(v - 0.5)) * 2 - 0.7) / 0.3;
           const streak = clamp01(Math.sin((u * 3 + v * 7 + n) * Math.PI * 2) * 0.5 + 0.2) * 0.25;

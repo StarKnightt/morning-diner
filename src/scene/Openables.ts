@@ -7,9 +7,11 @@
  * behind the kitchen door — goes into the shared `statics` builder and is appended to
  * the scene's existing material buckets (core/mergeInto.ts), so it costs no draw calls.
  * Only the leaves are their own meshes, each hung on a hinge Group the interactions
- * rotate: a laminate slab + chrome wire pull per cabinet door, and two for the kitchen
- * leaf (vertex-coloured paint + dark lite, and the stainless plates). A 4 mm dark reveal
- * on the die face frames the cabinet pair so it reads in the flat service-side light.
+ * rotate: a laminate slab + chrome wire pull per cabinet door, and one vertex-coloured
+ * mesh for the kitchen leaf (paint, dark lite, grey plates, dark pivots) — six own draw
+ * calls in all (twelve in poses where the transmission pass draws the opaques twice).
+ * A 4 mm dark reveal on the die face frames the cabinet pair so it reads in the flat
+ * service-side light.
  *
  * Hinge conventions (rotation.y, radians, positive = the leaf's free edge toward -z):
  *   cabinet left   hinge at the bay's -x edge, leaf along +x, opens toward the aisle (+z) → NEGATIVE angles
@@ -118,7 +120,7 @@ function buildCabinet(parent: THREE.Group, pal: Palette, s: MergedBuilder): [Hin
     const top = shelfY + t;
     s.rbox(pal.napkin, [bx - bw / 2, top, bz - bd / 2], [bx + bw / 2, top + bh, bz + bd / 2], 0.002);
     // Printed band and a brown "coffee filters" block on the front face, 0.5 mm proud.
-    s.box(pal.orangeBand, [bx - bw / 2 - 0.0005, top + 0.045, bz - bd / 2 - 0.0005], [bx + bw / 2 + 0.0005, top + 0.075, bz + bd / 2 + 0.0005]);
+    s.box(pal.darkSeal, [bx - bw / 2 - 0.0005, top + 0.045, bz - bd / 2 - 0.0005], [bx + bw / 2 + 0.0005, top + 0.075, bz + bd / 2 + 0.0005]);
     s.box(pal.trayBrown, [bx - 0.06, top + 0.09, bz + bd / 2], [bx + 0.06, top + 0.125, bz + bd / 2 + 0.0006]);
     // Filters: a squat fluted cylinder standing proud of the open top.
     const filters = new THREE.CylinderGeometry(0.058, 0.05, 0.05, 36, 1, false);
@@ -222,22 +224,28 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder): 
   const port = new THREE.BoxGeometry(vw, vh, 0.044);
   port.translate(cx, vy, 0);
   b.add(tint(port, 0x17181a), leafMat);
-  // Stainless: lite frame both faces, 8" kick plates both faces, push plates at 0.9 m both faces.
-  const st = pal.stainless;
+  // Lite frame both faces, 8" kick plates both faces, push plates at 0.9 m both faces — all in
+  // the leaf's vertex-coloured material (a light satin grey reads as the aluminium plates from
+  // the aisle; a real stainless bucket would be a second draw call on a moving mesh).
+  const plate = (a: readonly [number, number, number], c: readonly [number, number, number]) => {
+    const g = new THREE.BoxGeometry(c[0] - a[0], c[1] - a[1], c[2] - a[2]);
+    g.translate((a[0] + c[0]) / 2, (a[1] + c[1]) / 2, (a[2] + c[2]) / 2);
+    b.add(tint(g, 0xc4c8cc), leafMat);
+  };
   const vf = 0.02;
   for (const [za, zb] of [[-0.024, -0.02], [0.02, 0.024]] as const) {
-    b.rbox(st, [cx - vw / 2 - vf, vy - vh / 2 - vf, za], [cx + vw / 2 + vf, vy - vh / 2, zb], 0.001);
-    b.rbox(st, [cx - vw / 2 - vf, vy + vh / 2, za], [cx + vw / 2 + vf, vy + vh / 2 + vf, zb], 0.001);
-    b.rbox(st, [cx - vw / 2 - vf, vy - vh / 2, za], [cx - vw / 2, vy + vh / 2, zb], 0.001);
-    b.rbox(st, [cx + vw / 2, vy - vh / 2, za], [cx + vw / 2 + vf, vy + vh / 2, zb], 0.001);
-    b.rbox(st, [0.03, 0.03, za], [w - 0.03, 0.233, zb], 0.001);
-    b.rbox(st, [0.05, 0.9, za], [w - 0.05, 0.96, zb], 0.001);
+    plate([cx - vw / 2 - vf, vy - vh / 2 - vf, za], [cx + vw / 2 + vf, vy - vh / 2, zb]);
+    plate([cx - vw / 2 - vf, vy + vh / 2, za], [cx + vw / 2 + vf, vy + vh / 2 + vf, zb]);
+    plate([cx - vw / 2 - vf, vy - vh / 2, za], [cx - vw / 2, vy + vh / 2, zb]);
+    plate([cx + vw / 2, vy - vh / 2, za], [cx + vw / 2 + vf, vy + vh / 2, zb]);
+    plate([0.03, 0.03, za], [w - 0.03, 0.233, zb]);
+    plate([0.05, 0.9, za], [w - 0.05, 0.96, zb]);
   }
-  // Pivots: top and bottom on the hinge stile.
+  // Pivots: top and bottom on the hinge stile (dark, same bucket).
   for (const y of [0.05, h - 0.06]) {
     const piv = new THREE.CylinderGeometry(0.012, 0.012, 0.06, 16);
     piv.translate(0.006, y, 0);
-    b.add(piv, pal.darkMetal);
+    b.add(tint(piv, 0x2b2b2d), leafMat);
   }
   b.build(hinge, { name: "kitchen-door" });
   parent.add(hinge);

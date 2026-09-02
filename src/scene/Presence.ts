@@ -56,7 +56,7 @@ export function buildPresence(statics: MergedBuilder, pal: Palette, bank?: Textu
   const apron = buildApron(statics, pal, cloth);
   const cardigan = buildCardigan(statics, pal, cloth);
   const plate = buildPlateAndPaper(statics, pal, cloth);
-  const cup = buildLipstickCup(statics, pal);
+  const cup = buildLipstickCup(statics, pal, cloth);
   return { material: cloth, points: { apron, cardigan, plate, cup } };
 }
 
@@ -392,7 +392,7 @@ function buildPlateAndPaper(s: MergedBuilder, pal: Palette, cloth: THREE.Materia
 /* Lipstick cup                                                                           */
 /* ------------------------------------------------------------------------------------ */
 
-function buildLipstickCup(s: MergedBuilder, pal: Palette): THREE.Vector3 {
+function buildLipstickCup(s: MergedBuilder, pal: Palette, cloth: THREE.Material): THREE.Vector3 {
   const x = STOOL.centersX[2], z = PROPS.saucerZ, y = COUNTER.height;
   const saucer = new THREE.LatheGeometry(
     [V2(0, 0.003), V2(0.03, 0.003), V2(0.033, 0), V2(0.045, 0), V2(0.05, 0.005), V2(0.072, 0.014), V2(0.078, 0.018), V2(0.074, 0.019), V2(0.052, 0.011), V2(0.042, 0.008), V2(0, 0.008)],
@@ -418,9 +418,10 @@ function buildLipstickCup(s: MergedBuilder, pal: Palette): THREE.Vector3 {
     g.translate(x, my, z);
     s.add(g, pal.ceramic);
   }
+  // Foot ring in the cup's own ceramic (the mugs' bisque ring lives on the InstancedMesh — no bucket to join).
   const foot = new THREE.LatheGeometry([V2(0.024, 0.0002), V2(0.026, 0), V2(0.031, 0), V2(0.0315, 0.003), V2(0.0235, 0.003), V2(0.024, 0.0002)], 40);
   foot.translate(x, my, z);
-  s.add(foot, pal.bisque);
+  s.add(foot, pal.ceramic);
   // Two centimetres of coffee left, gone still.
   const coffee = new THREE.CircleGeometry(0.0318, 40);
   coffee.rotateX(-Math.PI / 2);
@@ -432,6 +433,14 @@ function buildLipstickCup(s: MergedBuilder, pal: Palette): THREE.Vector3 {
   mark.rotateX(-Math.PI / 2);
   mark.rotateY(yaw + Math.PI - 0.27);
   mark.translate(x, my + 0.0885, z);
-  s.add(mark, pal.vinylRed);
+  // Sampled from the atlas's flat lipstick strip, so the mark rides in the presence bucket.
+  const lu = (PRESENCE_UV.lipstick[0] + PRESENCE_UV.lipstick[2]) / 2, lv = (PRESENCE_UV.lipstick[1] + PRESENCE_UV.lipstick[3]) / 2;
+  const muv = new Float32Array(mark.attributes.position.count * 2);
+  for (let i = 0; i < muv.length; i += 2) {
+    muv[i] = lu;
+    muv[i + 1] = lv;
+  }
+  mark.setAttribute("uv", new THREE.BufferAttribute(muv, 2));
+  s.add(mark, cloth);
   return new THREE.Vector3(x, my + 0.05, z);
 }
