@@ -108,6 +108,14 @@ export function slatBeamOpen(sun: THREE.Vector3, tilt = THREE.MathUtils.degToRad
   return Math.max(0, 1 - (2 * hw) / du);
 }
 
+/**
+ * feat-blinds-f: per-window drop, 1 = hanging as built, 0 = fully raised (stacked under the
+ * headrail). One Float32Array shared by reference with every lit program (`installBlindDropUniform`
+ * in Blinds.ts registers it on the ShaderLib entries; the post shaders add `uBlindDrop` to their
+ * own uniforms) — write into `BLIND_DROP.value[i]` and every shader sees it on its next draw.
+ */
+export const BLIND_DROP = { value: new Float32Array(WINDOW.centersX.length).fill(1) };
+
 export function slatShadowGlsl(): string {
   const wins = blindLayout();
   const f = (v: number) => v.toFixed(5);
@@ -119,6 +127,8 @@ export function slatShadowGlsl(): string {
 	#endif
 	#define SLAT_N ${wins.length}
 	const vec4 SLAT_WIN[SLAT_N] = vec4[SLAT_N]( ${arr} ); // x0, x1, tilt, y of the lowest hanging slat
+	uniform float uBlindDrop[SLAT_N];                  // feat-blinds-f: 1 hanging … 0 raised (BLIND_DROP)
+	const float SLAT_STACK_H = ${f(wins[0].countFull * 0.0014 + SLAT.bottomRailH + 0.006)}; // full stack + bottom rail
 	const float SLAT_Z = ${f(SLAT.zCentre)};
 	const float SLAT_Y0 = ${f(wins[0].yFirst)};
 	const float SLAT_P = ${f(SLAT.pitch)};
@@ -135,13 +145,23 @@ export function slatShadowGlsl(): string {
 		if ( t <= 0.0 ) return 1.0;
 		vec3 h = p + s * t;
 		vec4 win = vec4( 0.0 );
+		float drop = 1.0;
 		bool hit = false;
 		for ( int i = 0; i < SLAT_N; i ++ ) {
-			if ( h.x > SLAT_WIN[ i ].x && h.x < SLAT_WIN[ i ].y ) { win = SLAT_WIN[ i ]; hit = true; }
+			if ( h.x > SLAT_WIN[ i ].x && h.x < SLAT_WIN[ i ].y ) { win = SLAT_WIN[ i ]; drop = uBlindDrop[ i ]; hit = true; }
 		}
 		if ( ! hit ) return 1.0;
 		if ( h.y > SLAT_Y0 + 0.5 * SLAT_P ) return 1.0; // headrail: in the shadow map
-		if ( h.y < win.w - 0.5 * SLAT_P ) return 0.0;   // stacked slats on the bottom rail: opaque
+		// feat-blinds-f: a blind being raised hangs only down to yLow' — the stripe region shrinks
+		// from the sill upward with the lowest slat; under it the growing stack + bottom rail are
+		// opaque and the glass below that is clear (term 1, full sun patch). Over the last 12 % of
+		// the raise the stripes fade to 1 as the last slats close up into the stack.
+		float yLow = mix( SLAT_Y0 + 0.5 * SLAT_P, win.w, drop );
+		if ( h.y < yLow - 0.5 * SLAT_P ) {
+			if ( drop >= 0.999 ) return 0.0;             // as built: stacked slats on the bottom rail
+			float stackH = mix( SLAT_STACK_H, 0.0, drop );
+			return h.y < yLow - 0.5 * SLAT_P - stackH ? 1.0 : 0.0;
+		}
 		vec2 e = normalize( vec2( s.z, s.y ) );          // beam in the (z, y) plane
 		float u = e.x * ( h.y - SLAT_Y0 );               // coordinate across the beam, 0 at slat 0
 		float du = e.x * SLAT_P;                         // slat period across the beam
@@ -157,6 +177,7 @@ export function slatShadowGlsl(): string {
 		}
 		float open = max( 0.0, 1.0 - 2.0 * hw / du );
 		T = mix( T, open, smoothstep( 1.6, 2.0, R / du ) );
+		T = mix( 1.0, T, smoothstep( 0.0, 0.12, drop ) );  // feat-blinds-f: nearly / fully raised → no stripes
 		return clamp( T, 0.0, 1.0 );
 	}
 `;

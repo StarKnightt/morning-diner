@@ -150,6 +150,12 @@ const POSES = {
   "fix-rear-back": { x: -1.5, y: 1.62, z: -15.5, yaw: 180, pitch: 4 },
   "fix-rear-side": { x: -14.0, y: 1.62, z: -6.0, yaw: 272, pitch: 4 },
   "fix-side": { x: -15.5, y: 1.62, z: -0.5, yaw: 262, pitch: 3 },
+  // feat-blinds-f — window 1's blind down / mid-raise / up from the second booth, and the raised
+  // blind from the lot (all through __interactPose; the camera is part of the pose).
+  "blinds-down": { interact: "blinds-down" },
+  "blinds-mid": { interact: "blinds-mid" },
+  "blinds-up": { interact: "blinds-up" },
+  "blinds-up-exterior": { interact: "blinds-up-exterior" },
   // feat-kitchen — the walkable kitchen (Kitchen.ts). `kitchen-door-open` is the swing door held
   // open from the service aisle; the rest stand inside the kitchen (z < -2.85).
   "kitchen-door-open": { interact: "kitchen-door-open", x: -4.2, y: 1.55, z: -1.0, yaw: 28, pitch: -6 },
