@@ -73,9 +73,9 @@ export const TIERS: Record<Tier, TierSettings> = {
   // Older discrete / strong iGPU: 85 % resolution, 2048² maps, quarter-res glass, 1024 textures.
   medium: { dprCap: 0.85, shadowMap: 2048, pcss: true, txScale: 0.25, hazeSteps: 12, dustCount: 2000, steamCount: 3, bloom: true, aa: "msaa4", bounce: true, scatterMul: 0.5, scatterRadius: 90, maxTexture: 1024, anisotropy: true, clearcoat: true },
   // Integrated graphics: plain PCF, alpha glass, no bounce loop, no MSAA, 512 textures.
-  low: { dprCap: 0.7, shadowMap: 1024, pcss: false, txScale: 0, hazeSteps: 8, dustCount: 800, steamCount: 2, bloom: false, aa: "none", bounce: false, scatterMul: 0.25, scatterRadius: 70, maxTexture: 512, anisotropy: false, clearcoat: false },
+  low: { dprCap: 0.65, shadowMap: 1024, pcss: false, txScale: 0, hazeSteps: 8, dustCount: 800, steamCount: 2, bloom: false, aa: "none", bounce: false, scatterMul: 0.25, scatterRadius: 70, maxTexture: 512, anisotropy: false, clearcoat: false },
   // Phones: low, smaller still.
-  mobile: { dprCap: 0.6, shadowMap: 1024, pcss: false, txScale: 0, hazeSteps: 6, dustCount: 400, steamCount: 2, bloom: false, aa: "none", bounce: false, scatterMul: 0.2, scatterRadius: 60, maxTexture: 512, anisotropy: false, clearcoat: false },
+  mobile: { dprCap: 0.5, shadowMap: 1024, pcss: false, txScale: 0, hazeSteps: 6, dustCount: 400, steamCount: 2, bloom: false, aa: "none", bounce: false, scatterMul: 0.2, scatterRadius: 60, maxTexture: 512, anisotropy: false, clearcoat: false },
 };
 
 const STORAGE_KEY = "morning-diner.q";

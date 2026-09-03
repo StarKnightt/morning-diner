@@ -107,6 +107,9 @@ src/
     environment.ts        procedural emissive room used ONLY during the startup CubeCamera pass;
                           Diner.ts then PMREMs a 256 px capture of the real interior from counter
                           height and that becomes `scene.environment`
+  core/quality.ts         quality tiers (ultra/high/medium/low/mobile): capability probe, ?q=, URL-knob
+                          injection, shadow/glass/variant cuts at the geometry mark, dynamic DPR, __quality
+  player/Touch.ts         touch controls (virtual stick + look drag + tap = E), imported only on coarse pointers
   capture/pose.ts         window.__ready / __SCENE_READY / __setPose / __stats / __perf for the harness
   post/                   System 8 (see "System 8 — post-processing & atmosphere" below)
     PostPipeline.ts       createPostPipeline(): MSAA scene target → haze → composite (shimmer)
@@ -3487,6 +3490,99 @@ troffer Y 0.64, floor 0.33, ceiling 0.13; `world-lot-out` sunlit sand Y 0.35 (18
 its shadow 0.07 (77, 71, 84) blue, ridges 0.35 under a sky of 0.43 (blue) … 0.6 (gold toward
 the sun); `sun-lot` (new pose, facing the sun): gold glow, blue above. No new programs, no
 unrolled constants (all uniform / literal edits); boot 22–27 s to ready on the shared box.
+## Quality tiers — `src/core/quality.ts` (`quality` branch)
+
+The user's ask: "optimize everything like for everyone — jungle-trail was optimized for every
+device". What jungle-trail actually does (`C:\Code\jungle-trail\src\main.js`, `render/grade.js`,
+`render/atmosphere.js`, `world/water.js`, `mobile/*`): four tiers `low/medium/high/ultra` as one
+table (`dpr 0.75/1/1/1.25`, shadow map `1024/1536/2048/3072`, shadow distance, anisotropy);
+each subsystem owns its own tier table (post: bloom mips / DOF taps / motion taps; atmosphere:
+march scale + steps + AO taps; water: spray particle counts, mirror pass only at high+); boots on
+`high`, never `ultra`, because the first seconds are compile + upload noise; `_adapt` steps one
+tier DOWN after 1.6 s of frames over 1.55× the 60 fps budget and never back up; `#tier=` pins.
+No GPU-string detection at all — a phone gets a "capability gate" (poster + controls + "Enter
+anyway", `mobile/gate.js`) rather than a lower tier, and touch controls are a dynamic import a
+mouse never fetches (`mobile/touch.js`: drag anywhere = look, one held pad = walk, keys written
+into the same key table as the keyboard, pointer lock disabled). dawn-station
+(`src/core/capability.ts`) adds the other half: classify from a throw-away 1×1 WebGL2 context
+(`KHR_parallel_shader_compile`, `MAX_TEXTURE_SIZE`, `MAX_SAMPLES`, `deviceMemory`,
+`hardwareConcurrency`, 4K panel), the renderer string only for the categorical "software
+rasteriser" fact, record the *reasons*, and separate the compile-time family (shader variants —
+PCSS, transmission, detail patches) from the run-time family (DPR, scatter density) because only
+the latter can move after frame 1 without a recompile stall. Both ported here.
+
+**What is portable and what was ported.** Tier table + `?q=` pin + persisted choice; capability
+probe + reasons (`__quality.reasons`); adaptive DPR (median over a 60-frame window, asymmetric
+hold times, one 0.85× step at a time, floor 0.5); touch as a lazy import that writes
+`FirstPerson.keys`; compile-time knobs decided before the compile batch. Not ported: the gate
+screen (this page has a loader that already shows the tier), the per-subsystem tables (this
+project's knobs already exist as URL parameters and settings — the tier drives *those*).
+
+**How the tier reaches the knobs (no edits in Lighting.ts / bounceRects.ts / post/*).**
+`initQuality()` runs first in `main.ts`. For a non-ultra tier it appends the parameters the
+existing modules already read at call time — `?txscale=` (transmission buffer scale,
+`configureRenderer`), `?nopcss` (fixed 4-tap kernel instead of the 16-search + 37-tap PCSS disc,
+`buildLighting`), `?nobounce` (the 43-quad bounce loop and its uniforms are never installed),
+`?haze.steps=`, `?dust.count=`, `?steam.count=`, `?bloom=0`, `?aa=none`
+(`post/settings.ts applyUrlOverrides`) — with `history.replaceState`, and restores the address
+bar right after `createPostPipeline` (`restoreUrl()`). A parameter already in the URL is never
+overwritten, so every A/B switch keeps working on any tier. At Diner.build's `geometry` mark
+(lights and every material exist; nothing compiled or rendered yet) `applyToScene` sets the three
+depth maps' `mapSize` (the sun-beam's pre-allocated compare-mode target is `setSize`d in place so
+the `sunPcfMap` texture object every program binds stays the same), turns `transmission` glass
+into alpha glass on low/mobile (`transmission 0, transparent, opacity ≤ 0.3, depthWrite off` —
+no second scene pass), and zeroes `anisotropy` / `clearcoat` (+maps) on MeshPhysicalMaterials so
+those variant families never compile. `World.ts` multiplies every scatter species' count by
+`scatterMul` and uses `scatterRadius` for `R_MAX`; `TextureBank.dispatch` clamps the pixel-edge
+argument of every generator to `maxTexture` (`checkerFloor` by tiles × tilePx; the booth vinyl
+generators are exempt — at 512 the grain reads as a woven net). On `ultra` every one of these is
+the authored value, so the code path is the pre-tier one.
+
+| tier | DPR cap | shadow maps | shadow filter | glass | haze steps | dust | bloom / AA | bounce loop | scatter (× / m) | textures | aniso / clearcoat |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `ultra` | min(dpr, 1.5) | 4096² ×3 | PCSS | transmission ×0.5 | 24 | 5000 | on / MSAA4 | on | 1 / 120 | as authored | on |
+| `high` | 1.0 | 4096² | PCSS | transmission ×0.5 | 16 | 3500 | on / MSAA4 | on | 0.8 / 110 | ≤ 2048 | on |
+| `medium` | 0.85 | 2048² | PCSS | transmission ×0.25 | 12 | 2000 | on / MSAA4 | on | 0.5 / 90 | ≤ 1024 | on |
+| `low` | 0.65 | 1024² | 4-tap PCF | alpha | 8 | 800 | off / none | off | 0.25 / 70 | ≤ 512 | off |
+| `mobile` | 0.5 | 1024² | 4-tap PCF | alpha | 6 | 400 | off / none | off | 0.2 / 60 | ≤ 512 | off |
+
+**Auto-pick** (`classify`): touch-primary or mobile UA / no WebGL2 / SwiftShader → `mobile`;
+renderer string moves the guess down (entry RTX → high, GTX → high/medium, Intel Iris/Xe →
+medium, Intel UHD → low, AMD APU → medium, Adreno/Mali/PowerVR → mobile, unrecognised → medium);
+then the limits (no parallel compile → ≤ medium, `MAX_TEXTURE_SIZE` < 8192 or `MAX_SAMPLES` < 4
+or `deviceMemory` ≤ 4 GB → ≤ low, ≤ 4 threads → ≤ medium, 4K panel below ultra → ≤ medium).
+Demotion only; the reasons are logged (`?debug` or any non-ultra pick) and on `__quality`.
+`?q=<tier>` pins and persists (`localStorage morning-diner.q`), `?q=auto` forgets, `__quality.set()`
+reloads into a tier. **Dynamic resolution** (`tick`, per frame after frame 60, off under `?shoot`
+and `?dynres=0`): frame time = the GPU timer sum when `EXT_disjoint_timer_query_webgl2` reports,
+else the loop delta; median of the last 60 > 20 ms for 3 s → DPR × 0.85 (floor 0.5); < 10 ms for
+10 s → back up one step toward the tier cap. The loader shows `quality: <tier> (auto)` bottom
+right (it leaves with the overlay); `?debug` keeps a live copy with the DPR and renderer string.
+
+**Touch** (`src/player/Touch.ts`, imported only when `(pointer: coarse)` + `maxTouchPoints`):
+left half of the screen is a virtual stick writing `KeyW/A/S/D` into `FirstPerson.keys`, right
+half drags yaw/pitch, a short tap on the right half dispatches `keydown KeyE` (the prompt's
+key); the canvas's `requestPointerLock` is replaced by a resolved promise so the loader's
+forwarded click and FirstPerson's click handler are no-ops rather than rejections.
+
+**Measured** (RTX 4060, 1080p, `BENCH_PORT=6905 node tools/post-bench.mjs --configs="q=ultra;q=medium;q=low" --poses=length,booth,kitchen-line,lot-wide --settle=1500 --samples=3`,
+GPU shared with two sibling harnesses — minimum of the samples; `ultra` vs `origin/main` at
+`684547a` in a sibling worktree, same session):
+
+QUALITY_TABLE_PLACEHOLDER
+
+`ultra` draws the same calls and triangles as `origin/main` at every pose (579 / 4 599 099 at
+`length`, 389 / 4 264 023 `booth`, 611 / 4 663 259 `kitchen-line`, 390 / 4 151 253 `lot-wide`);
+the frames differ by a mean |Δ| of 1.1–1.5 / 255 (time-seeded grain, motes, the fan).
+`shots/quality-q_{ultra,high,medium,low,mobile}-{length,booth,kitchen-line,lot-wide}.png` are
+the tier frames: low is the same diner, softer — plainer shadow edges, alpha glass on the
+carafe and sugar, the far scrub thinned, the walls a little paler without the bounce term.
+
+Lessons: (1) a project whose knobs are already URL parameters can be tiered from outside the
+files that own them — inject before the reads, restore after; (2) `RenderTarget.setSize` is
+enough to shrink a pre-allocated depth-texture shadow map, because `WebGLTextures` resizes the
+bound depth texture when its image size disagrees with the target; (3) the booth vinyl's grain
+is the one texture that cannot lose resolution — a 512 cap turned it into burlap at `booth`.
 
 ## System status
 

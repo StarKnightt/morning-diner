@@ -156,7 +156,10 @@ function estimateCost(fn: string, args: unknown[]): number {
  * On ultra the cap is Infinity and the arguments pass through untouched.
  */
 const SIZE_ARGS: Record<string, number[]> = { paintedWall: [1], trofferLens: [0, 1], kickPlateWear: [0, 1], checkerFloor: [] };
+/** Never capped: the booth vinyl's grain reads as a woven net below its authored texel density. */
+const UNCAPPED = new Set(["vinylSurface", "vinylCrazeAtlas"]);
 function capSizes(fn: string, args: unknown[]): unknown[] {
+  if (UNCAPPED.has(fn)) return args;
   const idx = SIZE_ARGS[fn] ?? [0];
   const out = args.slice();
   for (const i of idx) if (typeof out[i] === "number") out[i] = capTextureSize(out[i] as number);
