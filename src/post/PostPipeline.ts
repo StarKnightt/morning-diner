@@ -308,7 +308,7 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
   const prefilterMat = new THREE.ShaderMaterial({
     vertexShader: fsVertex,
     fragmentShader: bloomPrefilterFragment,
-    uniforms: { tColor: { value: compRT.texture }, uTexel: { value: new THREE.Vector2() }, uThreshold: { value: 2 }, uKnee: { value: 0.5 } },
+    uniforms: { tColor: { value: compRT.texture }, uTexel: { value: new THREE.Vector2() }, uThreshold: { value: 2 }, uKnee: { value: 0.5 }, uExposure: { value: 1 } },
     depthTest: false,
     depthWrite: false,
     toneMapped: false,
@@ -341,6 +341,7 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
     uCornerSoft: { value: 0.7 },
     uCornerSoftStart: { value: 0.55 },
     uHighlightDesat: { value: 0 },
+    uPrintToe: { value: 0 },
     uToneMap: { value: 0 },
     uBloomOn: { value: 1 },
     uDebug: { value: 0 },
@@ -516,6 +517,7 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
       (prefilterMat.uniforms.uTexel.value as THREE.Vector2).set(1 / size.x, 1 / size.y);
       prefilterMat.uniforms.uThreshold.value = s.bloom.threshold;
       prefilterMat.uniforms.uKnee.value = Math.max(1e-3, s.bloom.knee);
+      prefilterMat.uniforms.uExposure.value = s.finish.exposure ?? renderer.toneMappingExposure;
       runPass(prefilterMat, bloomHalfA);
       const r = s.bloom.radius;
       blurMat.uniforms.tColor.value = bloomHalfA.texture;
@@ -553,6 +555,7 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
       finishUniforms.uCornerSoft.value = f.cornerSoft * scale;
       finishUniforms.uCornerSoftStart.value = f.cornerSoftStart;
       finishUniforms.uHighlightDesat.value = f.highlightDesat;
+      finishUniforms.uPrintToe.value = f.printToe;
       finishUniforms.uToneMap.value = toneMapIndex(f.tonemap, renderer);
       finishUniforms.toneMappingExposure.value = f.exposure ?? renderer.toneMappingExposure;
       finishUniforms.uDebug.value = s.debug.view;

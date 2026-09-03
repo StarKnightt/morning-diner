@@ -1669,7 +1669,12 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
   // Re-measured at 0.1: roof 2,350 nits against 2,250 of sky behind it — the base lobe still
   // added ≈ 800 nits of sky. Under a clearcoat of the same index the pigment/clear interface
   // reflects almost nothing (n 1.5 → 1.5), so 0.05: roof ≈ 1,950, 0.2 EV under the sky.
-  const maroonPaint = skyFill(new THREE.MeshPhysicalMaterial({ color: 0x3a1014, map: dustM.map, roughnessMap: dustM.roughnessMap, roughness: 0.7, metalness: 0, specularIntensity: 0.05, clearcoat: 0.7, clearcoatRoughness: 0.1, envMapIntensity: 1 }), 0.2);
+  // System 4 rev 6: albedo 0x3a1014 was linear R 0.043 — a 4 % red under a clearcoat whose
+  // sky reflection (F ≈ 0.06 at the door-glass view angle × 4,500 nits) was 270 nits of blue
+  // over 100 nits of red diffuse, so every shaded panel measured B > R (door-glass 125/133/157)
+  // and the critics read lilac. Dark maroon paint measures 10–15 % in red; 0x6e141c (linear
+  // 0.155/0.007/0.011) keeps the panel red under the same sky.
+  const maroonPaint = skyFill(new THREE.MeshPhysicalMaterial({ color: 0x6e141c, map: dustM.map, roughnessMap: dustM.roughnessMap, roughness: 0.7, metalness: 0, specularIntensity: 0.05, clearcoat: 0.7, clearcoatRoughness: 0.1, envMapIntensity: 1 }), 0.2);
   const grilleP = ext.grilleTexture(512, 8, 2, false, 3332), grilleS = ext.grilleTexture(512, 24, 6, true, 3333);
   const grillePickup = new THREE.MeshStandardMaterial({ map: grilleP.map, roughnessMap: grilleP.roughnessMap, roughness: 1, metalness: 0.6 });
   const grilleSedan = new THREE.MeshStandardMaterial({ map: grilleS.map, roughnessMap: grilleS.roughnessMap, roughness: 1, metalness: 0.8 });

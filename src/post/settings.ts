@@ -82,7 +82,11 @@ export interface PostSettings {
   };
   bloom: {
     enabled: boolean;
-    /** Scene-linear luminance where bloom starts (soft knee below it). */
+    /**
+     * EXPOSED value (scene × toneMappingExposure; middle grey = 0.18) where bloom starts, soft
+     * knee below it. Display-referred since System 4 rev 6 so it does not drift with `?ev=` or
+     * the camera: 2.0 = +3.5 EV over grey, the camera curve's knee.
+     */
     threshold: number;
     knee: number;
     /** Added fraction of the blurred bright pass. */
@@ -109,6 +113,8 @@ export interface PostSettings {
     grainSize: number;
     /** ACES pushes clipped reds to orange; this desaturates above ~0.8 (REFERENCE §2). 0 = off. */
     highlightDesat: number;
+    /** Print toe on the encoded value, c += toe · (1 − c)⁴ (System 4 rev 6; jungle-trail 0.014). */
+    printToe: number;
   };
   debug: {
     /** 0 off · 1 shimmer mask · 2 haze buffer · 3 beam/aperture test · 4 bloom buffer · 5 motes without shadow test · 6 all motes */
@@ -148,7 +154,7 @@ export function defaultSettings(): PostSettings {
     // strands clear of the funnel and the hood lip (z −2.25) as they rise. Wisp model (System 8 steam
     // fix): 4 strands dissolving 16 cm up in 1.6 s, 14 cm forward.
     steam: { enabled: true, strength: 0.8, count: 4, rise: 0.16, life: 1.6, offset: [0, 0.012, 0.06] },
-    bloom: { enabled: true, threshold: 2.2, knee: 0.6, strength: 0.045, radius: 1.0 },
+    bloom: { enabled: true, threshold: 2.0, knee: 0.6, strength: 0.045, radius: 1.0 },
     finish: {
       tonemap: null,
       exposure: null,
@@ -161,6 +167,7 @@ export function defaultSettings(): PostSettings {
       grainChroma: 0.3,
       grainSize: 1.0,
       highlightDesat: 0.0,
+      printToe: 0.014,
     },
     debug: { view: 0, timeSteam: false },
   };

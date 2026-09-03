@@ -140,6 +140,28 @@ export const TONE_MAPPING: THREE.ToneMapping = THREE.CustomToneMapping;
  */
 export const CAMERA_WHITE_EV = 4.5;
 /**
+ * Rev 6, step 1 (ported, see BUILD.md "System 4 rev 6"): two hue-preserving stages run on the
+ * exposed value BEFORE the per-channel Hable curve.
+ *
+ * 1. nightdrive's `tameHighlights` knee (`C:\Code\nightdrive\index.html:2601-2619`): above
+ *    K = 0.18 · 2^CAMERA_KNEE_EV the maximum channel is compressed as K + over / (1 + over/K)
+ *    and the other two scaled with it, so the excess folds toward an asymptote of 2K with the
+ *    hue and saturation of the pixel intact. Per-channel Hable alone compresses the leading
+ *    channel first: a sunlit maroon panel (R +3.8 EV, B +1.3) came out with R flattened onto
+ *    B — lilac — and a sun patch went to paper white with a hard edge where all three hit W.
+ *    K at +3.5 EV puts the asymptote 2K exactly at the +4.5 EV white point, so the shoulder is
+ *    never entered above its knee: nothing hard-clips, the patches roll.
+ * 2. jungle-trail's film-stock crosstalk (`src/render/grade.js:632-666`): colour film
+ *    desaturates toward its shoulder, a renderer's brightest pixels are its most saturated —
+ *    mix toward luminance by CAMERA_CROSS_AMOUNT · (1 − e^(−luma · CAMERA_CROSS_RATE)), keyed
+ *    on the exposed value ("a highlight is a pixel near the top of the print"). At grey the
+ *    weight is 0.30 (1.8 % desaturation: red vinyl in shade keeps its chroma), +2 EV 0.76,
+ *    +3.5 EV 0.95.
+ */
+export const CAMERA_KNEE_EV = 3.5;
+export const CAMERA_CROSS_AMOUNT = 0.06;
+export const CAMERA_CROSS_RATE = 2.0;
+/**
  * Hable ("Uncharted 2") filmic curve, per channel, normalised so x_white → 1 with
  * x_white = 0.18 · 2^CAMERA_WHITE_EV · CAMERA_CURVE_GAIN. The gain scales the input so
  * middle grey lands at 0.26 display-linear (sRGB 139; a camera JPEG puts a grey card at
@@ -176,6 +198,7 @@ export function installCameraToneMapping(): void {
     return;
   }
   const W = 0.18 * Math.pow(2, CAMERA_WHITE_EV) * CAMERA_CURVE_GAIN;
+  const K = 0.18 * Math.pow(2, CAMERA_KNEE_EV);
   const glsl = /* glsl */ `
     // Camera-like tone curve (System 4 rev 2, scene/Lighting.ts): Hable filmic, per channel,
     // display white at +${CAMERA_WHITE_EV} EV over middle grey. See CAMERA_CURVE_GAIN there.
@@ -184,9 +207,19 @@ export function installCameraToneMapping(): void {
       return ( x * ( A * x + C * B ) + D * E ) / ( x * ( A * x + B ) + D * F ) - E / F;
     }
     vec3 CustomToneMapping( vec3 color ) {
-      color *= toneMappingExposure * ${CAMERA_CURVE_GAIN.toFixed(4)};
+      vec3 x = max( color * toneMappingExposure, vec3( 0.0 ) );
+      // rev 6 step 1a: hue-preserving knee (nightdrive tameHighlights), K = grey · 2^${CAMERA_KNEE_EV}
+      float hl = max( x.r, max( x.g, x.b ) );
+      if ( hl > ${K.toFixed(5)} ) {
+        float over = hl - ${K.toFixed(5)};
+        x *= ( ${K.toFixed(5)} + over / ( 1.0 + over / ${K.toFixed(5)} ) ) / hl;
+      }
+      // rev 6 step 1b: film-stock crosstalk (jungle-trail stock()), keyed on the exposed luminance
+      float ly = dot( x, vec3( 0.2126, 0.7152, 0.0722 ) );
+      x = mix( x, vec3( ly ), ${CAMERA_CROSS_AMOUNT.toFixed(3)} * ( 1.0 - exp( -ly * ${CAMERA_CROSS_RATE.toFixed(3)} ) ) );
+      x *= ${CAMERA_CURVE_GAIN.toFixed(4)};
       vec3 white = cameraToneMapHable( vec3( ${W.toFixed(6)} ) );
-      return saturate( cameraToneMapHable( max( color, vec3( 0.0 ) ) ) / white );
+      return saturate( cameraToneMapHable( x ) / white );
     }`;
   THREE.ShaderChunk.tonemapping_pars_fragment = chunk.replace(stub, glsl);
 }

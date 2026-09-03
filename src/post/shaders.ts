@@ -174,13 +174,21 @@ export const bloomPrefilterFragment = /* glsl */ `
   varying vec2 vUv;
   uniform sampler2D tColor;
   uniform vec2 uTexel;
-  uniform float uThreshold, uKnee;
+  uniform float uThreshold, uKnee, uExposure;
+  // Karis weight (jungle-trail grade.js BLOOM_PRE_FRAG): a tap counts by the reciprocal of its
+  // own brightness, so one sub-pixel ping cannot carry the whole footprint and flicker.
+  float kw(vec3 c) { return 1.0 / (1.0 + max(c.r, max(c.g, c.b)) * uExposure); }
   void main() {
-    // 4-tap box over the full-res 2×2 footprint plus its neighbours: fewer fireflies from 1-px pings.
-    vec3 c = texture2D(tColor, vUv).rgb * 0.5
-      + (texture2D(tColor, vUv + vec2(uTexel.x, 0.0)).rgb + texture2D(tColor, vUv - vec2(uTexel.x, 0.0)).rgb
-      + texture2D(tColor, vUv + vec2(0.0, uTexel.y)).rgb + texture2D(tColor, vUv - vec2(0.0, uTexel.y)).rgb) * 0.125;
-    float l = max(c.r, max(c.g, c.b));
+    // 5-tap cross over the full-res 2×2 footprint plus its neighbours, Karis-weighted.
+    vec3 c0 = texture2D(tColor, vUv).rgb;
+    vec3 c1 = texture2D(tColor, vUv + vec2(uTexel.x, 0.0)).rgb, c2 = texture2D(tColor, vUv - vec2(uTexel.x, 0.0)).rgb;
+    vec3 c3 = texture2D(tColor, vUv + vec2(0.0, uTexel.y)).rgb, c4 = texture2D(tColor, vUv - vec2(0.0, uTexel.y)).rgb;
+    float w0 = 0.5 * kw(c0), w1 = 0.125 * kw(c1), w2 = 0.125 * kw(c2), w3 = 0.125 * kw(c3), w4 = 0.125 * kw(c4);
+    vec3 c = (c0 * w0 + c1 * w1 + c2 * w2 + c3 * w3 + c4 * w4) / (w0 + w1 + w2 + w3 + w4);
+    // Thresholded on the DISPLAY-referred value (scene × the exposure the tone map is about to
+    // apply): uThreshold is in exposed units where middle grey is 0.18, so "would have come out
+    // white" means the same thing whatever ?ev= or the camera does (System 4 rev 6).
+    float l = max(c.r, max(c.g, c.b)) * uExposure;
     float soft = clamp(l - uThreshold + uKnee, 0.0, 2.0 * uKnee);
     soft = soft * soft / (4.0 * uKnee + 1e-4);
     float contrib = max(soft, l - uThreshold) / max(l, 1e-4);
@@ -223,7 +231,7 @@ export const finishFragment = /* glsl */ `
   uniform sampler2D tColor, tBloomHalf, tBloomQuarter;
   uniform vec2 uResolution;
   uniform float uBloomStrength;
-  uniform float uVignetteEV, uVignettePower, uCA, uCornerSoft, uCornerSoftStart, uHighlightDesat;
+  uniform float uVignetteEV, uVignettePower, uCA, uCornerSoft, uCornerSoftStart, uHighlightDesat, uPrintToe;
   uniform int uToneMap, uBloomOn, uDebug;
   uniform float uGrain, uGrainChroma, uGrainSize, uFrame;
   // declares uniform float toneMappingExposure + ACESFilmic / AgX / Neutral
@@ -287,6 +295,11 @@ export const finishFragment = /* glsl */ `
       col = mix(col, vec3(l), k);
     }
     col = srgbOETF(clamp(col, 0.0, 1.0));
+    // Print toe (jungle-trail grade.js print(), on ENCODED values): film has no black — the
+    // stock's base passes light, so the densest shadow prints at a few per cent and the approach
+    // is a curve, not digital's corner at zero. 0.014 · (1 − c)⁴ puts the floor at ~4 codes and
+    // tapers to nothing by the mid-tones (System 4 rev 6, step 1).
+    col += uPrintToe * pow(max(1.0 - col, 0.0), vec3(4.0));
 
     #ifdef GRAIN
     if (uGrain > 0.0) {
