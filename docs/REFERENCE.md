@@ -394,3 +394,54 @@ Ratios: wall sun : shade **3.0 EV** (rev 1: 0.3); lot lit : pole shadow 1.4 EV, 
 | Lot `skyFill` emissive | — | removed (`?skyfill=1`) | the lot probe is the skylight |
 
 Materials touched (additive): `glass` / `glassDoor` `0xf9fbfa` (colour applied twice by the transmission path); `blackPowder` `0x383838`, `rubberMat` `0x363636` (3–4 % albedo, were 0.6–1.3 %); `fixtureLens` emissive map. Performance: scene pass 7.7 ms at `length`, boot 10.0 s, 168 draw calls (rev 1 on merged `main`: 27.3 ms — 16 RectAreaLights ≈ 15.6 ms, `sunLot` 4096² 8-tap ≈ 4.7 ms, 16 + 24-tap PCSS ≈ 2.9 ms).
+
+### Rev 6 (branch `sys4-rev2`) — as built
+
+Supersedes rev 2 above and the rev 3/4 numbers in BUILD.md where it disagrees. Same probe (`%TEMP%\sys4\probe.mjs`, float render target, per-region p10/50/90 in nits, EV over middle grey), display codes from the post-on frame; full output `%TEMP%\sys4\out\r6-log.txt`, targets `targets.mjs r6`.
+
+**Exposure.** ISO 100, f/5.6, **1/60 s** → EV100 10.88, L_sat ≈ 2,260 nits, middle grey **406 nits**. Tone curve (`installCameraToneMapping`): hue-preserving knee at **+3.5 EV** (max channel compressed as `knee + over / (1 + over / knee)`, the other channels scaled with it), stock crosstalk 6 % at rate 2 on exposed luminance, Hable with white at **+4.5 EV**, gain solved so grey lands at display-linear **0.18** (code 118; rev 2–5 0.26 / 139), then sRGB and a print toe `0.014 · (1 − c)⁴` on the encoded value (floor code 4). Neutral table (`camtone6.mjs --mid 0.18`):
+
+| EV over grey | −4 | −3 | −2.5 | −2 | −1.5 | −1 | −0.5 | 0 | +1 | +2 | +2.5 | +3 | +3.5 | +4 | +4.5 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| nits | 25 | 51 | 72 | 102 | 144 | 203 | 287 | 406 | 813 | 1,626 | 2,299 | 3,251 | 4,598 | 6,502 | 9,196 |
+| code | 26 | 41 | 51 | 62 | 75 | 90 | 105 | 118 | 160 | 205 | 220 | 231 | 240 | 246 | 251 |
+
+So the brief's "shaded wall 40–60" is 50–100 nits (−3 … −2 EV), "+4 EV over grey" is 6,500 nits / 246, and the sky through the glass (3,800–4,500 nits) is 226–230, not a clip — the dome would need ≈ 9,000 nits to clip at this white.
+
+**Measured HDR values, rev 6** (nits, p50 unless noted; EV over 406; display code post on):
+
+| Region (pose) | nits | EV | display |
+|---|---|---|---|
+| Wall sun patch, stripe crests (`counter` p90 / `length` p90) | 5,424 / 4,701 | +3.7 / +3.5 | 237 (0.0 % clip) |
+| Table top in sun, crest (`macro-table` column x = 1300) | ≥ 6,500 | ≥ +4.0 | 246 |
+| Table top, stripe trough beside it | 91–110 | −2.2 … −1.9 | 53–61 (1.7 % of the crest) |
+| Wall in shade (`door-glass` int. / `length` / `counter` / `booth` / `lot-wide`) | 76 / 139 / 164 / 180 / 216 | −2.4 / −1.55 / −1.3 / −1.2 / −0.9 | 46 / 68 / 73 / 77 / 98 |
+| Ceiling tile, window side → back (`length`) | 212 → 191 | −0.9 → −1.1 | 82 → 77 |
+| Ceiling tile beside a lens / window side / back (`ceiling`) | 335 / 353 / 277 | −0.3 / −0.2 / −0.55 | 106 / 108 / 95 |
+| Troffer lens, mean / lamp bars (`ceiling` p50 / p90) | 2,423 / 6,501 | +2.6 / +4.0 | 212 / 245 (blooms; threshold +3.5) |
+| Sky through the east glass (`window` p50 / p90) | 3,813 / 4,548 | +3.2 / +3.5 | 226 / 230 |
+| Sky through the open door (`door-open` p50, high) | 2,187 / 2,770 | +2.4 / +2.8 | 206 / 215 |
+| Window, mixed (`lot-wide`) | 2,323 | +2.5 | 212 |
+| Sunlit sand / asphalt (`door-glass`) | 4,006 / 2,218 | +3.3 / +2.45 | 232 / 210 |
+| Asphalt in sun / car shadow (`lot-shadow`, exterior camera −2 EV) | 2,322 / 275 | 3.1 EV apart | 135 / 45 |
+| Maroon hood, sunlit, through door glass (R / G / B) | 2,270 / 820 / 1,510 | — | (196, 141, 166) |
+| Vinyl, sunlit back (`stripes`) / cushion in shade (`booth`) | 691 / 46 | +0.8 / −3.15 | (210, 65, 57) / (100, 64, 59) |
+| Counter top (`counter` / `length`) | 95 / 47 | −2.1 / −3.1 | 55 / 35 |
+| Floor under the table / aisle (`undertable`) | 25 / 74 | −4.0 / −2.5 | 24 / 55 |
+| Kitchen box / pass-through shelf (`warmer`) | 73 / 218 | −2.5 / −0.9 | 45 / 83 |
+
+Ratios: wall sun : shade **+5.0 EV** (rev 4 +3.0, rev 2 +3.0); ceiling : shaded wall (`length`) +0.46 EV (rev 4 ≈ +1); glass : no-glass sky ≤ 0.1 EV (rev 4 1.5–2.5); stripe trough : crest 1.7 % (rev 4 60–85 %). Display clipping (≥ 250): `length` 0.3 %, `booth` 5.0 %, `stripes` 1.7 %, `table` 7.6 %, `window` 1.7 %, `door-glass` 0.02 %. Frame medians: `undertable` 28, `length` 60, `counter` 55, `booth` 64, `table` 110 (rev 4 asked ≥ 70 everywhere; the rev 6 brief lets the shade fall to −3 … −4 EV).
+
+**Light list, rev 6** (changes from rev 2–4 only):
+
+| Light / term | Rev 6 |
+|---|---|
+| `sun` (interior spot) | as rev 4, but the blind slats are NOT casters; `directLight.color *= slatTransmit()` (scene/slatShadow.ts) — closed-form stripe transmittance, sun disc 9.3 mm/m, `fwidth` AA; the same term in the haze/dust march |
+| Sun bounce | the five Lambertian spots are gone; `bounceIrradiance(p, n)` (scene/bounceRects.ts) adds the exact rectangle form factor of each baked sun-patch quad (floor, table zone, bench front, end-wall band, vestibule floor; radiance E · ρ / π, ρ_floor 0.36 checker mean, blind open fraction 0.76) to `irradiance` in `lights_fragment_begin`; unrolled, early-outs, point form beyond three diagonals; 0.7 ms |
+| Troffers ×6 | 5,800 lm maintained (rev 3–5 10,500); lens bars +4.0 EV |
+| Room probe (`environmentIntensity`) | 0.10 (rev 4 0.13) — second bounce only, the first is the rectangle term |
+| Glazing | alpha leaf `α = 1 − (1 − F)(1 − 0.12)` + additive reflection leaves (room probe inside, lot probe outside); no `transmission` on architectural glass |
+| Camera | mid grey 0.18, knee +3.5 EV, crosstalk 0.06 @ 2, print toe 0.014; bloom threshold 2.0 exposed (+3.5 EV), Karis-weighted, clamp 100 |
+| Finish | sedona shadow lift: ×2.5 max under 0.045 exposed, masked by an 8-tap local-max search (48 px @ 1440p, fall 0.22, mask 0.1–0.3) |
+
+Materials touched: `maroonPaint` `0x3a1014` → `0x6e141c` (linear R 0.043 → 0.155; a 4 % red under a clearcoat's sky reflection read lilac). Performance: scene pass 7.7 ms at `length`, 7.7 `booth`, 3.9 `window`; post 2.1–3.4 ms; boot ≈ 10 s uncontended.
