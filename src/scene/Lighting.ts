@@ -111,7 +111,7 @@ export const nits = (n: number): number => n * K;
  * (now 14 klm, warm-white) put the counter laminate at middle grey, the sunlit sand lands at
  * +1 EV (display ≈ 0.42), the sun patch on a cream wall at +2 EV (≈ 211, rolled, not white).
  */
-export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 25 } as const;
+export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 18 } as const; // a2 measured at 1/25: shaded walls sRGB 92–105, sunlit sand Y 0.24 — half a stop under both targets
 export const EV100 = Math.log2((CAMERA.fNumber * CAMERA.fNumber) / CAMERA.shutter) - Math.log2(CAMERA.iso / 100);
 /** Metered saturation luminance for that exposure (Lagarde: L_sat = 1.2 · 2^EV) ≈ 2,260 nits at 1/60 (9,560 at rev 3's 1/250); the display white sits CAMERA_WHITE_EV − 2.47 stops above it. */
 export const L_SAT_NITS = 1.2 * Math.pow(2, EV100);
@@ -359,7 +359,14 @@ export const TROFFER_LENS_AREA = (CEILING.tile * 2 - 0.09) * (CEILING.tile - 0.0
  * map peak at ≈ 2.2× → 7,200 nits, +4.1 EV: the bars sit on the knee and bloom, the field
  * between them holds the green-cyan tint — a lit troffer in a daylight exposure.
  */
-export const TROFFER_LENS_NITS = TROFFER_LUMENS / (Math.PI * TROFFER_LENS_AREA);
+export const TROFFER_LENS_NITS = 0.22 * (TROFFER_LUMENS / (Math.PI * TROFFER_LENS_AREA));
+/**
+ * fix-dining-light: × 0.3. A K12 prismatic lens is a glare-control lens — its luminance at the
+ * 50–75° viewing angles a standing player sees every fixture at is 0.25–0.35× of the nadir
+ * value (the candela curve of a 2×4 K12 troffer falls to ≈ 30 % by 65°). At the Lambertian mean
+ * (7,900 nits, +5.5 EV) every lens clipped to the same white, the tint gone; at 2,370 (+3.8 EV)
+ * the field between the tube bars holds the warm-white and the bars (2.2×, +4.9) still clip.
+ */
 /**
  * Sky dome, in nits (rev 3; `scaleSky` replaces the dome shader's colour model). Luminance
  * is linear in sin(elevation) from SKY_HORIZON_NITS to SKY_ZENITH_RATIO × that, times a
@@ -400,8 +407,8 @@ export const TROFFER_LENS_NITS = TROFFER_LUMENS / (Math.PI * TROFFER_LENS_AREA);
  * diffuse drops to ≈ 1.6 klux: sunlit sand 1.3 + 1.6 klux → 370 nits (+1.1 EV), its shadows
  * 200 nits (−0.2 EV, blue). Zenith 224 nits is what the room's windows show above the ridges.
  */
-const SKY_HORIZON_NITS = 1_000; // a1 tried 1,400: the horizon by the sun at +3.6 EV printed pale peach (245, 232, 211), not orange
-const SKY_ZENITH_RATIO = 0.22; // 220 nits
+const SKY_HORIZON_NITS = 750; // a1 1,400 → pale peach (245, 232, 211); a3 1,000 → pale gold (245, 230, 195); 750 holds the orange on the shoulder
+const SKY_ZENITH_RATIO = 0.18; // 180 nits, +0.6 EV at 1/18 in the zenith blue
 /**
  * Chroma at unit luminance. Horizon (0.34, 0.58, 1.0) / Y, B/R 2.9; zenith (0.22, 0.45, 1.0)
  * / Y, B/R 4.5; blended in √h so the 5–25° band the windows see sits near B/R 3.5. That is
@@ -412,13 +419,13 @@ const SKY_ZENITH_RATIO = 0.22; // 220 nits
  * read R ≈ G ≈ B outright.
  */
 /** Rev 7: warm horizon (peach, toward the sun) — also the haze tint of the ridge rings. */
-const SKY_HORIZON_CHROMA = new THREE.Color(1.0, 0.5, 0.22); // fix-dining-light: orange-gold (rev 7 peach (1, .6, .34) went cream on the knee)
+const SKY_HORIZON_CHROMA = new THREE.Color(1.0, 0.45, 0.17); // fix-dining-light: orange-gold (rev 7 peach (1, .6, .34) went cream on the knee)
 /** Rev 7: horizon opposite the sun — pale blue-grey (the Belt of Venus sits just above it). */
-const SKY_HORIZON_COOL_CHROMA = new THREE.Color(0.74, 0.8, 1.0);
+const SKY_HORIZON_COOL_CHROMA = new THREE.Color(0.6, 0.72, 1.0); // fix-dining-light: bluer (was (.74, .8, 1))
 /** Rev 7: pale yellow band 5–25° above the sun. */
-const SKY_ABOVE_SUN_CHROMA = new THREE.Color(1.0, 0.86, 0.6);
+const SKY_ABOVE_SUN_CHROMA = new THREE.Color(1.0, 0.78, 0.45); // fix-dining-light: gold, was (1, .86, .6)
 /** Rev 7: orange aureole (forward scatter, 20° around the sun). */
-const SKY_AUREOLE_CHROMA = new THREE.Color(1.0, 0.66, 0.38);
+const SKY_AUREOLE_CHROMA = new THREE.Color(1.0, 0.55, 0.22); // fix-dining-light: deeper orange, was (1, .66, .38)
 /** Rev 7: deep saturated blue at the zenith. */
 const SKY_ZENITH_CHROMA = new THREE.Color(0.24, 0.4, 1.0);
 export const luminance = (c: THREE.Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
@@ -1353,16 +1360,20 @@ export function scaleSky(sky: THREE.Mesh, scale: number): void {
         // Rev 7 (evening): horizon luminance falls to 0.55× opposite the sun; the elevation
         // falloff is steeper than the morning's (pow 0.7) — the low sun's light stays in the
         // long horizontal paths; the aureole is wider (forward scatter through 6 air masses).
-        float circ = 0.5 * pow(c, 4.0) + 0.8 * pow(c, 32.0) + 1.5 * pow(c, 400.0);
+        float circ = 0.35 * pow(c, 4.0) + 0.6 * pow(c, 32.0) + 1.5 * pow(c, 400.0); // fix-dining-light: the 5–20° glow keeps its orange (was 0.5 / 0.8 / 1.5)
         float horizLum = mix(0.45, 1.0, smoothstep(0.0, 1.0, a));
-        float lum = mix(horizLum, ${SKY_ZENITH_RATIO.toFixed(3)}, pow(h, 0.55)) * (1.0 + circ);
+        float lum = mix(horizLum, ${SKY_ZENITH_RATIO.toFixed(3)}, pow(h, 0.4)) * (1.0 + circ);
         // fix-dining-light: the dense aerosol band at the horizon line is DARKER than the sky
         // 3–5° above it (the long path is in the earth's shadow first) — 0.6× at the line.
         lum *= mix(0.6, 1.0, smoothstep(0.0, 0.07, h));
         // Chroma (unit luminance): peach horizon toward the sun, blue-grey opposite → deep
         // blue zenith; a pale-yellow band 5–25° above the sun; the aureole goes orange.
-        vec3 hor = mix(${glslVec3(SKY_HORIZON_COOL_CHROMA)}, horizon, smoothstep(0.0, 1.0, a));
-        vec3 chroma = mix(hor, zenith, pow(h, 0.45));
+        // fix-dining-light: the orange horizon chroma lives in the lowest ~7° only; above it the base
+        // is the cool horizon everywhere (blue → blue, no lilac) and the gold band carries the sun side.
+        vec3 hor = mix(${glslVec3(SKY_HORIZON_COOL_CHROMA)}, horizon, smoothstep(0.0, 1.0, a) * (1.0 - smoothstep(0.0, 0.12, h)));
+        // fix-dining-light: the warm horizon chroma holds only in the lowest ~10°; a linear mix of
+        // orange and blue through the mid-elevations printed LILAC at 15–25° (a2: (174, 173, 200)).
+        vec3 chroma = mix(hor, zenith, pow(smoothstep(0.0, 0.35, h), 0.6));
         float band = smoothstep(0.0, 0.12, h) * smoothstep(0.45, 0.15, h) * a * a;
         chroma = mix(chroma, ${glslVec3(SKY_ABOVE_SUN_CHROMA)}, band * 0.65);
         chroma = mix(chroma, ${glslVec3(SKY_AUREOLE_CHROMA)}, clamp(circ * 0.8, 0.0, 0.9));
@@ -1405,7 +1416,7 @@ function scaleHorizonRings(scene: THREE.Scene): void {
   // fix-dining-light: the ranges sit under the horizon BAND (0.6× the sky, scaleSky) — near
   // 0.36× of the horizon (−1.5 EV under the sky above the band), mid 0.45×, far 0.52×; the
   // user's frame had all three within a stop of the sky, "bleached, not hazed".
-  const ringScale: Record<string, number> = { horizon: 0.36, "horizon-mid": 0.45, "horizon-far": 0.52 };
+  const ringScale: Record<string, number> = { horizon: 0.15, "horizon-mid": 0.22, "horizon-far": 0.32 };
   for (const name of ["horizon", "horizon-mid", "horizon-far"]) {
     const mesh = scene.getObjectByName(name) as THREE.Mesh | undefined;
     if (!mesh) continue;

@@ -3434,6 +3434,37 @@ cull at 1/512 of peak was tried and left disabled (r²max slot kept at 1e9): the
 `world-road` 2.9 ms total — but the bloom pass (constant work) read 0.2–0.5 ms in this run vs
 0.8 in the 18a1bba run, so ~1/3 of the drop is GPU clock state, not the gate.
 
+## Fix — "too much light from the windows, not the lamps" / "the world is too bright, not evening" (`fix-dining-light`, `shots/fdl-{before,after}-*.png`)
+
+User frames (live, Vite): the dining room a near-white fog bank, troffers blue-grey rectangles;
+the lot from the road washed to cream, lilac sky, no shadow depth. Two causes. (1) The rev 7
+rig at 1/15: the sun's beam crosses the whole room at 9° so the haze march integrated 6–9 m of
+lit air at `strength 0.012`; the sunlit lot sat at +2.9 EV (sand ≈ 232). (2) The player's `]`
+steps persist in `localStorage["morning-diner.ev"]` — the live frames were ≈ +1.5 EV over the
+shipped exposure on top of that. The key is now versioned (`morning-diner.ev.fdl`, main.ts):
+a stored dial never carries over onto a re-metered rig; bump the suffix when CAMERA changes.
+
+Re-metered rig (`Lighting.ts`, `post/settings.ts`), one exposure for both sides:
+
+| Quantity | rev 7.1 | fix-dining-light |
+|---|---|---|
+| Camera | 1/15 (grey 101 nits) | **1/18** (grey 122) |
+| Sun | 9°, 18 klux, (1, .72, .45) | **7°, 11 klux, (1, .66, .36)** ≈ 2,900 K (AM 7.9) |
+| Troffers | 8,700 lm, cool-white (236, 255, 238) | **14,000 lm, warm-white 3500 K (255, 238, 205)**; lens emissive ×0.22 of the Lambertian mean (K12 off-axis luminance) so the field holds the tint and only the tube bars clip |
+| Haze in-scatter | 0.012 | **0.004** (× the 0.6 sun → ≈ 0.2× the visual strength) |
+| Sky | horizon 1,200 nits peach, zenith 0.25, pow 0.7 | **750 nits orange (1, .45, .17), zenith 0.18 (135 nits), pow 0.4**; a 0.6× dense warm band at the horizon line; the orange chroma only in the lowest 7° (a linear orange→blue mix printed LILAC at 15–25°), gold band above the sun, aureole 0.35/0.6/1.5 |
+| Ridge rings | 0.55 / 0.7 / 0.75 × horizon | **0.15 / 0.22 / 0.32** (under the band, −2 EV) |
+| Fog / background | horizon sky colour | **the horizon band** (0.45× horizon nits, warmed) |
+| Blind-underside lot fill | 600 / 2,400 lux | 350 / 1,400 |
+
+Measured (`fdl-after-*`): `behind-counter` (new pose — service aisle looking across at the
+window wall, the user's frame) shaded wall sRGB 108–122, wall sun patch (233, 213, 172) Y 0.68
+(warm, rolled, not white), lens (237, 231, 218), tabletop Y 0.26; `length` laminate under a
+troffer Y 0.64, floor 0.33, ceiling 0.13; `world-lot-out` sunlit sand Y 0.35 (182, 154, 131),
+its shadow 0.07 (77, 71, 84) blue, ridges 0.35 under a sky of 0.43 (blue) … 0.6 (gold toward
+the sun); `sun-lot` (new pose, facing the sun): gold glow, blue above. No new programs, no
+unrolled constants (all uniform / literal edits); boot 22–27 s to ready on the shared box.
+
 ## System status
 
 | # | System | Status |

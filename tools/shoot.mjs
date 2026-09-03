@@ -111,6 +111,8 @@ const POSES = {
   "dbg-wall-road": { x: 1.35, y: 1.87, z: 6.5, yaw: 180, pitch: -1 },
   // World layer (World.ts): the user's "from the lot looking out" frame plus three more.
   "world-lot-out": { x: 0.6, y: 1.62, z: 9.0, yaw: 180, pitch: -3 },
+  // fix-dining-light: from the lot, facing the 7° sun (38° off the facade normal toward +x): disc, aureole, long shadows.
+  "sun-lot": { x: 0.6, y: 1.62, z: 9.0, yaw: 218, pitch: 4 },
   "world-road": { x: -2.5, y: 1.62, z: 27.0, yaw: 100, pitch: -4 },
   "world-facade-wide": { x: 9.0, y: 1.62, z: 29.0, yaw: 14, pitch: -3 },
   "world-door-view": { x: 4.9, y: 1.62, z: 4.2, yaw: 172, pitch: -4 },
