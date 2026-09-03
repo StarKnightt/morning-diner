@@ -163,10 +163,20 @@ export const CAMERA_KNEE_EV = 3.5;
 export const CAMERA_CROSS_AMOUNT = 0.06;
 export const CAMERA_CROSS_RATE = 2.0;
 /**
+ * Display-linear value of middle grey (the gain solve below). Rev 2–5: 0.26 (sRGB 139), the
+ * top of the camera-JPEG range, chosen when the critics wanted no interior median under sRGB
+ * 70. Rev 6 (step 4, survey #4): 0.18 — sRGB 118, the textbook grey card. With the mid-tones
+ * a third of a stop lower and the white point unchanged the curve is steeper through the
+ * shade: a 192-nit shaded wall goes from code 100 to 81 and a 4,500-nit sky stays at 238, so
+ * the display ratio between them opens from 2.8 to 3.6 EV; the rest of the critics' +4 EV /
+ * sRGB 40–60 comes from the fill balance (step 5), not from the curve.
+ */
+export const CAMERA_MID_GREY = 0.18;
+/**
  * Hable ("Uncharted 2") filmic curve, per channel, normalised so x_white → 1 with
  * x_white = 0.18 · 2^CAMERA_WHITE_EV · CAMERA_CURVE_GAIN. The gain scales the input so
- * middle grey lands at 0.26 display-linear (sRGB 139; a camera JPEG puts a grey card at
- * 118–140) instead of Hable's default 0.149; it is solved for the white point at module
+ * middle grey lands at CAMERA_MID_GREY display-linear (rev 6: 0.18, sRGB 118; a camera JPEG
+ * puts a grey card at 118–140) instead of Hable's default 0.149; it is solved for the white point at module
  * load (1.492 at +2.5, 2.587 at +4.5). Rev 2's table (white +2.5), from the exact port of
  * this GLSL in the harness (camtone.mjs; verified against 14 probe regions to ±1 code):
  * −5 → sRGB 17, −4 → 29, −3 → 44, −2 → 67, −1 → 98, 0 → 140, +1 → 187, +2 → 234,
@@ -180,7 +190,7 @@ const CAMERA_CURVE_GAIN = (() => {
   const hable = (x: number) => { const A = 0.22, B = 0.30, C = 0.10, D = 0.20, E = 0.01, F = 0.30; return (x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F) - E / F; };
   const W = 0.18 * Math.pow(2, CAMERA_WHITE_EV);
   let lo = 0.1, hi = 20;
-  for (let i = 0; i < 60; i++) { const g = (lo + hi) / 2; if (hable(0.18 * g) / hable(W * g) < 0.26) lo = g; else hi = g; }
+  for (let i = 0; i < 60; i++) { const g = (lo + hi) / 2; if (hable(0.18 * g) / hable(W * g) < CAMERA_MID_GREY) lo = g; else hi = g; }
   return (lo + hi) / 2;
 })();
 

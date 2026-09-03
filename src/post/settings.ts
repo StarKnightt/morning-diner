@@ -115,6 +115,19 @@ export interface PostSettings {
     highlightDesat: number;
     /** Print toe on the encoded value, c += toe · (1 − c)⁴ (System 4 rev 6; jungle-trail 0.014). */
     printToe: number;
+    /**
+     * sedona-sunset's scene-linear shadow lift (post.js `shadowLift`), applied before the tone
+     * curve: gain `shadowLift` at black falling as (1 − y/knee)² to exactly 1 at `shadowLiftKnee`
+     * (exposed luminance; grey = 0.18), masked by a local-maximum test — a small dark facet
+     * beside lit surface opens the mask, the interior of a wide shadow does not, so shaded walls
+     * stay where the exposure puts them and the dark small things stay legible. 1 = off.
+     */
+    shadowLift: number;
+    shadowLiftKnee: number;
+    /** Local-max tap radius in px at 1440 lines, distance discount (sqrt-luma per unit radius), mask ramp on sqrt-luma difference. */
+    shadowLiftRadius: number;
+    shadowLiftFall: number;
+    shadowLiftMask: [number, number];
   };
   debug: {
     /** 0 off · 1 shimmer mask · 2 haze buffer · 3 beam/aperture test · 4 bloom buffer · 5 motes without shadow test · 6 all motes */
@@ -168,6 +181,15 @@ export function defaultSettings(): PostSettings {
       grainSize: 1.0,
       highlightDesat: 0.0,
       printToe: 0.014,
+      // sedona ships 5 (gravel relief); at 5 the diner's black checker tiles beside lit ones
+      // went 27 → 37 and the floor read as a pushed-shadows slider; 2.5 keeps the tiles black
+      // (27 → 31) and still takes the coffee machine's shade and the pass-through shelf off the
+      // curve's floor (18 → 22, 47 → 52). `?finish.shadowLift=1` is the A/B.
+      shadowLift: 2.5,
+      shadowLiftKnee: 0.045,
+      shadowLiftRadius: 48,
+      shadowLiftFall: 0.22,
+      shadowLiftMask: [0.1, 0.3],
     },
     debug: { view: 0, timeSteam: false },
   };

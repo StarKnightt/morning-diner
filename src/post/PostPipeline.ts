@@ -342,6 +342,10 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
     uCornerSoftStart: { value: 0.55 },
     uHighlightDesat: { value: 0 },
     uPrintToe: { value: 0 },
+    uLift: { value: new THREE.Vector2(1, 0.045) },
+    uLiftMask: { value: new THREE.Vector2(0.1, 0.3) },
+    uLiftR: { value: 36 },
+    uLiftFall: { value: 0.22 },
     uToneMap: { value: 0 },
     uBloomOn: { value: 1 },
     uDebug: { value: 0 },
@@ -556,6 +560,11 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
       finishUniforms.uCornerSoftStart.value = f.cornerSoftStart;
       finishUniforms.uHighlightDesat.value = f.highlightDesat;
       finishUniforms.uPrintToe.value = f.printToe;
+      finishUniforms.uLift.value.set(f.shadowLift, Math.max(1e-4, f.shadowLiftKnee));
+      finishUniforms.uLiftMask.value.set(f.shadowLiftMask[0], f.shadowLiftMask[1]);
+      // An optical size: scales with the frame like the grain and the corner blur do.
+      finishUniforms.uLiftR.value = f.shadowLiftRadius * (finishUniforms.uResolution.value.y / 1440);
+      finishUniforms.uLiftFall.value = f.shadowLiftFall;
       finishUniforms.uToneMap.value = toneMapIndex(f.tonemap, renderer);
       finishUniforms.toneMappingExposure.value = f.exposure ?? renderer.toneMappingExposure;
       finishUniforms.uDebug.value = s.debug.view;

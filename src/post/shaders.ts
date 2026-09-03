@@ -232,6 +232,8 @@ export const finishFragment = /* glsl */ `
   uniform vec2 uResolution;
   uniform float uBloomStrength;
   uniform float uVignetteEV, uVignettePower, uCA, uCornerSoft, uCornerSoftStart, uHighlightDesat, uPrintToe;
+  uniform vec2 uLift, uLiftMask;
+  uniform float uLiftR, uLiftFall;
   uniform int uToneMap, uBloomOn, uDebug;
   uniform float uGrain, uGrainChroma, uGrainSize, uFrame;
   // declares uniform float toneMappingExposure + ACESFilmic / AgX / Neutral
@@ -282,6 +284,34 @@ export const finishFragment = /* glsl */ `
     if (uDebug == 4) col = texture2D(tBloomQuarter, vUv).rgb * 4.0;
     // Natural falloff: cos⁴-like, uVignetteEV stops at the corner.
     col *= exp2(-uVignetteEV * pow(r, uVignettePower));
+
+    // Scene-linear shadow lift with a local-maximum mask (sedona-sunset src/post.js, System 4
+    // rev 6 step 4). In exposed units (grey 0.18) so the knee means the same thing whatever the
+    // camera does. Gain (1 + (lift − 1)·(1 − y/knee)²) below the knee, identically 1 above it,
+    // a scalar on the three channels so hue and saturation do not move. The mask compares the
+    // pixel's sqrt-luminance with the distance-discounted maximum of eight taps on a spiral of
+    // radius uLiftR: a dark facet beside lit surface opens, the middle of a wide shadow does
+    // not — the shaded wall keeps the level the exposure gave it, the mug's shadow side and
+    // the gap under the bench come off the floor of the curve.
+    if (uLift.x > 1.0) {
+      float ly = max(dot(col, vec3(0.2126, 0.7152, 0.0722)) * toneMappingExposure, 0.0);
+      float wl = max(0.0, 1.0 - ly / uLift.y);
+      if (wl > 0.0) {
+        float s0 = sqrt(ly);
+        float mx = s0;
+        for (int i = 0; i < 8; i++) {
+          float fi = float(i) + 0.5;
+          float a = fi * 2.39996323;
+          float t = sqrt(fi / 8.0);
+          vec2 off = vec2(cos(a), sin(a)) * (uLiftR * t) / uResolution;
+          vec3 tc = texture2D(tColor, vUv + off).rgb;
+          float tapped = sqrt(max(dot(tc, vec3(0.2126, 0.7152, 0.0722)) * toneMappingExposure, 0.0));
+          mx = max(mx, tapped - uLiftFall * t);
+        }
+        float mask = smoothstep(uLiftMask.x, uLiftMask.y, mx - s0);
+        col *= 1.0 + (uLift.x - 1.0) * wl * wl * mask;
+      }
+    }
 
     if (uToneMap == 0) col = ACESFilmicToneMapping(col);
     else if (uToneMap == 1) col = AgXToneMapping(col);
