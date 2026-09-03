@@ -115,6 +115,13 @@ const POSES = {
   "sys9-kitchen-door": { x: -4.6, y: 1.5, z: -1.3, yaw: 23, pitch: -18 },
   "sys9-kitchen-door-open": { interact: "kitchen-door-open" },
   "sys9-kitchen-door-back": { interact: "kitchen-door-back" },
+  // feat-kitchen — the walkable kitchen (Kitchen.ts). `kitchen-door-open` is the swing door held
+  // open from the service aisle; the rest stand inside the kitchen (z < -2.85).
+  "kitchen-door-open": { interact: "kitchen-door-open", x: -4.2, y: 1.55, z: -1.0, yaw: 28, pitch: -6 },
+  "kitchen-line": { x: -0.3, z: -5.3, yaw: 350, pitch: -8 },
+  "kitchen-prep": { x: 2.2, z: -3.6, yaw: 120, pitch: -12 },
+  "kitchen-dish": { x: 3.2, z: -4.2, yaw: 255, pitch: -8 },
+  "kitchen-back-door": { x: -0.8, z: -3.4, yaw: 30, pitch: -4 },
 };
 const NAMES = ONLY.length ? Object.keys(POSES).filter((p) => ONLY.includes(p)) : Object.keys(POSES);
 
@@ -245,9 +252,9 @@ async function main() {
       if (p.interact) {
         if (!window.__interactPose) throw new Error(`pose needs window.__interactPose (System 7) for "${p.interact}"`);
         window.__interactPose(p.interact);
-      } else {
-        window.__setPose(p);
       }
+      // A pose with a camera of its own (feat-kitchen: an interact pose shot from elsewhere).
+      if (p.x !== undefined) window.__setPose(p);
     }, { p: pose, name });
     await page.waitForTimeout(SETTLE_MS);
     // A few extra frames so shadows and any lazily compiled program have drawn.
