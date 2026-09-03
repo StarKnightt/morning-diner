@@ -3316,12 +3316,15 @@ the clear pane, tassel / pull cords in place. Draw calls 267 at the pose, down a
 Idle frame time p50 6.1 ms before / after (probe; the machine was shared with three other
 harnesses, so the p90 spikes during travel — 200 ms — are not attributable).
 
-**Resolved "vanishing blind" (was a capture artefact, not a draw bug).** Diagnosed with a
-wireframe `scene.overrideMaterial` pass and a MeshBasicMaterial swap on the rig meshes: the rig
-draws fine; the `blinds-mid` still looked like `up` because `BlindInteraction.seek()` set `t`
-and the clock kept running, so by screenshot time the blind had finished raising, and the stacked
-bundle (~3 cm under the headrail) reads as "clear glass" from the booth. `seek()` now freezes the
-timeline (`frozen`); the next toggle/reset releases it. In-game F was never affected.
+**Resolved "vanishing blind" (a capture-framing artefact, not a draw bug).** Diagnosed with a
+wireframe `scene.overrideMaterial` pass, a MeshBasicMaterial swap on the rig meshes, and world
+`Box3` + screen projection of the rail at drop 0.5: the rig draws exactly where the CPU state says
+(rail at y 1.645, slats 1.67–2.58). The old `BLINDS_CAMERA` (pitch −14 from 2 m) framed only
+y ≈ 0.9–1.8 of the window, so at drop 0.5 the rail sat on the top edge of the frame and the whole
+stack was cropped — "vanished". The pose now sits at z 0.95, pitch +3, with the full window
+(0.9–2.5 m) in frame. In-game F was never affected. Diagnostic recipe worth keeping: swap the
+suspect mesh's material for `MeshBasicMaterial({color})` and project its `Box3` to screen before
+suspecting the renderer.
 
 ## System status
 

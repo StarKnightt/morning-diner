@@ -98,7 +98,9 @@ export const LOWER_CABINET_CAMERA = { x: -1.55, y: 1.05, z: -0.85, yaw: 12, pitc
 export const STOOL_POSE_INDEX = 5;
 export const KITCHEN_DOOR_CAMERA = { x: -4.0, y: 1.55, z: -0.9, yaw: 34, pitch: -8 };
 /** feat-blinds-f: standing at the second booth (window 1, x −2.9) looking at the blind AND the table / bench the stripes land on. */
-export const BLINDS_CAMERA = { x: -2.35, y: 1.5, z: 1.35, yaw: 166, pitch: -14 };
+// Framing: the whole window (0.9–2.5 m) must be in frame — at pitch −14 from 2 m the top 0.7 m
+// (where the stack rides) was cropped, which read as "the blind vanished" at drop ≤ 0.5.
+export const BLINDS_CAMERA = { x: -2.35, y: 1.5, z: 0.95, yaw: 166, pitch: 3 };
 /** feat-blinds-f: on the lot in front of window 1, looking back in through the raised blind. */
 export const BLINDS_EXTERIOR_CAMERA = { x: -2.2, y: 1.6, z: 5.6, yaw: 14, pitch: 2 };
 /** Which window the blind poses use. */

@@ -42,7 +42,6 @@ export class BlindInteraction {
   /** Current drop 1 (down) … 0 (up). */
   drop = 1;
   private t = -1;
-  private frozen = false;
   private dirty = false;
   private sinceBake = 0;
 
@@ -70,10 +69,6 @@ export class BlindInteraction {
   }
 
   toggle(): void {
-    if (this.frozen) {
-      this.frozen = false; // resume a seeked still
-      return;
-    }
     if (this.t >= 0) return;
     this.state = this.state === "up" ? "lowering" : "raising";
     this.t = 0;
@@ -93,21 +88,17 @@ export class BlindInteraction {
     }
     this.apply(this.t);
     this.dirty = true;
-    // Capture semantics: a seek is a still. Freeze the clock so the pose stays
-    // where it was asked for (the next toggle/reset releases it).
-    this.frozen = this.t >= 0;
   }
 
   reset(): void {
     this.state = "down";
-    this.frozen = false;
     this.t = -1;
     this.apply(-1);
     this.dirty = true;
   }
 
   update(dt: number): void {
-    if (this.t < 0 || this.frozen) return;
+    if (this.t < 0) return;
     const before = this.t;
     const t = before + dt;
     const raising = this.state === "raising";
