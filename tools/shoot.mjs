@@ -65,6 +65,10 @@ const POSES = {
   // Close-ups for prop judgement: 0.6 m from the third booth's caddy set; 0.7 m from the decanter + pour mug.
   "macro-table": { x: -0.68, y: 0.98, z: 2.68, yaw: 136, pitch: -17 },
   "macro-warmer": { x: -1.42, y: 1.22, z: -1.68, yaw: 15, pitch: -18 },
+  // fix-backcounter — standing in the service aisle at the door end looking along the work side
+  // of the counter (the user's frame), and 0.75 m from the reach-in / plate shelves.
+  along: { x: 1.3, z: -1.1, yaw: 95, pitch: -24 },
+  close: { x: -2.75, y: 1.2, z: -1.8, yaw: 150, pitch: -18 },
   // System 3 — windows, blinds, exterior. yaw 180 looks straight out through the window wall (+z).
   // Seated at the third booth, eye-line through the slats.
   window: { x: -1.1, y: 1.15, z: 2.35, yaw: 180, pitch: 0 },
@@ -130,6 +134,13 @@ const POSES = {
   "sys9-kitchen-door": { x: -4.6, y: 1.5, z: -1.3, yaw: 23, pitch: -18 },
   "sys9-kitchen-door-open": { interact: "kitchen-door-open" },
   "sys9-kitchen-door-back": { interact: "kitchen-door-back" },
+  // feat-kitchen — the walkable kitchen (Kitchen.ts). `kitchen-door-open` is the swing door held
+  // open from the service aisle; the rest stand inside the kitchen (z < -2.85).
+  "kitchen-door-open": { interact: "kitchen-door-open", x: -4.2, y: 1.55, z: -1.0, yaw: 28, pitch: -6 },
+  "kitchen-line": { x: -0.2, z: -5.2, yaw: 178, pitch: -8 },
+  "kitchen-prep": { x: 2.2, z: -3.6, yaw: 120, pitch: -12 },
+  "kitchen-dish": { x: 3.2, z: -4.2, yaw: 255, pitch: -8 },
+  "kitchen-back-door": { x: -0.8, z: -3.4, yaw: 30, pitch: -4 },
 };
 const NAMES = ONLY.length ? Object.keys(POSES).filter((p) => ONLY.includes(p)) : Object.keys(POSES);
 
@@ -260,9 +271,9 @@ async function main() {
       if (p.interact) {
         if (!window.__interactPose) throw new Error(`pose needs window.__interactPose (System 7) for "${p.interact}"`);
         window.__interactPose(p.interact);
-      } else {
-        window.__setPose(p);
       }
+      // A pose with a camera of its own (feat-kitchen: an interact pose shot from elsewhere).
+      if (p.x !== undefined) window.__setPose(p);
     }, { p: pose, name });
     await page.waitForTimeout(SETTLE_MS);
     // A few extra frames so shadows and any lazily compiled program have drawn.
