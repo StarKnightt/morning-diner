@@ -43,6 +43,8 @@ export interface ExteriorResult {
   /** Materials whose envMap should be the lot probe (sky + facade). */
   envMaterials: THREE.Material[];
   sky: THREE.Mesh;
+  /** Player AABBs on the lot: one per parked car (buildCar). */
+  colliders: MergedBuilder["colliders"];
 }
 
 /**
@@ -612,6 +614,16 @@ export function makePaneGlass(alpha0: number, envInt: number): THREE.MeshPhysica
 
 function buildCar(b: MergedBuilder, parent: THREE.Object3D, spec: CarSpec, mats: CarMats, sink: CarSink, at: THREE.Vector3, yaw: number): void {
   const M = new THREE.Matrix4().makeRotationY(yaw).setPosition(at);
+  // Player collider (fix-sign-car): the body's footprint (±hw × length, roof height) through
+  // the same matrix, as one world AABB — so it moves with the car by construction. The lot had
+  // no colliders at all; with the sedan across the door line the player walked into its
+  // paint. Registered on the exterior builder and handed to Diner.colliders like the rest.
+  {
+    const roof = Math.max(...spec.top.map((s) => s[1]));
+    const box = new THREE.Box3();
+    for (const x of [-spec.hw, spec.hw]) for (const z of [0, spec.length]) box.expandByPoint(new THREE.Vector3(x, 0, z).applyMatrix4(M));
+    b.collider([box.min.x, at.y, box.min.z], [box.max.x, at.y + roof, box.max.z]);
+  }
   // Casting is decided per material by MergedBuilder (material.userData.noCast): the body, tyres
   // and glass cast, every trim / interior material is flagged.
   const place = (g: THREE.BufferGeometry, mat: THREE.Material) => {
@@ -1516,11 +1528,24 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
   pinMat.userData.noCast = true;
   const scuffMat = new THREE.MeshStandardMaterial({ color: 0x1a1816, roughness: 1, metalness: 0, transparent: true, opacity: 0.4, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   scuffMat.userData.noCast = true;
+  // The sedan's stall (fix-sign-car): stall 6 (x ≈ 4.05) put the car across the front door's
+  // line (door centre x 4.95, leaf 4.5–5.4; the sedan's flank reached 4.87), so a player
+  // stepping out walked into its fender. Stall 7 is the next one along the frontage, clear of
+  // a 2 m straight path from the threshold. It is an odd stall, which the draw below leaves
+  // without a wheel stop half the time (and does here) — the sedan is nosed in against a bar,
+  // so this stall keeps its bar, built from its own seeded draws so the lot's main sequence
+  // (every other stop's jitter, the scrub edge, the ruts) is exactly what it was.
+  const SEDAN_STALL = 7;
+  const forcedStopRng = makeRng(3302 + SEDAN_STALL);
   for (let i = 0; i < stallLinesX.length - 1; i++) {
-    if (i % 2 === 1 && rng() < 0.5) continue;
-    const cx = (stallLinesX[i] + stallLinesX[i + 1]) / 2 + (rng() - 0.5) * 0.06;
-    const z = LOT.kerbZ + LOT.stopZ + (rng() - 0.5) * 0.04;
-    const skew = (rng() - 0.5) * 0.03; // a degree or so off square, as they are set by eye
+    let r = rng;
+    if (i % 2 === 1 && rng() < 0.5) {
+      if (i !== SEDAN_STALL) continue;
+      r = forcedStopRng;
+    }
+    const cx = (stallLinesX[i] + stallLinesX[i + 1]) / 2 + (r() - 0.5) * 0.06;
+    const z = LOT.kerbZ + LOT.stopZ + (r() - 0.5) * 0.04;
+    const skew = (r() - 0.5) * 0.03; // a degree or so off square, as they are set by eye
     // Rev 7: the real trapezoidal section — 7.6" base, 4.9" tall, faces sloping in to a 4.6"
     // top with 10 mm rounds, and 15 mm chamfered ends (the extrusion bevel, so the shape is
     // drawn 15 mm inside the finished section). Rev 6 was a sharp rectangular prism.
@@ -1539,11 +1564,11 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
     b.add(bar, stopMat);
     // Tyre scuffs on the lot-side face (+z): two smeared bands at the track width, uneven
     for (const sx of [-1, 1]) {
-      const w = 0.3 + rng() * 0.25, h0 = 0.03 + rng() * 0.02, h1 = 0.09 + rng() * 0.03;
+      const w = 0.3 + r() * 0.25, h0 = 0.03 + r() * 0.02, h1 = 0.09 + r() * 0.03;
       const scuff = new THREE.PlaneGeometry(w, h1 - h0);
       const yc = (h0 + h1) / 2;
       scuff.rotateX(-faceTilt); // lie on the sloped face
-      scuff.translate(sx * (0.62 + rng() * 0.16), yc, B - (B - T) * (yc / H) + 0.0015);
+      scuff.translate(sx * (0.62 + r() * 0.16), yc, B - (B - T) * (yc / H) + 0.0015);
       scuff.rotateY(skew);
       scuff.translate(cx, yLot, z);
       b.add(scuff, scuffMat);
@@ -1733,7 +1758,10 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
   // past it, 0.48 m off the kerb), the sedan's 0.08 m short (bumper 0.48 m past, 0.20 m off the kerb).
   const stopFace = LOT.kerbZ + LOT.stopZ + 0.1;
   buildCar(b, parent, pickup, carMats, sink, new THREE.Vector3(stall(4) + 0.12, yLot, stopFace + 0.1 - (pickup.wheelZ[0] - pickup.wheelR)), THREE.MathUtils.degToRad(1.5));
-  buildCar(b, parent, sedan, carMats, sink, new THREE.Vector3(stall(6) - 0.08, yLot, stopFace + 0.08 - (sedan.wheelZ[0] - sedan.wheelR)), THREE.MathUtils.degToRad(-2));
+  // Sedan in stall 7 (was stall 6 − 0.08, across the door's line — see SEDAN_STALL above), parked
+  // 15 cm right of the stall centre and toed +2° so the tail drifts AWAY from the door: its
+  // near flank is x ≥ 6.0 along the whole body, 2.0 m+ clear of the door's centre line (4.95).
+  buildCar(b, parent, sedan, carMats, sink, new THREE.Vector3(stall(SEDAN_STALL) + 0.15, yLot, stopFace + 0.08 - (sedan.wheelZ[0] - sedan.wheelR)), THREE.MathUtils.degToRad(2));
   for (const [list, mat, name] of [[sink.panes, carMats.glass, "car-glass"], [sink.lenses, carMats.lensGlass, "lamp-glass"]] as Array<[THREE.BufferGeometry[], THREE.Material, string]>) {
     const mesh = new THREE.Mesh(mergeLoose(list), mat);
     mesh.renderOrder = 5; // after every other opaque (the cabin, the far pane's backdrop) — blended, see makePaneGlass
@@ -2103,5 +2131,5 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
 
   b.build(parent, { name: "exterior" });
   parent.traverse((o) => { o.userData.lotCaster = true; });
-  return { envMaterials, sky };
+  return { envMaterials, sky, colliders: b.colliders };
 }
