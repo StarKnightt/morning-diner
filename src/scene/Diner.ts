@@ -23,6 +23,7 @@ import { buildDoor } from "./Door";
 import { buildExterior } from "./Exterior";
 import { ROOM_PROBE_INTENSITY, buildContactShadows, buildLighting, installShadowMasks, sunDirection } from "./Lighting";
 import { buildProps } from "./Props";
+import { buildKitchen } from "./Kitchen";
 import { buildShell } from "./Shell";
 import { buildSignage } from "./Signage";
 import { buildSystem9, type System9 } from "./Sys9";
@@ -91,6 +92,11 @@ export class Diner {
     await hooks.stage("Fitting the door", 5 / 8);
     const props = buildProps(this.group, this.palette);
     this.sys9 = buildSystem9(this.group, this.palette, this.bank);
+    // feat-kitchen: the walkable kitchen behind the swing door (Kitchen.ts); its stainless joins
+    // the station-probe list, its stations the collider list.
+    const kitchen = buildKitchen(this.group, this.palette, this.sys9.presence.materials.cloth);
+    this.sys9.openables.envMetals.push(...kitchen.envMetals);
+    this.colliders.push(...kitchen.colliders);
     await hooks.stage("Setting the tables", 6 / 8);
     buildBlinds(this.group, this.palette);
     await hooks.stage("Hanging the blinds", 7 / 8);
