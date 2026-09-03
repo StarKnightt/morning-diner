@@ -1,6 +1,6 @@
 # Morning Diner — build notes
 
-A first-person walk through a small American roadside diner at 6:45 PM on a hot summer evening (rev 7 evening preset; 8 AM until System 4 rev 6.1). Three.js
+A first-person walk through a small roadside diner at 6:45 PM on a hot summer evening (rev 7 evening preset; 8 AM until System 4 rev 6.1). Three.js
 only, zero external assets: every mesh, texture and (later) sound is generated in
 code. The target is a paused frame that reads as a photograph.
 

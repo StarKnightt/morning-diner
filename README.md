@@ -4,7 +4,7 @@
 
 ![Booths under half-open blinds, evening sun across the ceiling](public/og.jpg)
 
-A photoreal first-person walk through an American roadside diner at golden hour, built in
+A photoreal first-person walk through a roadside diner at golden hour, built in
 Three.js (Vite + TypeScript) with zero external assets: every texture is generated in Workers at
 boot, the room, counter, kitchen, lot, cars and the desert world outside are built from code, lit
 by a two-sun rig with baked probes and a HDR post chain (haze, bloom, MSAA 4×). Walk in, sit down,
