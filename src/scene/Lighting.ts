@@ -322,11 +322,14 @@ const LAMBERT_ANGLE = THREE.MathUtils.degToRad(89);
  *   + bounce spots, probe 0.01                      180   the first bounce, no probe
  *   full, probe 0.35 / 0.45 / 0.7                   382 / 452 / 650
  * so the probe's second bounce is ≈ 5.8 nits per 0.01 of intensity, and the flux balance
- * above allows ≈ 90 nits of it on a cream wall (≈ 410 lux): 0.25 gives ≈ 145 (the probe
- * also carries what the first bounce lights beyond the five spots' cos-falloff) and puts
- * the wall at ≈ 325 nits, sRGB ≈ 58 — inside the critics' 40–60 with the window and slat
- * gaps ≥ +4 EV above it. dawn-station ships 0.35 (`lightInterior.ts`, `ibounce`) for a room
- * with no sun in it. `?ibounce=n` overrides.
+ * above allows ≈ 90 nits of it on a cream wall (≈ 410 lux). 0.1 ships: ≈ 60 nits of probe
+ * on top of the 180 the spots deliver (the spots already carry part of the second bounce
+ * through their cos-falloff), which puts the shaded back wall at 220 nits far from the
+ * windows (`length`, sRGB 46) and 330 near them (`counter`, `lot-wide`, sRGB 56–64) —
+ * inside the critics' 40–60 with the window and slat gaps ≥ +4 EV above it. 0.25 was tried
+ * first and put the far wall at 325 nits with the floor's shade at sRGB 60, too flat.
+ * dawn-station ships 0.35 (`lightInterior.ts`, `ibounce`) for a room with no sun in it.
+ * `?ibounce=n` overrides.
  */
 export const ROOM_PROBE_INTENSITY = (() => {
   if (typeof location === "undefined") return 0.1;
