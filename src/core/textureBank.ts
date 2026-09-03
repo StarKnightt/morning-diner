@@ -56,7 +56,7 @@ const SHAPES: Record<string, Record<string, Shape>> = {
     baseboardScuff: ["map", "roughnessMap"],
     doorDecals: "direct",
     // System 5 rev 3
-    vinylCrazeAtlas: ["map"],
+    vinylCrazeAtlas: ["map", "physMap"],
     kickPlateWear: ["map", "roughnessMap"],
   },
   ext: {

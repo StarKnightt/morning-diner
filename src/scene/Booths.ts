@@ -10,7 +10,7 @@ import * as THREE from "three";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { prismXY, rectXZ, slabGeometry, type XZ } from "../core/shapes";
-import { CRAZED_BOOTH, boothVinylCrazeLayout, channelPanel, channelSeed, cushionGeometry, cylinderArcUv, metricUv, piping, plainColor, roundedRectPoints } from "../core/upholstery";
+import { CRAZED_BOOTH, boothBackDims, boothVinylCrazeLayout, channelPanel, channelSeed, cushionGeometry, cylinderArcUv, metricUv, piping, plainColor, rollSeam, roundedRectPoints, ROLL_SEAM_R } from "../core/upholstery";
 import { BOOTH, ROOM, WINDOW } from "./layout";
 
 export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: MergedBuilder["colliders"] } {
@@ -193,7 +193,10 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       // 3.5 mm welt cord in every valley, puckers at the roll. Panel base sits 3 mm inside the wedge.
       {
         const faceLen = Math.hypot(lean, back.top - yb0);
-        const panelH = faceLen - 0.1;
+        // Rev 4: the panel runs from 20 mm above the seat seam to 2 mm past the roll's piped
+        // seam, so the channels and their cords dive under the piping instead of stopping
+        // 50 mm short of it on a bare strip (boothBackDims projects `seamPt` onto the face).
+        const panelH = boothBackDims().panelH;
         const { geometry: panel, valleys } = channelPanel(cd - 0.03, panelH, 0.12, 0.02, channelSeed(ti, s));
         const ex = new THREE.Vector3(0, 0, s), ey = new THREE.Vector3(0, 1, 0), ez = new THREE.Vector3(-s, 0, 0);
         const m = new THREE.Matrix4().makeBasis(ex, ey, ez);
@@ -214,16 +217,18 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
         b.add(panel, crazed ? pal.vinylRedCrazed : pal.vinylRed, m);
         // 6 mm welt cord sewn ON every seam: centre 1 mm above the crown tangent line
         // (crowns at 20 mm), so it carries its own highlight and throws a line shadow
-        // both sides (baked into the panel's vertex colour). Ends tuck under the seams.
+        // both sides (baked into the panel's vertex colour). The top end stops 1 mm short of
+        // the piped seam's axis — its end disc lies inside the piping's cylinder — so the cord
+        // runs under the seam; the bottom end is buried in the seat cushion's back edge.
         valleys.forEach((vx, vi) => {
-          const cord = new THREE.CylinderGeometry(0.003, 0.003, panelH - 0.004, 14);
+          const cord = new THREE.CylinderGeometry(0.003, 0.003, panelH - 0.006, 14);
           const cuv = cord.attributes.uv as THREE.BufferAttribute;
           const uv0 = new Float32Array(cuv.count * 2), uv1 = new Float32Array(cuv.count * 2);
           const track = crazeLayout.cords.v0 + (s < 0 ? vi : crazeLayout.panels[0].valleys.length + vi) * crazeLayout.cords.pitch;
           for (let i = 0; i < cuv.count; i++) {
             // grain: metric along (v) and round (u) the bead; atlas strip: this cord's track
-            uv0[i * 2] = cuv.getY(i) * (panelH - 0.004); uv0[i * 2 + 1] = cuv.getX(i) * 0.019;
-            uv1[i * 2] = cuv.getY(i) * (panelH - 0.004); uv1[i * 2 + 1] = track + cuv.getX(i) * crazeLayout.cords.pitch;
+            uv0[i * 2] = cuv.getY(i) * (panelH - 0.006); uv0[i * 2 + 1] = cuv.getX(i) * 0.019;
+            uv1[i * 2] = cuv.getY(i) * (panelH - 0.006); uv1[i * 2 + 1] = track + cuv.getX(i) * crazeLayout.cords.pitch;
           }
           cord.setAttribute("uv", new THREE.BufferAttribute(uv0, 2));
           if (crazed) cord.setAttribute("uv1", new THREE.BufferAttribute(uv1, 2));
@@ -238,7 +243,8 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       // Rev 3: metric UVs run round the roll from the sewn seam (bottom-front, where the channels
       // dive under it) with the only join at the back against the divider — `metricUv` mirrored
       // the grain at the crest and the flip read as a horizontal seam along the roll.
-      const seamPt = [X(back.frontX + lean * 0.94) - s * 0.021, back.top - 0.046];
+      const rs = rollSeam();
+      const seamPt = [X(rs.x), rs.y];
       const seamAng = Math.atan2(seamPt[1] - back.top, seamPt[0] - rollX);
       roll.rotateZ(seamAng - Math.PI / 2);
       roll.translate(rollX, back.top, zMid);
@@ -252,7 +258,15 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
       } else b.add(plainColor(roll), pal.vinylRed);
       const seamZ = (x: number, y: number, r: number) => piping([new THREE.Vector3(x, y, zInner + 0.008), new THREE.Vector3(x, y, zMid), new THREE.Vector3(x, y, zOuter - 0.008)], r, false);
       // 6 mm piped seam where the channels dive under the head roll, proud of the junction
-      b.add(plainColor(seamZ(seamPt[0], seamPt[1], 0.003), 1.15), pal.vinylRed);
+      b.add(plainColor(seamZ(seamPt[0], seamPt[1], ROLL_SEAM_R), 1.15), pal.vinylRed);
+      // Rev 4: its top-stitch row, 4.5 mm up the roll from the piping on the visible (front)
+      // side — a 0.8 mm dark thread line, the same treatment as the seat nose's stitch.
+      {
+        const da = 0.0045 / back.rollR, front = Math.sign(seamPt[0] - rollX);
+        const cand = [seamAng + da, seamAng - da].map((a) => [rollX + Math.cos(a) * (back.rollR + 0.0004), back.top + Math.sin(a) * (back.rollR + 0.0004)]);
+        const st = (cand[0][0] - rollX) * front > (cand[1][0] - rollX) * front ? cand[0] : cand[1];
+        b.add(plainColor(seamZ(st[0], st[1], 0.0008), 0.62), pal.vinylRed);
+      }
       // Boxing seam welt where the seat cushion meets the back.
       b.add(plainColor(seamZ(X(back.frontX) - s * 0.008, seat.top + 0.004, 0.003), 1.2), pal.vinylRed);
       // Aisle-end panel: from the seat front to the divider, under the cap.

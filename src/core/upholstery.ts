@@ -224,13 +224,42 @@ export function channelBounds(w: number, pitch: number, seed = 1): number[] {
  * Booth back dimensions shared by Booths.ts and the crazed-vinyl atlas (materials.ts):
  * the sewn channel panel on the reclined face and the head roll.
  */
+/** Radius of the piped seam where the channels dive under the head roll. */
+export const ROLL_SEAM_R = 0.0035;
+/**
+ * The head roll's piped seam in booth-local (x, y) — x grows toward the divider, the face
+ * leans that way. Rev 4: the piping runs 25 mm out from the wedge face, parallel to it
+ * (proud of the 17–20 mm channel crowns and their tuck gathers, so the bead is never
+ * swallowed by the panel), at the point where it first touches the roll; rev 3's sat
+ * 5 mm off the roll with a shadowed gap, and rev 4a's buried in the puckers. `t` is the
+ * seam's position along the face from its base — the channel panel runs up to it.
+ */
+export function rollSeam(): { x: number; y: number; t: number } {
+  const { seat, back } = BOOTH;
+  const yb0 = seat.top + 0.01;
+  const dy = back.top - yb0;
+  const lean = Math.tan(THREE.MathUtils.degToRad(back.reclineDeg)) * dy;
+  const faceLen = Math.hypot(lean, dy);
+  const dX = lean / faceLen, dY = dy / faceLen; // along the face
+  const nX = -dY, nY = dX; // outward normal (away from the divider)
+  const h = 0.025;
+  const cX = back.rearX - back.rollR + 0.02, cY = back.top; // roll axis
+  const qX = back.frontX + nX * h - cX, qY = yb0 + nY * h - cY;
+  const qd = qX * dX + qY * dY;
+  const R = back.rollR + ROLL_SEAM_R - 0.0004;
+  const t = -qd - Math.sqrt(Math.max(0, qd * qd - (qX * qX + qY * qY) + R * R));
+  return { x: back.frontX + nX * h + dX * t, y: yb0 + nY * h + dY * t, t };
+}
+
 export function boothBackDims() {
   const { seat, back, zInner, zOuter } = BOOTH;
   const cd = zOuter - zInner;
   const yb0 = seat.top + 0.01;
   const lean = Math.tan(THREE.MathUtils.degToRad(back.reclineDeg)) * (back.top - yb0);
   const faceLen = Math.hypot(lean, back.top - yb0);
-  return { cd, yb0, lean, faceLen, panelW: cd - 0.03, panelH: faceLen - 0.1, rollLen: cd - 0.01, rollArcHalf: Math.PI * back.rollR };
+  const seamT = rollSeam().t;
+  // Panel: from 20 mm above the seat seam to 2 mm past the piping's axis (rev 4).
+  return { cd, yb0, lean, faceLen, seamT, panelW: cd - 0.03, panelH: seamT + 0.002 - 0.02, rollLen: cd - 0.01, rollArcHalf: Math.PI * back.rollR };
 }
 
 /** Seed of a bench's channel panel (booth table `ti`, side `s`) — must match Booths.ts. */
@@ -244,11 +273,11 @@ export const CRAZED_BOOTH = 1;
  * panels (s = −1, then +1), then one strip per welt cord (18 cords × 12 mm of the bead's
  * 19 mm circumference — the underside is never seen).
  */
-export const VINYL_CRAZE_METRES = 1.4;
+export const VINYL_CRAZE_METRES = 1.5;
 export function boothVinylCrazeLayout() {
   const d = boothBackDims();
   const panels = [-1, 1].map((s, k) => ({
-    v0: 0.3 + k * 0.43,
+    v0: 0.3 + k * 0.48,
     w: d.panelW,
     h: d.panelH,
     valleys: channelBounds(d.panelW, 0.12, channelSeed(CRAZED_BOOTH, s)).slice(1, -1).map((x) => x + d.panelW / 2),
@@ -257,7 +286,7 @@ export function boothVinylCrazeLayout() {
   return {
     roll: { v0: 0, len: d.rollLen, arcHalf: d.rollArcHalf },
     panels,
-    cords: { v0: 0.3 + 2 * 0.43, tracks: cordCount, pitch: 0.012, len: d.panelH },
+    cords: { v0: 0.3 + 2 * 0.48, tracks: cordCount, pitch: 0.012, len: d.panelH },
   };
 }
 
@@ -280,10 +309,13 @@ export function channelPanel(w: number, h: number, pitch: number, depth: number,
     // Crown: a rounded pillow (sin^0.9) — the old sin^0.35 was flat across 80 % of the
     // channel and the field read as a plane between the cords.
     const pleat = Math.sin(Math.PI * u) ** 0.9;
-    const env = smooth(0, 0.06, 0.5 - Math.abs(y) / h) * smooth(0, 0.03, 0.5 - Math.abs(x) / w);
+    // Rev 4: the panel's top edge runs UNDER the roll's piped seam at full crown height — the
+    // old 30 mm fall-off to the base plate left a bare flat strip between the channels and
+    // the seam that read as a hard texture boundary. Only the bottom (seat seam) still tapers.
+    const env = (y < 0 ? smooth(0, 0.06, 0.5 + y / h) : 1) * smooth(0, 0.03, 0.5 - Math.abs(x) / w);
     // Gathers where the channel is tucked under the roll seam (top) and the seat seam (bottom).
     const top = h / 2 - y, bot = y + h / 2;
-    const tuck = Math.exp(-((top / 0.018) ** 2)) + 0.7 * Math.exp(-((bot / 0.018) ** 2));
+    const tuck = 0.6 * Math.exp(-((top / 0.018) ** 2)) + 0.7 * Math.exp(-((bot / 0.018) ** 2));
     const pucker = Math.abs(Math.sin(Math.PI * u * 6)) * tuck;
     const z = (depth - valleyDrop + valleyDrop * pleat + pucker * 0.003 * pleat) * env;
     p.setZ(i, z);

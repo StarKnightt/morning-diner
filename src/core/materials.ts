@@ -234,10 +234,19 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // on UV channel 1 — dark hairline fractures grown from the flex lines, flaked scrim
   // islands, the stitch lines — while the 0.5 mm grain keeps tiling on channel 0.
   // Booths.ts lays the head roll, both channel panels and the welt cords out in it.
-  const crazeMap = tex.vinylCrazeAtlas(2048, VINYL_CRAZE_METRES, boothVinylCrazeLayout()).map;
+  const craze = tex.vinylCrazeAtlas(2048, VINYL_CRAZE_METRES, boothVinylCrazeLayout());
+  const crazeMap = craze.map;
   crazeMap.channel = 1;
   crazeMap.repeat.set(1 / VINYL_CRAZE_METRES, 1 / VINYL_CRAZE_METRES);
   const vinylRedCrazed = mkVinyl(crazeMap);
+  // Rev 4: the crazed field is MATTE — the atlas's physics map (R = clearcoat factor, A =
+  // specular-intensity factor, same channel-1 UVs) takes the clearcoat to ≈ 0 and the
+  // specular to 45 % where the net is dense, so at 2 m the crazing is a dull patch on the
+  // gloss before a single hairline resolves.
+  craze.physMap.channel = 1;
+  craze.physMap.repeat.copy(crazeMap.repeat);
+  vinylRedCrazed.clearcoatMap = craze.physMap;
+  vinylRedCrazed.specularIntensityMap = craze.physMap;
 
   // Laminates: ExtrudeGeometry UVs are in metres; one canvas = 0.5 m.
   // One 2048 canvas covers 1.2 m: a whole table top without a visible repeat.
