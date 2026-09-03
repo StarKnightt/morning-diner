@@ -290,8 +290,8 @@ export function buildKitchen(parent: THREE.Group, pal: Palette, cloth: THREE.Mes
 
   /* ---------------- materials ---------------- */
   // Tile / quarry: the presence atlas, cloned so the kitchen's ambient term stays in the kitchen.
-  const tileMat = ambient(cloth, "kitchenTile", 28);
-  const paint = ambient(pal.wallPaint, "kitchenPaint", 30);
+  const tileMat = ambient(cloth, "kitchenTile", 40);
+  const paint = ambient(pal.wallPaint, "kitchenPaint", 42);
   const ceilingMat = ambient(pal.ceilingTile, "kitchenCeiling", 24);
   // Stainless: the palette recipe (brushed roughness map + anisotropy, shaderPatches' frame) on a
   // station probe captured inside the kitchen (Diner.ts, via envMetals + userData.probePos).
@@ -903,9 +903,7 @@ export function buildKitchen(parent: THREE.Group, pal: Palette, cloth: THREE.Mes
       const riser = new THREE.CylinderGeometry(0.012, 0.012, 0.25, 12);
       riser.translate(sx1 - 0.05, top + 0.12, fz);
       s.add(riser, chrome);
-      const spout = new THREE.TorusGeometry(0.16, 0.009, 8, 24, Math.PI);
-      spout.rotateZ(Math.PI / 2);
-      spout.rotateX(Math.PI / 2);
+      const spout = new THREE.TorusGeometry(0.16, 0.009, 8, 24, Math.PI); // arc in XY: stands off the wall
       spout.translate(sx1 - 0.21, top + 0.25, fz);
       s.add(spout, chrome);
     }
@@ -994,7 +992,7 @@ export function buildKitchen(parent: THREE.Group, pal: Palette, cloth: THREE.Mes
   const lights: THREE.Light[] = [];
   const TROFFER = new THREE.Color().setRGB(1, 0.97, 0.9, THREE.SRGBColorSpace);
   for (const [tx, tz] of [[-3.0, zIn - 2.1], [2.6, zIn - 2.1]] as const) {
-    const l = new THREE.PointLight(TROFFER, nits(5600 / (4 * Math.PI)), 7, 2);
+    const l = new THREE.PointLight(TROFFER, nits(3 * 5600 / (4 * Math.PI)), 7, 2);
     l.position.set(tx, CH - 0.15, tz);
     l.name = "kitchen-troffer";
     lights.push(l);

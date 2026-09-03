@@ -118,7 +118,7 @@ const POSES = {
   // feat-kitchen — the walkable kitchen (Kitchen.ts). `kitchen-door-open` is the swing door held
   // open from the service aisle; the rest stand inside the kitchen (z < -2.85).
   "kitchen-door-open": { interact: "kitchen-door-open", x: -4.2, y: 1.55, z: -1.0, yaw: 28, pitch: -6 },
-  "kitchen-line": { x: -0.3, z: -5.3, yaw: 350, pitch: -8 },
+  "kitchen-line": { x: -0.2, z: -5.2, yaw: 178, pitch: -8 },
   "kitchen-prep": { x: 2.2, z: -3.6, yaw: 120, pitch: -12 },
   "kitchen-dish": { x: 3.2, z: -4.2, yaw: 255, pitch: -8 },
   "kitchen-back-door": { x: -0.8, z: -3.4, yaw: 30, pitch: -4 },
