@@ -1026,8 +1026,11 @@ export function buildContactShadows(parent: THREE.Object3D, extra: readonly Cont
       // bright 12 mm seam at the panel foot (`floor-macro`).
       const xa = cx + s * (seat.front - 0.02);
       const last = WINDOW.centersX.length - 1;
-      const xFar = s < 0 ? (i === 0 ? -ROOM.halfX : (cx + WINDOW.centersX[i - 1]) / 2) : i === last ? cx + divider.x0 + 0.04 : (cx + WINDOW.centersX[i + 1]) / 2;
-      const fade: [number, number] = s < 0 ? [0, 0.06] : [0.06, 0];
+      // The door-side partition's outer corner is convex: the run carries 50 mm past it and
+      // fades over 80 mm (a dead stop at the corner printed a faint vertical step at
+      // `floor-macro` 1077 × 100–210, world x 3.42).
+      const xFar = s < 0 ? (i === 0 ? -ROOM.halfX : (cx + WINDOW.centersX[i - 1]) / 2) : i === last ? cx + divider.x0 + 0.04 + 0.05 : (cx + WINDOW.centersX[i + 1]) / 2;
+      const fade: [number, number] = s < 0 ? [0, 0.06] : [0.06, i === last ? 0.08 : 0];
       floorX(Math.min(xa, xFar), Math.max(xa, xFar), zEnd0 + 0.012, -1, 0.14, 0.45, fade);
     }
     // Under the table: the top above, seats both sides, the wall behind — that floor sees
@@ -1047,7 +1050,8 @@ export function buildContactShadows(parent: THREE.Object3D, extra: readonly Cont
   // recessed 5 mm there). The divider and end-partition floor lines are in the per-booth runs above.
   {
     const cxN = WINDOW.centersX[WINDOW.centersX.length - 1], xdN = cxN + divider.x0 + 0.02;
-    floorZ(zEnd0, zOuter, xdN + 0.02 - 0.005, 1, 0.14, 0.4);
+    // Starts 50 mm before the convex corner and fades in over 80 mm (see the booth runs).
+    floorZ(zEnd0 - 0.05, zOuter, xdN + 0.02 - 0.005, 1, 0.14, 0.4, [0.08, 0]);
   }
 
   /* ---- counter ---- */
