@@ -4,7 +4,7 @@
  * the real material set.
  */
 import * as THREE from "three";
-import { makeFbm, makeFbm2, makeRng } from "../core/rng";
+import { makeFbm, makeFbm2, makeRng, makeValueNoise2 } from "../core/rng";
 import { BACK_BAR, BOOTH, COUNTER, DOOR, KITCHEN_DOOR, ROOM, STOOL, WINDOW } from "../scene/layout";
 
 function canvas(w: number, h: number) {
@@ -105,22 +105,23 @@ export interface FloorWear {
   walls: Array<[number, number, number, number]>;
   /** Rectangles under furniture (x0, z0, x1, z1): never walked, keep their factory sheen. */
   sheltered: Array<[number, number, number, number]>;
-  /** One hairline crack: start point, length (m), heading (deg). */
+  /** Hairline cracks: start point (x snaps to the nearest joint), length (m), heading (deg). */
   crack: { x: number; z: number; len: number; deg: number };
+  /** Rev 5: further cracks, each from its own joint. */
+  cracks?: Array<{ x: number; z: number; len: number; deg: number }>;
   seed: number;
 }
 
 /**
- * 300 mm glazed ceramic checker with a 6 mm sanded grout joint (TCNA: 1/4" is
- * the standard joint for 12" quarry/ceramic floor tile; grout sits ~1.5 mm below
- * the glaze). `tilesX` × `tilesY` tiles on the canvas, `tilePx` per tile, so
- * one canvas is the whole floor and everything in `wear` is authored where it
- * happens: lanes (matte, greyed whites / scuffed-lighter blacks, heel marks),
- * factory sheen under the booths, dust-filled grout along the walls, one
- * hairline crack. Tile-to-tile tone ±1.5 % (whites) / ±3 % (blacks), a hint of
- * cream in the whites and blue-black in the blacks. The grout *depth* lives in
- * `normalMap`, a separate 2 × 2-tile detail canvas (see `floorGrout`) — this
- * canvas is 5.9 mm/texel, far too coarse for a joint profile.
+ * 12-inch (300 mm) vinyl composition tile, butt-joined (rev 3 — the diner setting: VCT, not
+ * quarry tile; see BUILD.md "VCT"). Seams are a 1–2 mm hairline holding grime, no bevel, no
+ * grout. `tilesX` × `tilesY` tiles on the canvas, `tilePx` per tile, so one canvas is the
+ * whole floor and everything in `wear` is authored where it happens: lanes (wax dulled,
+ * greyed whites / hazed blacks), factory sheen under the booths, mop residue along the
+ * walls, rubber transfer, one crack. Tile-to-tile tone ±3.5 % (whites) / ±8 % (blacks); the
+ * through-body chip mottle of VCT (2–6 mm streaks, laid a quarter-turn per tile) at ±4 %.
+ * Seam relief lives in `normalMap`, a separate 2 × 2-tile canvas (`floorGrout`) — this
+ * canvas is 3.75 mm/texel.
  */
 export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, anisotropy: number, wear?: FloorWear): TextureSet {
   const w = tilesX * tilePx, h = tilesY * tilePx;
@@ -128,18 +129,15 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
   const rng = makeRng(wear?.seed ?? 1234);
   const fbm = makeFbm(77, 8, 4);
   const dirt = makeFbm(78, 40, 3);
-  const grout = Math.max(1, Math.round(tilePx * 0.02)); // 6 mm at 51 px / 300 mm
+  // VCT chip mottle: streaky at ~4 mm, stretched 3:1, alternating direction per tile.
+  const chipH = makeValueNoise2(79, Math.round(w / 3), Math.round(h / 1.2));
+  const chipV = makeValueNoise2(80, Math.round(w / 1.2), Math.round(h / 3));
   const mPerPx = wear ? wear.metresPerTile / tilePx : 0.3 / tilePx;
   const toWorld = (px: number, py: number): [number, number] =>
     wear ? [wear.originX + px * mPerPx, wear.originZ + py * mPerPx] : [px * mPerPx, py * mPerPx];
 
-  // Grout: sanded cementitious grey, already a shade darker than it would be in the open
-  // because the joint is a 1.5 mm trench (baked AO; the normal map supplies the slope).
-  ctx.fillStyle = "#7c766c";
-  ctx.fillRect(0, 0, w, h);
   const isBlack = new Uint8Array(tilesX * tilesY);
-  const tone = new Float32Array(tilesX * tilesY);
-  const gloss = new Float32Array(tilesX * tilesY); // per-tile roughness offset (batch/glaze drift)
+  const gloss = new Float32Array(tilesX * tilesY); // per-tile roughness offset (batch/wax drift)
   // One replaced tile (a later batch: whiter, cooler, glossier), in the aisle short of the door.
   const replaced = wear ? [Math.floor((DOOR.centerX - 1.35 - wear.originX) / wear.metresPerTile), Math.floor((1.24 - wear.originZ) / wear.metresPerTile)] : [-1, -1];
   if (wear && (replaced[0] + replaced[1]) % 2 === 0) replaced[0] += 1; // must land on a white
@@ -149,26 +147,25 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
       const v = (rng() - 0.5) * 2; // −1..1 tone
       const hue = (rng() - 0.5) * 2; // −1 cool .. +1 warm
       isBlack[ty * tilesX + tx] = black ? 1 : 0;
-      tone[ty * tilesX + tx] = v;
-      gloss[ty * tilesX + tx] = (rng() - 0.5) * 0.12;
+      gloss[ty * tilesX + tx] = (rng() - 0.5) * 0.1;
       let r: number, g: number, b: number;
       if (black) {
-        // Blue-black glaze, ±8 % between tiles, some pulled brownish, some bluer
-        const base = 26 * (1 + v * 0.08);
-        r = base * (0.96 + hue * 0.06); g = base * 0.98; b = base * (1.05 - hue * 0.06);
+        // Charcoal VCT, ±8 % between tiles, some pulled brownish, some bluer
+        const base = 30 * (1 + v * 0.08);
+        r = base * (0.98 + hue * 0.05); g = base * 0.98; b = base * (1.02 - hue * 0.05);
       } else if (tx === replaced[0] && ty === replaced[1]) {
         r = 236; g = 236; b = 234;
         gloss[ty * tilesX + tx] = -0.1;
       } else {
-        // Warm off-white, ±3.5 % between tiles, and a warm/cool split (cream vs. grey-white)
-        const base = 220 * (1 + v * 0.035);
+        // Warm off-white, ±4 % between tiles (rev 4: was ±3.5), and a warm/cool split (cream vs. grey-white)
+        const base = 220 * (1 + v * 0.04);
         r = base * (1 + hue * 0.012); g = base * 0.985; b = base * (0.95 - hue * 0.025);
       }
       ctx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
-      ctx.fillRect(tx * tilePx + grout, ty * tilePx + grout, tilePx - grout * 2, tilePx - grout * 2);
+      ctx.fillRect(tx * tilePx, ty * tilePx, tilePx, tilePx);
     }
 
-  // The slow fields (fbm, lane distances, wall distances) live on a 4 px grid — 23 mm on the
+  // The slow fields (fbm, lane distances, wall distances) live on a 4 px grid — 15 mm on the
   // floor, well under the 0.3–0.4 m feather of any lane or dust falloff — and are bilinearly
   // sampled per pixel. (Per-pixel polyline distances were 10 s of the boot; this is 0.5 s.)
   const G = 4, gw = Math.ceil(w / G) + 1, gh = Math.ceil(h / G) + 1;
@@ -196,69 +193,20 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
     return (f[k] * (1 - tx) + f[k + 1] * tx) * (1 - ty) + (f[k + gw] * (1 - tx) + f[k + gw + 1] * tx) * ty;
   };
 
-  const img = ctx.getImageData(0, 0, w, h);
-  const d = img.data;
-  const rough = new Float32Array(w * h);
-  for (let y = 0; y < h; y++) {
-    const ty = Math.floor(y / tilePx), gy = y % tilePx < grout || y % tilePx >= tilePx - grout;
-    for (let x = 0; x < w; x++) {
-      const tx = Math.floor(x / tilePx), gx = x % tilePx < grout || x % tilePx >= tilePx - grout;
-      const i = y * w + x, o = i * 4;
-      const inGrout = gx || gy;
-      const black = isBlack[ty * tilesX + tx] === 1;
-      const n = sample(gN, x, y);
-      const fine = sample(gFine, x, y);
-      // Roughness (× material 1.0): glazed whites ~0.37, blacks ~0.47 (dark glaze shows every
-      // haze), grout 0.9. Whole-floor mottle ±0.06.
-      let r = inGrout ? 0.9 : (black ? 0.47 : 0.37) + gloss[ty * tilesX + tx] + n * 0.12 + fine * 0.04;
-      let k = 1 + n * 0.04; // faint large-scale mottle in the glaze/dirt film
-      let greyMix = 0; // pull toward the dirt-grey of a walked lane
-      if (wear) {
-        const [wx, wz] = toWorld(x, y);
-        const lane = sample(gLane, x, y);
-        let shelter = 0;
-        for (const [x0, z0, x1, z1] of wear.sheltered)
-          if (wx > x0 && wx < x1 && wz > z0 && wz < z1) shelter = 1;
-        const dust = sample(gDust, x, y);
-        if (inGrout) {
-          // Dust and mop residue fill the joint near the walls: pale, matte. In the lanes the
-          // joint goes darker (ground-in grime).
-          const dr = 194, dg = 186, db = 172;
-          const a = dust * 0.8;
-          d[o] = d[o] * (1 - a) + dr * a; d[o + 1] = d[o + 1] * (1 - a) + dg * a; d[o + 2] = d[o + 2] * (1 - a) + db * a;
-          k *= 1 - lane * 0.2;
-          r = 0.9 + dust * 0.08;
-        } else {
-          // Traffic: the glaze dulls (roughness up), whites grey off by a clear step (rev 2:
-          // 0.1 → 0.5 — rev 1's 4 % was lost under tone mapping, and 0.32 still measured only
-          // a 5 % step in the frame against 10 % in the map), blacks scuff to a grey haze.
-          r += lane * 0.3 - shelter * 0.12;
-          greyMix = lane * (black ? 0.34 : 0.5);
-          k *= 1 + dust * 0.03 * (black ? 2 : 1); // a dust film reads lighter on the blacks
-        }
-      }
-      if (greyMix > 0) {
-        const gr = 138, gg = 134, gb = 128;
-        d[o] = d[o] * (1 - greyMix) + gr * greyMix; d[o + 1] = d[o + 1] * (1 - greyMix) + gg * greyMix; d[o + 2] = d[o + 2] * (1 - greyMix) + gb * greyMix;
-      }
-      d[o] = Math.min(255, d[o] * k); d[o + 1] = Math.min(255, d[o + 1] * k); d[o + 2] = Math.min(255, d[o + 2] * k);
-      rough[i] = r;
-    }
-  }
-  ctx.putImageData(img, 0, 0);
-
+  // Rubber transfer (rev 3): a sole dragging over waxed VCT leaves a SMEAR, not a stroke — a
+  // dense core, feathered edges, broken along its length where the sole lifted, its width and
+  // weight varying along. Authored as a float transfer field T (0..1) and MULTIPLIED into the
+  // albedo: black rubber on the white tile is a dark grey mark, on the charcoal tile it is
+  // all but invisible (the same physics for both — no per-substrate colour). Where the rubber
+  // sits the wax is dulled (roughness up). 85 % of the marks fall in the lanes, weighted by
+  // lane strength; the sheltered floor under the booths gets almost none.
+  const T = new Float32Array(w * h);
   if (wear) {
-    // Rubber transfer (rev 2): hard-edged black marks left by shoe soles — no blur, each one
-    // its own width (4–14 mm), length (20–180 mm), curvature (straight drags to tight hooks)
-    // and weight. They land where feet go: 85 % are drawn from the lanes, weighted by lane
-    // strength, so the aisle and the door fan carry most, the counter standing zone some,
-    // and the sheltered floor under the booths almost none. On the black glaze rubber does
-    // not show; there the sole leaves a grey abrasion haze instead.
     const toPx = (wx: number, wz: number): [number, number] => [(wx - wear.originX) / mPerPx, (wz - wear.originZ) / mPerPx];
     const laneW = wear.lanes.map((L) => L.k * L.k);
     const laneTot = laneW.reduce((a, b) => a + b, 0);
-    ctx.lineCap = "butt";
-    for (let s = 0; s < 340; s++) {
+    const smearN = makeFbm(wear.seed + 7, 64, 2);
+    for (let s = 0; s < 420; s++) {
       let wx: number, wz: number;
       if (rng() < 0.85 && wear.lanes.length) {
         let pick = rng() * laneTot, li = 0;
@@ -266,8 +214,7 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
         const L = wear.lanes[li];
         const seg = Math.floor(rng() * (L.pts.length - 1));
         const t = rng();
-        // Gaussian-ish across the lane: most marks near the centre line
-        const across = (rng() + rng() - 1) * L.half * 1.6;
+        const across = (rng() + rng() - 1) * L.half * 1.6; // most marks near the centre line
         const dx = L.pts[seg + 1][0] - L.pts[seg][0], dz = L.pts[seg + 1][1] - L.pts[seg][1], ln = Math.hypot(dx, dz) || 1;
         wx = L.pts[seg][0] + dx * t - (dz / ln) * across;
         wz = L.pts[seg][1] + dz * t + (dx / ln) * across;
@@ -276,75 +223,273 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
         wz = wear.originZ + rng() * h * mPerPx;
         let shelter = false;
         for (const [x0, z0, x1, z1] of wear.sheltered) if (wx > x0 && wx < x1 && wz > z0 && wz < z1) shelter = true;
-        if (shelter && rng() < 0.9) continue;
+        if (shelter && rng() < 0.92) continue;
       }
       const [px, py] = toPx(wx, wz);
       if (px < 2 || py < 2 || px > w - 2 || py > h - 2) continue;
-      const black = isBlack[Math.floor(py / tilePx) * tilesX + Math.floor(px / tilePx)] === 1;
       const kind = rng();
-      const len = (kind < 0.15 ? 0.12 + rng() * 0.16 : 0.02 + rng() * 0.09) / mPerPx; // a few long skids
+      const lenM = kind < 0.15 ? 0.1 + rng() * 0.18 : 0.02 + rng() * 0.08; // a few long skids
       const ang = rng() * Math.PI * 2;
-      const bend = kind < 0.4 ? (rng() - 0.5) * 0.3 : (rng() - 0.5) * 2.6; // straight drags vs hooks
-      const wMm = kind < 0.15 ? 3 + rng() * 5 : 4 + rng() * 10;
-      ctx.lineWidth = Math.max(0.8, wMm / (mPerPx * 1000));
-      ctx.strokeStyle = black ? `rgba(160,156,150,${0.12 + rng() * 0.2})` : `rgba(24,20,17,${0.45 + rng() * 0.5})`;
-      ctx.beginPath();
-      ctx.moveTo(px, py);
-      ctx.quadraticCurveTo(px + Math.cos(ang + bend) * len * 0.5, py + Math.sin(ang + bend) * len * 0.5, px + Math.cos(ang) * len, py + Math.sin(ang) * len);
-      ctx.stroke();
-    }
-    // Hairline crack: a jittered polyline through several tiles — one dark line over a faint
-    // wider shadow. (Rev 2: no offset light "catch" line — two 1-texel lines a fraction of a
-    // texel apart beat against the texel grid and the crack rendered as a twisted rope.)
-    // The dark line itself is a 2 mm ribbon mesh in Shell.ts (floorCrackPath — same polyline):
-    // at 3.75 mm per texel a 1-texel antialiased diagonal magnifies into a string of beads.
-    // The map carries only its soft shadow and a faint darkening so it survives at distance.
-    const path: Array<[number, number]> = floorCrackPath(wear).map(([x, z]) => toPx(x, z));
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    for (const [col, off, lw] of [["rgba(40,34,28,0.16)", 0, 2.6], ["rgba(22,18,14,0.3)", 0, 1.2]] as Array<[string, number, number]>) {
-      ctx.strokeStyle = col;
-      ctx.lineWidth = lw;
-      ctx.beginPath();
-      path.forEach(([px, py], i) => (i ? ctx.lineTo(px + off, py + off) : ctx.moveTo(px + off, py + off)));
-      ctx.stroke();
-    }
-    // The crack also breaks the glaze: matte along it. Anti-aliased by distance to the
-    // polyline — a 3×3 texel stamp at rounded positions gave a stair-stepped matte band whose
-    // jaggies beat against the dark line and read as a twisted rope in specular.
-    for (let k = 0; k + 1 < path.length; k++) {
-      const [ax, ay] = path[k], [bx, by] = path[k + 1];
-      const x0 = Math.max(0, Math.floor(Math.min(ax, bx)) - 2), x1 = Math.min(w - 1, Math.ceil(Math.max(ax, bx)) + 2);
-      const y0 = Math.max(0, Math.floor(Math.min(ay, by)) - 2), y1 = Math.min(h - 1, Math.ceil(Math.max(ay, by)) + 2);
-      const vx = bx - ax, vy = by - ay, vv = vx * vx + vy * vy || 1;
-      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-        const t = Math.max(0, Math.min(1, ((x + 0.5 - ax) * vx + (y + 0.5 - ay) * vy) / vv));
-        const d = Math.hypot(x + 0.5 - ax - vx * t, y + 0.5 - ay - vy * t);
-        const m = 1 - THREE.MathUtils.smoothstep(d, 0.5, 1.6);
-        if (m > 0) { const i = y * w + x; rough[i] = Math.max(rough[i], rough[i] + (0.62 - rough[i]) * m); }
+      // Rev 4: bends capped at ±0.35 rad — a sole edge skids in a shallow arc; rev 3's ±1.2 rad
+      // hooks drew the J / 7 / comma family the critic read as handwriting.
+      const bend = (rng() - 0.5) * (kind < 0.4 ? 0.2 : 0.7);
+      const wMm = 6 + rng() * rng() * 20; // 6–26 mm, mostly narrow (a sole edge is ~12 mm)
+      const weight = 0.35 + rng() * 0.65;
+      const seed2 = rng() * 10;
+      // March along the quadratic with a step of ~1 texel; the core density and the width
+      // vary along; gaps where the sole lifted.
+      const lenPx = lenM / mPerPx;
+      const cxp = px + Math.cos(ang + bend) * lenPx * 0.5, cyp = py + Math.sin(ang + bend) * lenPx * 0.5;
+      const exp_ = px + Math.cos(ang) * lenPx, eyp = py + Math.sin(ang) * lenPx;
+      const steps = Math.max(3, Math.ceil(lenPx * 1.2));
+      for (let k = 0; k <= steps; k++) {
+        const t = k / steps;
+        const qx = (1 - t) * (1 - t) * px + 2 * (1 - t) * t * cxp + t * t * exp_;
+        const qy = (1 - t) * (1 - t) * py + 2 * (1 - t) * t * cyp + t * t * eyp;
+        const along = smearN(t * 0.6 + seed2, seed2 * 0.3); // 0..1 along the mark
+        const gap = smoothstep(0.36, 0.44, along); // 0 where the sole lifted
+        if (gap <= 0) continue;
+        const ends = smoothstep(0, 0.12, t) * smoothstep(1, 0.85, t);
+        const widthPx = (wMm / 1000 / mPerPx) * (0.55 + 0.45 * smearN(t * 1.3 + seed2 + 3, 0.7)) * (0.5 + 0.5 * ends);
+        const R = Math.ceil(widthPx / 2 + 1);
+        const dens = weight * gap * ends;
+        for (let dy = -R; dy <= R; dy++)
+          for (let dx = -R; dx <= R; dx++) {
+            const xx = Math.round(qx) + dx, yy = Math.round(qy) + dy;
+            if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+            const dd = Math.hypot(xx - qx, yy - qy) / (widthPx / 2 + 0.5);
+            if (dd > 1) continue;
+            // dense core, feathered edge: (1 − d²)^1.5, streaked ALONG the drag (the noise is
+            // sampled in the mark's own frame, stretched 8:1 along it) so it is neither a tube
+            // nor a ladder of cross-stripes. MAX, not sum: successive steps overlap the same
+            // texels and a sum saturates every core to black (rev 3 first pass).
+            const perp = ((xx - qx) * -(eyp - py) + (yy - qy) * (exp_ - px)) / (lenPx || 1);
+            const streak = smearN(t * lenPx * 0.02 + seed2 * 3, perp * 0.16 + seed2);
+            // rev 4: a firmer edge ((1 − d²)^0.7, not ^1.5) — the rev 3 profile was a 10 px blur
+            const prof = (1 - dd * dd) ** 0.7 * (0.5 + 1.0 * streak);
+            const i = yy * w + xx;
+            T[i] = Math.max(T[i], Math.min(1, dens * prof));
+          }
       }
     }
+  }
+
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const rough = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const ty = Math.floor(y / tilePx);
+    for (let x = 0; x < w; x++) {
+      const tx = Math.floor(x / tilePx);
+      const i = y * w + x, o = i * 4;
+      const black = isBlack[ty * tilesX + tx] === 1;
+      const n = sample(gN, x, y);
+      const fine = sample(gFine, x, y);
+      // Chip mottle (quarter-turn per tile): ±4 % on the whites, grey flecks +18 % on the blacks.
+      const chip = ((tx + ty) & 1 ? chipH : chipV)(x / w, y / h) - 0.5;
+      // Roughness (× material 1.0): waxed VCT ~0.3 (whites) / 0.36 (blacks, the wax haze shows),
+      // seams 0.7. Whole-floor mottle ±0.06.
+      let r = (black ? 0.36 : 0.3) + gloss[ty * tilesX + tx] + n * 0.1 + fine * 0.04;
+      let k = (1 + n * 0.04) * (black ? 1 + Math.max(0, chip) * 0.36 : 1 + chip * 0.08);
+      let greyMix = 0; // pull toward the dirt-grey of a walked lane
+      if (wear) {
+        const [wx, wz] = toWorld(x, y);
+        const lane = sample(gLane, x, y);
+        // Rev 4: the shelter is feathered 0.12 m inside the footprint (the rev 3 in/out step put
+        // a hard-edged glossier parallelogram on the open floor beside the last booth).
+        let shelter = 0;
+        for (const [x0, z0, x1, z1] of wear.sheltered) {
+          const sd = Math.max(x0 - wx, wx - x1, z0 - wz, wz - z1); // signed: < 0 inside
+          shelter = Math.max(shelter, 1 - smoothstep(-0.12, 0.0, sd));
+        }
+        const dust = sample(gDust, x, y);
+        // Traffic: the wax dulls (roughness up), whites grey off by a clear step (rev 2:
+        // 0.5), blacks abrade to a grey haze. Mop residue near the walls: a dust film that
+        // reads lighter on the blacks.
+        r += lane * 0.32 - shelter * 0.08;
+        greyMix = lane * (black ? 0.4 : 0.62);
+        k *= 1 + dust * 0.03 * (black ? 2 : 1);
+      }
+      if (greyMix > 0) {
+        const gr = 130, gg = 126, gb = 120;
+        d[o] = d[o] * (1 - greyMix) + gr * greyMix; d[o + 1] = d[o + 1] * (1 - greyMix) + gg * greyMix; d[o + 2] = d[o + 2] * (1 - greyMix) + gb * greyMix;
+      }
+      // Rubber transfer multiplies (see T above): × 0.6 at full density on a white tile — a grey
+      // smear, not paint (rev 3's × 0.42 read near-black) — and on a charcoal tile only × 0.94:
+      // black rubber on black VCT is invisible, what shows there is the wax gone dull (roughness).
+      const t = T[i];
+      k *= 1 - (black ? 0.06 : 0.4) * t;
+      r += t * 0.3;
+      d[o] = Math.min(255, d[o] * k); d[o + 1] = Math.min(255, d[o + 1] * k); d[o + 2] = Math.min(255, d[o + 2] * k);
+      rough[i] = r;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  // Seams: butt joints, a 1.5 mm grime line — drawn as a sub-texel stroke so the canvas's
+  // coverage antialiasing gives the texel the right mean darkness (a whole dark texel would
+  // be a 3.75 mm grout line). Rougher along the seam (matte grime).
+  ctx.strokeStyle = "rgba(38,34,30,0.85)";
+  ctx.lineWidth = 1.5 / (mPerPx * 1000);
+  ctx.beginPath();
+  for (let tx = 1; tx < tilesX; tx++) { ctx.moveTo(tx * tilePx, 0); ctx.lineTo(tx * tilePx, h); }
+  for (let ty = 1; ty < tilesY; ty++) { ctx.moveTo(0, ty * tilePx); ctx.lineTo(w, ty * tilePx); }
+  ctx.stroke();
+  for (let ty = 1; ty < tilesY; ty++) for (let x = 0; x < w; x++) { const i = ty * tilePx * w + x; rough[i] += 0.3; rough[i - w] += 0.3; }
+  for (let tx = 1; tx < tilesX; tx++) for (let y = 0; y < h; y++) { const i = y * w + tx * tilePx; rough[i] += 0.3; rough[i - 1] += 0.3; }
+
+  if (wear) {
+    // The crack (`floorCrackSegments`): the dark floor and the two lips are geometry in Shell.ts.
+    // Rev 4: the map no longer strokes a shadow band or a pale edge line along it — one
+    // antialiased texel here is 3.75 mm, so rev 3's 0.9–1.4 px strokes were a 5 mm feathered
+    // smear (and the pale one read light-grey on the charcoal tiles). What the map carries now
+    // is what a cracked VCT edge actually shows: CHIPS — the brittle tile has broken off in
+    // 3–9 mm bites along the lip every 20–60 mm, the fresh break paler and matte (through-
+    // colour tile, so it is the same hue a shade lighter on a light tile, a dull grey lift on
+    // a charcoal one) — and a matte break in the wax 4 mm either side of the line.
+    const toPx = (wx: number, wz: number): [number, number] => [(wx - wear.originX) / mPerPx, (wz - wear.originZ) / mPerPx];
+    const crng = makeRng(wear.seed + 77);
+    const chipPix = ctx.getImageData(0, 0, w, h);
+    floorCrackSegments(wear).forEach((seg) => {
+      const path = seg.map(([x, z]) => toPx(x, z));
+      // Rev 5: chips are 5–14 mm ragged bites (1.5–4 texels), pale at 0.55 on a light tile /
+      // 0.3 on charcoal (rev 4's 3–9 mm at 0.3 never resolved), one every 30–80 mm along the
+      // run and always a cluster at each segment end — the joint, where the tile broke.
+      const bite = (cx: number, cy: number, rr: number, ang: number) => {
+        const ix = Math.max(0, Math.min(w - 1, Math.round(cx))), iy = Math.max(0, Math.min(h - 1, Math.round(cy)));
+        const lum = chipPix.data[(iy * w + ix) * 4];
+        ctx.fillStyle = `rgba(232,226,214,${lum > 120 ? 0.55 : 0.3})`;
+        ctx.beginPath();
+        const n = 7 + Math.floor(crng() * 4);
+        for (let j = 0; j < n; j++) {
+          const a = ang + (j / n) * Math.PI * 2;
+          const rj = rr * (0.55 + crng() * 0.6) * (Math.abs(Math.cos(a - ang)) * 0.5 + 0.6);
+          const px = cx + Math.cos(a) * rj, py = cy + Math.sin(a) * rj;
+          if (j) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+        const R = Math.ceil(rr) + 1;
+        for (let y = iy - R; y <= iy + R; y++) for (let x = ix - R; x <= ix + R; x++) {
+          if (x < 0 || y < 0 || x >= w || y >= h) continue;
+          if (Math.hypot(x - cx, y - cy) < rr * 0.85) rough[y * w + x] = Math.max(rough[y * w + x], 0.72);
+        }
+      };
+      const chipAt = (ax: number, ay: number, bx: number, by: number, big: number) => {
+        const side = crng() < 0.5 ? -1 : 1;
+        const l = Math.hypot(bx - ax, by - ay) || 1;
+        const nx = (-(by - ay) / l) * side, ny = ((bx - ax) / l) * side;
+        const rr = ((2.5 + crng() * 4.5) * big) / (mPerPx * 1000); // 5–14 mm bite, in texels
+        bite(ax + nx * (rr * 0.6), ay + ny * (rr * 0.6), rr, Math.atan2(by - ay, bx - ax));
+      };
+      let since = 0.03 + crng() * 0.05;
+      for (let k = 0; k + 1 < path.length; k++) {
+        const [ax, ay] = path[k], [bx, by] = path[k + 1];
+        const segLen = Math.hypot(bx - ax, by - ay) * mPerPx;
+        since -= segLen;
+        if (k === 0 || k + 2 === path.length) {
+          // the joint end: 2–3 bites clustered where the lips meet
+          const n = 2 + Math.floor(crng() * 2);
+          for (let j = 0; j < n; j++) chipAt(ax + (bx - ax) * crng() * 0.5, ay + (by - ay) * crng() * 0.5, bx, by, 1.1);
+        } else if (since <= 0) {
+          since = 0.03 + crng() * 0.05;
+          chipAt(ax, ay, bx, by, 0.85);
+        }
+        const x0 = Math.max(0, Math.floor(Math.min(ax, bx)) - 2), x1 = Math.min(w - 1, Math.ceil(Math.max(ax, bx)) + 2);
+        const y0 = Math.max(0, Math.floor(Math.min(ay, by)) - 2), y1 = Math.min(h - 1, Math.ceil(Math.max(ay, by)) + 2);
+        const vx = bx - ax, vy = by - ay, vv = vx * vx + vy * vy || 1;
+        for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+          const t = Math.max(0, Math.min(1, ((x + 0.5 - ax) * vx + (y + 0.5 - ay) * vy) / vv));
+          const dd = Math.hypot(x + 0.5 - ax - vx * t, y + 0.5 - ay - vy * t);
+          const m = 1 - THREE.MathUtils.smoothstep(dd, 0.4, 1.3);
+          if (m > 0) { const i = y * w + x; rough[i] = Math.max(rough[i], rough[i] + (0.62 - rough[i]) * m); }
+        }
+      }
+    });
   }
   return { map: finish(c, true, anisotropy), roughnessMap: greyFromField(rough, w, h, anisotropy), normalMap: floorGrout(1024, wear?.seed ?? 1234) };
 }
 
 /**
- * The hairline crack's polyline in world metres (x, z): a gentle two-frequency wander about
- * the heading in `wear.crack`. Shared by the floor map (shadow + matte band) and the 2 mm
- * ribbon Shell.ts lays on the tile so both stay registered.
+ * The crack (rev 3): where the slab moved, the VCT above split — a jagged line (a random
+ * walk about the heading in `wear.crack`, steps ~12 mm, heading wandering ±25° with a pull
+ * back to the mean), its half-width `hw` varying 0.4–1.8 mm along and tapering at the ends.
+ * At every tile seam it crosses it does what a crack in tile does: runs along the seam for
+ * 5–25 mm before continuing (the seam is the weak line), and one crossing in three is a clean
+ * break — the crack stops and restarts a few mm over. Segments are `[x, z, hw]` polylines in
+ * world metres, shared by the floor map (shadow + matte band) and the ribbon + lips Shell.ts
+ * lays on the tile, so both stay registered.
  */
-export function floorCrackPath(wear: FloorWear): Array<[number, number]> {
-  const { x, z, len, deg } = wear.crack;
-  const a = THREE.MathUtils.degToRad(deg);
-  const steps = 22;
-  const pts: Array<[number, number]> = [];
-  for (let k = 0; k <= steps; k++) {
-    const t = k / steps;
-    const wob = Math.sin(t * 9.1) * 0.008 + Math.sin(t * 4.3 + 1.3) * 0.006 + Math.sin(t * 23.7 + 0.4) * 0.0012;
-    pts.push([x + Math.cos(a) * len * t - Math.sin(a) * wob, z + Math.sin(a) * len * t + Math.cos(a) * wob]);
-  }
-  return pts;
+export function floorCrackSegments(wear: FloorWear): Array<Array<[number, number, number]>> {
+  const all: Array<Array<[number, number, number]>> = [];
+  [wear.crack, ...(wear.cracks ?? [])].forEach((crack, ci) => all.push(...oneCrack(wear, crack, wear.seed + 31 + ci * 101)));
+  return all;
 }
+
+function oneCrack(wear: FloorWear, crack: FloorWear["crack"], seed: number): Array<Array<[number, number, number]>> {
+  const { z, len, deg } = crack;
+  const rng = makeRng(seed);
+  const a0 = THREE.MathUtils.degToRad(deg);
+  const tile = wear.metresPerTile;
+  // Rev 4: a crack in tile starts AT a joint (the weak line), so the start x snaps to the
+  // nearest tile seam, 3 mm in from it.
+  const x = wear.originX + Math.round((crack.x - wear.originX) / tile) * tile + Math.cos(a0) * 0.003;
+  const cellX = (px: number) => Math.floor((px - wear.originX) / tile), cellZ = (pz: number) => Math.floor((pz - wear.originZ) / tile);
+  const segs: Array<Array<[number, number, number]>> = [];
+  let cur: Array<[number, number, number]> = [];
+  let px = x, pz = z, ang = a0, dist = 0;
+  const step = 0.012;
+  // Rev 4: half-width 0.3–1.0 mm (a hairline: 0.6–2 mm across, sub-pixel to ~1 px at the
+  // macro poses) — rev 3's 0.8–3.6 mm read as a mop-drag smudge.
+  const hwAt = (t: number) => {
+    const taper = Math.min(1, t / 0.06, (len - t) / 0.06);
+    const wander = 0.5 + 0.5 * Math.sin(t * 37 + 1.1) * Math.sin(t * 13.3 + 0.4) * 0.8 + (rng() - 0.5) * 0.2;
+    return (0.0003 + 0.0007 * wander) * Math.max(0.3, taper);
+  };
+  cur.push([px, pz, hwAt(0)]);
+  while (dist < len) {
+    ang += (rng() - 0.5) * 0.9 + (a0 - ang) * 0.35;
+    const nx = px + Math.cos(ang) * step, nz = pz + Math.sin(ang) * step;
+    dist += step;
+    const crossX = cellX(nx) !== cellX(px), crossZ = cellZ(nz) !== cellZ(pz);
+    if (crossX || crossZ) {
+      // the seam line and the crossing point on it
+      const seamX = wear.originX + Math.max(cellX(nx), cellX(px)) * tile, seamZ = wear.originZ + Math.max(cellZ(nz), cellZ(pz)) * tile;
+      const tX = crossX ? (seamX - px) / (nx - px) : 2, tZ = crossZ ? (seamZ - pz) / (nz - pz) : 2;
+      const t = Math.min(tX, tZ);
+      const cx = px + (nx - px) * t, cz = pz + (nz - pz) * t;
+      cur.push([cx, cz, hwAt(dist)]);
+      const dir = rng() < 0.5 ? 1 : -1;
+      if (rng() < 0.33) {
+        // clean break: end here, restart a few mm over along the seam
+        const jog = (0.004 + rng() * 0.012) * dir;
+        const ox = tX < tZ ? 0 : jog, oz = tX < tZ ? jog : 0;
+        segs.push(cur);
+        cur = [];
+        px = cx + ox + Math.cos(ang) * 0.004; pz = cz + oz + Math.sin(ang) * 0.004;
+        cur.push([px, pz, hwAt(dist) * 0.5]);
+      } else {
+        // run along the seam (a hairline; the seam itself is the crack here) — 5–25 mm, or
+        // (rev 4, one crossing in three) a long run of 40–120 mm before it leaves the joint
+        const alongSeam = (rng() < 0.35 ? 0.04 + rng() * 0.08 : 0.005 + rng() * 0.02) * dir;
+        const ox = tX < tZ ? 0 : alongSeam, oz = tX < tZ ? alongSeam : 0;
+        cur.push([cx + ox, cz + oz, Math.min(0.0004, hwAt(dist))]);
+        px = cx + ox; pz = cz + oz;
+      }
+      continue;
+    }
+    px = nx; pz = nz;
+    cur.push([px, pz, hwAt(dist)]);
+  }
+  if (cur.length > 1) segs.push(cur);
+  return segs;
+}
+
+/** Flattened crack polyline (x, z) for callers that only need the line. */
+export function floorCrackPath(wear: FloorWear): Array<[number, number]> {
+  return floorCrackSegments(wear).flat().map(([x, z]) => [x, z]);
+}
+
 
 /**
  * The diner's floor history from the plan (layout.ts): the customer aisle between
@@ -363,7 +508,11 @@ export function dinerFloorWear(): FloorWear {
   const staffZ = (BACK_BAR.zFront + (COUNTER.topFrontZ - COUNTER.overhang - COUNTER.dieDepth)) / 2; // ≈ −1.25
   return {
     originX: -halfX,
-    originZ: zBack, // canvas row 0 = texture v 1 = the kitchen-side edge (flipY; Shell.ts puts v 0 at zFront)
+    // Canvas row 0 = texture v 1 (flipY). Shell.ts puts v 0 at zFront and v 1 at zBack, then
+    // scales v by d / 6 m (20 tiles), so row 0 is 6.0 m behind the window wall — 0.15 m beyond
+    // zBack. Rev 5: it was `zBack`, which put every world-authored mark (lanes, shelter, the
+    // crack's joints and chips) 150 mm off in z — the chips sat a lip-width away from the ribbon.
+    originZ: zFront - 20 * 0.3,
     metresPerTile: 0.3,
     lanes: [
       // Aisle: worn z ≈ 0.85–1.65, leaving an unworn strip against the booth plinths and under
@@ -389,41 +538,45 @@ export function dinerFloorWear(): FloorWear {
       [BACK_BAR.xMin, BACK_BAR.zFront, BACK_BAR.xMax, BACK_BAR.zFront],
     ],
     sheltered: [
-      [-halfX, BOOTH.zInner + 0.05, DOOR.hingeX - 0.9, zFront],
+      // the booth run, ending with the last booth's divider (rev 4: was DOOR.hingeX − 0.9, which
+      // reached out onto the open floor by the door)
+      [-halfX, BOOTH.zInner + 0.05, Math.min(DOOR.hingeX - 0.9, WINDOW.centersX[WINDOW.centersX.length - 1] + 0.95), zFront],
       [COUNTER.xMin, COUNTER.topFrontZ - COUNTER.overhang - COUNTER.dieDepth, COUNTER.xMax, COUNTER.topFrontZ - COUNTER.overhang],
       [BACK_BAR.xMin, zBack, BACK_BAR.xMax, BACK_BAR.zFront],
     ],
     // Where the slab moved at the counter's end, across the aisle (in floor-macro and length).
     crack: { x: COUNTER.xMax + 0.45, z: stoolZ + 0.45, len: 0.85, deg: 112 },
+    // Rev 5: a second, shorter one two tiles over toward the door, off the same slab joint.
+    cracks: [{ x: COUNTER.xMax + 1.1, z: stoolZ + 0.95, len: 0.42, deg: 74 }],
     seed: 1234,
   };
 }
 
 /**
- * Grout-joint relief for `checkerFloor`: a 2 × 2-tile canvas (`size` px over
- * 600 mm → 0.59 mm/texel) tiled with repeat = tiles / 2. Joint 6 mm wide, 1.5 mm
- * deep with a 1 mm rounded glaze arris, ±0.25 mm lippage between the four tiles,
- * orange-peel waviness on the glaze (±0.03 mm at ~30 mm) and a per-texel
- * 0.01 mm speckle so the glaze highlight never reads as a mirror.
+ * Seam relief for `checkerFloor`: a 2 × 2-tile canvas (`size` px over 600 mm →
+ * 0.59 mm/texel) tiled with repeat = tiles / 2.
  */
 export function floorGrout(size: number, seed: number): THREE.Texture {
+  // Rev 3 (VCT): a 1.5 mm butt seam 0.4 mm deep (the tiles' cut edges), the edges curled up
+  // 0.12 mm over the outer 5 mm (old VCT lifts at the seams), ±0.1 mm lippage between the
+  // four tiles, the sheet's own ±0.03 mm waviness at ~30 mm and a 0.01 mm speckle.
   const mmPerPx = 600 / size;
   const tile = size / 2;
-  const groutPx = 6 / mmPerPx, arris = 1 / mmPerPx;
+  const seamPx = 1.5 / mmPerPx, curl = 5 / mmPerPx;
   const rng = makeRng(seed + 99);
   const wave = makeFbm(seed + 3, 20, 3);
-  const lip = [0.25, -0.15, 0.1, -0.25].map((v) => v + (rng() - 0.5) * 0.1);
+  const lip = [0.1, -0.06, 0.04, -0.1].map((v) => v + (rng() - 0.5) * 0.04);
   const hf = new Float32Array(size * size);
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
       const tx = Math.floor(x / tile), ty = Math.floor(y / tile);
-      // Distance to the nearest joint centre line (joints run along the tile boundaries).
+      // Distance to the nearest seam centre line (seams run along the tile boundaries).
       const ex = Math.min(x % tile, tile - (x % tile)), ey = Math.min(y % tile, tile - (y % tile));
       const e = Math.min(ex, ey); // px from the tile edge
-      const half = groutPx / 2;
+      const half = seamPx / 2;
       let hgt: number;
-      if (e < half) hgt = -1.5 + 0.3 * (1 - e / half) * (rng() - 0.5); // sandy joint floor
-      else hgt = -1.5 * (1 - smoothstep(half, half + arris, e)) + lip[ty * 2 + tx];
+      if (e < half) hgt = -0.4 * (1 - (e / half) ** 2); // V seam
+      else hgt = 0.12 * (1 - smoothstep(half, half + curl, e)) + lip[ty * 2 + tx];
       hgt += (wave(x / size, y / size) - 0.5) * 0.06 + (rng() - 0.5) * 0.01;
       hf[y * size + x] = hgt;
     }
@@ -510,56 +663,62 @@ export function paintedWall(hex: string, size: number, seed: number, strength = 
     // darker paint-transfer line at contact height — the booth cap's arris, ~65 % up the
     // band — 6–9 mm tall, broken into runs, wandering ±3 mm. A few small dark knocks sit in
     // the band. Nothing above or below it. Burnished paint under the band is glossier.
+    // Rev 3. Rev 2's band was too faint to read and its 6–9 mm "contact line" was all that
+    // survived — a dashed ruled line. Now the band IS the mark: 10–20 cm tall (v0..v1 plus
+    // a feathered tail), greasy grey-brown, darkest along the centre, its density a smudge
+    // field — horizontal-stretched fbm (jackets slide along the wall) with a fine grain —
+    // patchy along the wall where people sit more, a few darker smears where the same
+    // shoulder rubs every day. Inside the band the flat paint is burnished glossy (roughness
+    // drops from 0.985 toward 0.6 at the darkest). No line, no fly specks.
     const { v0, v1, perMetre } = opts.scuff;
     const yTop = (1 - v1) * size, yBot = (1 - v0) * size, yMid = (yTop + yBot) / 2, half = (yBot - yTop) / 2;
-    const yLine = yBot - (yBot - yTop) * 0.65;
     const along = makeFbm(seed + 41, 5, 3);
-    const gate = makeFbm(seed + 43, 18, 2);
-    const img2 = ctx.getImageData(0, Math.max(0, Math.floor(yTop - half)), size, Math.min(size, Math.ceil(yBot + half)) - Math.max(0, Math.floor(yTop - half)));
-    const y0 = Math.max(0, Math.floor(yTop - half));
+    const smudge = makeFbm(seed + 43, 24, 3);
+    const grain = makeFbm(seed + 47, 96, 2);
+    const y0 = Math.max(0, Math.floor(yTop - half * 0.8)), y1 = Math.min(size, Math.ceil(yBot + half * 0.8));
+    const img2 = ctx.getImageData(0, y0, size, y1 - y0);
     const d2 = img2.data;
+    // Heavier smears: centre u, half-length, weight — 2–4 per metre, in the band's upper half
+    // (shoulder height), each an ellipse of extra density.
+    const smears: Array<[number, number, number, number]> = [];
+    for (let s = 0; s < Math.round(perMetre * metres); s++)
+      smears.push([rng(), (0.08 + rng() * 0.18) * pxPerM, yMid - half * (0.1 + rng() * 0.5), 0.3 + rng() * 0.4]);
     for (let yy = 0; yy < img2.height; yy++) {
       const y = y0 + yy;
-      // Band profile: raised cosine across v0..v1, tail a little beyond
-      const t = Math.abs(y - yMid) / (half * 1.15);
+      // Band profile: raised cosine across the band and its tail, darkest at the centre
+      const t = Math.abs(y - yMid) / (half * 1.4);
       const prof = t >= 1 ? 0 : 0.5 + 0.5 * Math.cos(Math.PI * t);
-      // Contact line: 6–9 mm tall, wobbling ±3 mm
       for (let x = 0; x < size; x++) {
         const u = x / size;
         const patch = 0.35 + 0.65 * along(u, 0.3); // where people sit more
-        const aBand = prof * prof * 0.24 * patch;
-        const wob = (gate(u, 0.8) - 0.5) * 0.006 * pxPerM;
-        const lh = (0.006 + 0.003 * along(u, 0.1)) * pxPerM / 2;
-        const dl = Math.abs(y - (yLine + wob)) / lh;
-        const open = smoothstep(0.42, 0.55, gate(u, 0.5)); // broken into runs
-        const aLine = dl >= 1 ? 0 : (1 - dl * dl) * 0.3 * open * patch;
+        // smudge field: stretched 5:1 along the wall, plus a fine grain so it is not airbrush
+        const sm = (0.3 + 0.7 * smudge(u * 0.2 + 0.11, y / size)) * (0.6 + 0.8 * grain(u * 0.33 + 0.5, y / size + 0.2));
+        const gr = 0.75 + 0.6 * (grain(x / size, y / size) - 0.5);
+        let a = prof * Math.sqrt(prof) * 0.85 * patch * sm * gr;
+        for (const [su, sl, sy, sw] of smears) {
+          let du = Math.abs(x - su * size); du = Math.min(du, size - du);
+          const e = (du / sl) ** 2 + ((y - sy) / (half * 0.45)) ** 2;
+          if (e < 1) a += (1 - e) * sw * 0.35 * sm;
+        }
+        a = Math.min(0.8, a);
         const i = (yy * size + x) * 4;
-        // Band: grey-brown grime; line: darker transfer (wood finish + grime)
-        let r = d2[i], g = d2[i + 1], b = d2[i + 2];
-        r = r * (1 - aBand) + 120 * aBand; g = g * (1 - aBand) + 112 * aBand; b = b * (1 - aBand) + 100 * aBand;
-        r = r * (1 - aLine) + 72 * aLine; g = g * (1 - aLine) + 60 * aLine; b = b * (1 - aLine) + 48 * aLine;
-        d2[i] = r; d2[i + 1] = g; d2[i + 2] = b;
-        rough[y * size + x] -= aBand * 1.1 + aLine * 0.3; // burnished under the band
+        // greasy grey-brown grime, darker where denser
+        const gr2 = 108 - 40 * a, gg2 = 98 - 40 * a, gb2 = 84 - 38 * a;
+        d2[i] = d2[i] * (1 - a) + gr2 * a; d2[i + 1] = d2[i + 1] * (1 - a) + gg2 * a; d2[i + 2] = d2[i + 2] * (1 - a) + gb2 * a;
+        // burnished under the band — rev 4: plus a narrow glossy core along the band's centre
+        // (skin oil in the paint, roughness down to ≈ 0.3 where people lean most) so the band
+        // reads as a greasy polish, not an airbrushed tint
+        rough[y * size + x] = Math.max(0.28, rough[y * size + x] - a * 0.55 - prof ** 4 * 0.42 * patch * (0.6 + 0.4 * sm));
       }
     }
     ctx.putImageData(img2, 0, y0);
-    // Knocks: small dark ragged ellipses in the band
-    const n = Math.round(perMetre * metres);
-    for (let s = 0; s < n; s++) {
-      const x = rng() * size, y = yTop + rng() * (yBot - yTop);
-      const len = (0.005 + rng() * 0.02) * pxPerM, lw = 0.004 * pxPerM, ang = (rng() - 0.5) * 0.4;
-      ctx.fillStyle = `rgba(40,34,28,${0.25 + rng() * 0.25})`;
-      ctx.beginPath();
-      ctx.ellipse(x, y, len * 0.5, lw * 0.5, ang, 0, Math.PI * 2);
-      ctx.fill();
-    }
   }
   return { map: finish(c, true, 4), roughnessMap: greyFromField(rough, size, size, 4) };
 }
 
 /**
- * Roller stipple: a 3/8" nap leaves 1–3 mm domes of paint at ~60 % coverage,
- * 0.1–0.3 mm high (why flat walls still glint at grazing light). Detail canvas
+ * Roller stipple: a 3/8" nap leaves 2–4 mm domes of paint at ~60 % coverage,
+ * 0.2–0.5 mm high (why flat walls still glint at grazing light). Detail canvas
  * covering 0.3 m (rev 2: was 0.6 m — at 0.59 mm/texel a 1 mm dome was two texels
  * and the relief blurred away); tiled with repeat = metres / 0.3 on the wall UVs.
  * Cells on a jittered 2.2 mm grid, each a dome of random height, 15 % skipped,
@@ -570,7 +729,7 @@ export function wallStipple(size: number, seed: number): { normalMap: THREE.Text
   const mmPerPx = (WALL_STIPPLE_M * 1000) / size;
   const rng = makeRng(seed);
   const swell = makeFbm(seed + 5, 12, 3);
-  const cell = 2.2 / mmPerPx;
+  const cell = 2.8 / mmPerPx;
   const grid = Math.max(4, Math.round(size / cell));
   const step = size / grid;
   const cx = new Float32Array(grid * grid), cy = new Float32Array(grid * grid), cr = new Float32Array(grid * grid), ch = new Float32Array(grid * grid);
@@ -579,8 +738,8 @@ export function wallStipple(size: number, seed: number): { normalMap: THREE.Text
       const k = j * grid + i;
       cx[k] = (i + 0.1 + rng() * 0.8) * step;
       cy[k] = (j + 0.1 + rng() * 0.8) * step;
-      cr[k] = (0.7 + rng() * 1.0) / mmPerPx; // dome radius 0.7–1.7 mm
-      ch[k] = rng() < 0.15 ? 0 : 0.1 + rng() * 0.2; // height mm
+      cr[k] = (1.0 + rng() * 1.1) / mmPerPx; // dome radius 1.0–2.1 mm (2–4 mm bumps)
+      ch[k] = rng() < 0.15 ? 0 : 0.2 + rng() * 0.3; // height mm (rev 3: 0.2–0.5, was 0.1–0.3 — no lit/shadow side read)
     }
   const hf = new Float32Array(size * size);
   for (let y = 0; y < size; y++) {
@@ -602,7 +761,7 @@ export function wallStipple(size: number, seed: number): { normalMap: THREE.Text
   // own shade whatever the light does, so the relief keeps a lighting-independent presence
   // (the normal alone vanished under a flat rig). 0.84 in the deepest valley, 1 on a dome top.
   const ao = new Float32Array(size * size);
-  for (let i = 0; i < ao.length; i++) ao[i] = 0.84 + 0.16 * clamp01(hf[i] / 0.25);
+  for (let i = 0; i < ao.length; i++) ao[i] = 0.84 + 0.16 * clamp01(hf[i] / 0.4);
   return { normalMap: normalFromHeight(hf, size, size, 0.5 / mmPerPx, 4), aoMap: greyFromField(ao, size, size, 4) };
 }
 
@@ -718,42 +877,52 @@ export function acousticTile(size: number, seed = 555, stain = false): TextureSe
       }
       return best;
     };
-    const craze = makeFbm(seed + 21 + k, 40, 3);
+    // Rev 3: the stain is a TINT MULTIPLIED into the tile (the fissures and their shading show
+    // through it — a wet board, not a decal). Rev 4: ONE outer rim — a brown line whose weight
+    // (2–9 mm) and darkness wander around the outline, broken for short stretches — ONE faint
+    // inner tide line (the first, older leak's outline, off-centre and its own shape, so it
+    // is not a concentric contour), a BLOTCHY interior (the tan wash is driven by a coarse
+    // mottle, with dry islands and heavier patches, not a radial gradient), and the tile's
+    // fissures darker inside the stain than outside (dirt settles in the slots as the water
+    // dries). Rev 3's three nested tide rings read as a contour map and are gone.
     const mottle = makeFbm(seed + 33 + k, 9, 3);
+    const blotch = makeFbm(seed + 77 + k, 4, 3);
+    const lowAng = 0.9 + k * 2.1; // which way this board sagged
+    const wander = makeFbm(seed + 51 + k, 14, 2);
     for (let y = 0; y < size; y++)
       for (let x = 0; x < size; x++) {
         const s = field(blobs, x, y, 0.3 + k);
         if (s < -0.06) continue;
         const i = (y * W + k * size + x) * 4, j = y * W + k * size + x;
-        // Perimeter: a 3–5 mm dark brown line just inside the edge, sharper outside
-        const edge = smoothstep(-0.02, 0.0, s) * (1 - smoothstep(0.012, 0.045, s));
-        // Interior wash: pale tan, weaker toward the centre (dried from the middle out),
-        // with a darker mottled halo band a little inside the rim
-        const inside = smoothstep(0.0, 0.02, s);
-        const halo = inside * (1 - smoothstep(0.05, 0.16, s)) * (0.5 + 0.5 * mottle(x / size, y / size));
-        const wash = inside * (0.10 + 0.08 * (1 - smoothstep(0.1, 0.5, s)) + 0.06 * mottle(x / size + 3, y / size));
-        // Older tide line inside: fainter, its own outline
+        const u = x / size, v = y / size;
+        const m1 = mottle(u, v), m2 = mottle(u + 3, v), wd = wander(u, v) - 0.5;
+        const inside = smoothstep(0.0, 0.015, s);
+        // Rim: 2–9 mm wide, its weight and darkness wandering along the outline, open for a
+        // few short stretches (the minerals did not reach everywhere)
+        const rimW = 0.012 + 0.04 * m1;
+        const rimGate = 0.35 + 0.65 * smoothstep(0.3, 0.42, mottle(u * 1.7 + 9, v * 1.7 + 4));
+        // Rev 5: the board sagged toward one side (`lowAng`) and the minerals ran there — the
+        // rim is hard and dark on the low side and fades to almost nothing on the high side
+        const lowK = 0.12 + 0.88 * smoothstep(-0.75, 0.85, Math.cos(Math.atan2(y - blobs[0][1], x - blobs[0][0]) - lowAng));
+        const rim = smoothstep(-0.012 + 0.008 * lowK, 0.0, s) * (1 - smoothstep(rimW * 0.3, rimW * (0.6 + 0.4 * lowK), s)) * (0.5 + 0.5 * m2) * rimGate * lowK;
+        // Wash: tan, blotchy — a coarse mottle with dry islands, a little heavier near the rim
+        const bl = blotch(u, v);
+        const wash = inside * (0.18 + 0.7 * smoothstep(0.35, 0.68, bl) + 0.2 * (1 - smoothstep(0.02, 0.25, s))) * (0.75 + 0.4 * m2);
+        // The one faint inner tide line: the older leak's outline, soft, broken
         const si = field([inner], x, y, 0.7 + k);
-        const tide = smoothstep(-0.02, 0.0, si) * (1 - smoothstep(0.008, 0.03, si)) * inside;
-        // Blend: perimeter in dark brown, wash/halo in tan
-        const aLine = Math.min(1, edge * 0.85 + tide * 0.35);
-        const aWash = Math.min(1, wash + halo * 0.22);
-        let r = d2[i], g = d2[i + 1], b = d2[i + 2];
-        r = r * (1 - aWash) + 196 * aWash; g = g * (1 - aWash) + 168 * aWash; b = b * (1 - aWash) + 118 * aWash;
-        r = r * (1 - aLine) + 104 * aLine; g = g * (1 - aLine) + 72 * aLine; b = b * (1 - aLine) + 38 * aLine;
-        // Swelling: the board domes up to 1.2 mm inside the stain; crazing: dark hairline
-        // cracks where the paint film broke over the swell (thresholded noise ridges)
-        const dome = inside * smoothstep(0.0, 0.25, s) * 1.2;
-        const cz = craze(x / size, y / size);
-        const crack = inside * smoothstep(0.0, 0.1, s) * (1 - smoothstep(0.012, 0.03, Math.abs(cz - 0.5)));
-        hf2[j] += dome - crack * 0.5;
-        const ck = crack * 0.35;
-        r = r * (1 - ck) + 90 * ck; g = g * (1 - ck) + 70 * ck; b = b * (1 - ck) + 48 * ck;
-        // Flaked paint: a few lighter chalky patches where the film lifted
-        const flake = inside * smoothstep(0.62, 0.7, mottle(x / size + 7, y / size + 2));
-        r = r * (1 - flake * 0.5) + 232 * flake * 0.5; g = g * (1 - flake * 0.5) + 226 * flake * 0.5; b = b * (1 - flake * 0.5) + 214 * flake * 0.5;
-        d2[i] = r; d2[i + 1] = g; d2[i + 2] = b;
-        rough2[j] = Math.max(rough2[j] - aWash * 0.15 - aLine * 0.1 + flake * 0.1, 0.7);
+        const tideGate = smoothstep(0.38, 0.5, mottle(u * 2.3 + 1, v * 2.3 - 2));
+        const tide = smoothstep(-0.02 + wd * 0.02, 0.0 + wd * 0.02, si) * (1 - smoothstep(0.004, 0.02, si)) * inside * 0.28 * (0.4 + 0.6 * tideGate);
+        // Dirt in the fissures inside the stain: the slot floors go a shade browner
+        const fiss = Math.min(1, Math.max(0, -hf2[j])) * inside * 0.45;
+        // Multiply: tan (0.86,0.74,0.52) by the wash, brown (0.42,0.29,0.14) by rim + tide + fissure dirt
+        const aW = Math.min(1, wash), aL = Math.min(1, rim * 0.95 + tide + fiss);
+        const mr = (1 - aW + 0.86 * aW) * (1 - aL + 0.42 * aL);
+        const mg = (1 - aW + 0.74 * aW) * (1 - aL + 0.29 * aL);
+        const mb = (1 - aW + 0.52 * aW) * (1 - aL + 0.14 * aL);
+        d2[i] = d2[i] * mr; d2[i + 1] = d2[i + 1] * mg; d2[i + 2] = d2[i + 2] * mb;
+        // Swelling: the board domes up to 1 mm inside the stain
+        hf2[j] += inside * smoothstep(0.0, 0.25, s) * 1.0;
+        rough2[j] = Math.max(rough2[j] - aW * 0.12 - aL * 0.08, 0.7);
       }
   }
   ctx2.putImageData(img2, 0, 0);
@@ -823,27 +992,25 @@ export function teePaint(size: number, seed: number): TextureSet {
 export interface VinylSet {
   normalMap: THREE.Texture;
   roughnessMap: THREE.Texture;
-  /** sRGB: the vinyl's red, burnished blotches a shade darker, pale cotton scrim in the crack floors. */
+  /** sRGB: the vinyl's red, a shade darker in the crease valleys where grime sits. */
   map: THREE.Texture;
 }
 
 /**
- * Expanded-vinyl upholstery surface. Always: embossed leather micro-grain at
- * 0.3–0.5 mm cells (shows only in the specular). With `crazed`: plasticiser
- * crazing in patches — polygonal cells 2–5 mm, hairline cracks, lips curled up
- * — carried in the normal and (≤ 15 %) roughness only; nothing in the diffuse.
- * One canvas covers `metres` of vinyl.
+ * Expanded-vinyl upholstery surface: embossed leather micro-grain at 0.4–0.7 mm
+ * pebbles with 0.1 mm creases and a 1.5 mm swell (normal + roughness; the map only
+ * darkens the creases a few % where dirt sits). Tiles over `metres`. Rev 3: the
+ * burnish blotches and the crazing left this tiling map — a seat's shine is one zone
+ * (vertex colour, Booths.ts) and the crazing is the non-repeating `vinylCrazeAtlas`
+ * on UV channel 1.
  */
-export function vinylSurface(size: number, metres: number, crazed: boolean, weltCracks = false): VinylSet {
+export function vinylSurface(size: number, metres: number): VinylSet {
   const pxPerMm = size / (metres * 1000);
   const { c: nc, ctx: nctx } = canvas(size, size);
   const { c: rc, ctx: rctx } = canvas(size, size);
-  const rng = makeRng(crazed ? 2024 : 2025);
+  const rng = makeRng(2025);
   const grain = makeFbm(61, 128, 3); // ~1.5 mm swell under the pebbles
-  const patch = makeFbm(62, 4, 3); // where the crazing lives
-  const polish = makeFbm(63, 3, 2); // where hands and seats have burnished the grain
   const height = new Float32Array(size * size);
-  const crack = new Float32Array(size * size);
   const crease = new Float32Array(size * size);
   // Pebble grain (System 5): embossed expanded vinyl is a field of flat-topped pebbles
   // 0.4–0.7 mm across separated by 0.1 mm creases (the emboss roll's negative of a
@@ -880,57 +1047,6 @@ export function vinylSurface(size: number, metres: number, crazed: boolean, welt
       }
     }
   }
-  if (crazed) {
-    const cell = 3.5 * pxPerMm; // mean cell ≈ 3.5 mm
-    const grid = Math.max(4, Math.round(size / cell));
-    const step = size / grid;
-    const cx = new Float32Array(grid * grid), cy = new Float32Array(grid * grid);
-    for (let j = 0; j < grid; j++)
-      for (let i = 0; i < grid; i++) {
-        cx[j * grid + i] = (i + 0.15 + rng() * 0.7) * step;
-        cy[j * grid + i] = (j + 0.15 + rng() * 0.7) * step;
-      }
-    for (let y = 0; y < size; y++) {
-      const gj = Math.floor(y / step);
-      for (let x = 0; x < size; x++) {
-        const gi = Math.floor(x / step);
-        let f1 = 1e9, f2 = 1e9;
-        for (let dj = -1; dj <= 1; dj++)
-          for (let di = -1; di <= 1; di++) {
-            const ii = (gi + di + grid) % grid, jj = (gj + dj + grid) % grid;
-            const px = cx[jj * grid + ii] + (gi + di - ii) * step;
-            const py = cy[jj * grid + ii] + (gj + dj - jj) * step;
-            const d = Math.hypot(px - x, py - y);
-            if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) f2 = d;
-          }
-        const edge = (f2 - f1) / pxPerMm; // mm from the cell boundary
-        const p = patch(x / size, y / size);
-        // Rev 2: on the welt-cracked panel the general patches are halved so the seam bands
-        // lead (the panel's u repeats per channel, and repeated patches read as a print).
-        let presence = Math.min(1, Math.max(0, (p - 0.5) / 0.14)) * (weltCracks ? 0.45 : 1);
-        let w = 0.2 + p * 0.25; // crack half-width in mm
-        if (weltCracks) {
-          // Seam cracking (System 5): the vinyl flexes along the sewn welt every time a back is
-          // leaned on, and after years the plasticiser has gone: a 4–18 mm band beside the cord
-          // is crazed through, wider cracks, with a few running along the seam. Booths.ts maps
-          // this panel's u as the distance from the nearest welt, so u ≈ 0 (the canvas edge,
-          // wrapping) is the cord line.
-          const du = Math.min(x, size - x) / size * metres * 1000; // mm from the welt
-          const band = (1 - smoothstep(6, 18, du)) * smoothstep(1.5, 4, du) * (0.6 + 0.4 * patch(x / size + 0.5, y / size));
-          if (band > presence) { presence = band; w = 0.25 + band * 0.35; }
-          // Long cracks parallel to the cord: a wandering line 5–9 mm out, present in stretches
-          const line = 6.5 + (patch(0.25, y / size) - 0.5) * 5, stretch = smoothstep(0.45, 0.55, patch(0.7, y / size * 0.5));
-          const dl = Math.abs(du - line);
-          if (dl < 0.45 && stretch > presence) { presence = stretch; w = 0.45; }
-        }
-        const inCrack = edge < w ? 1 - edge / w : 0;
-        const lip = edge >= w && edge < w + 0.8 ? 1 - (edge - w) / 0.8 : 0;
-        const i = y * size + x;
-        height[i] += presence * (-0.9 * inCrack + 0.35 * lip);
-        crack[i] = presence * inCrack;
-      }
-    }
-  }
   const nimg = nctx.createImageData(size, size);
   const rimg = rctx.createImageData(size, size);
   const { c: mc, ctx: mctx } = canvas(size, size);
@@ -946,21 +1062,15 @@ export function vinylSurface(size: number, metres: number, crazed: boolean, welt
       nimg.data[o + 1] = ((dy / len) * 0.5 + 0.5) * 255;
       nimg.data[o + 2] = (1 / len) * 255;
       nimg.data[o + 3] = 255;
-      // Roughness around 0.5 (material scales it), cracks a little matter (≤ 15 %), the creases
-      // hold dirt (+0.04), and burnished patches — the seat nose, the grab points on the backs,
-      // wherever a metric panel's jitter puts them — drop up to 0.18 in 5–12 cm blotches
-      // (rev 2: was 0.1; also a shade darker in the albedo, as polished vinyl is).
-      const worn = smoothstep(0.54, 0.7, polish(x / size, y / size));
-      const r = 0.45 + (H(x, y) - crack[i]) * 0.06 + crack[i] * 0.07 + crease[i] * 0.04 - worn * 0.18;
+      // Roughness around 0.5 (material scales it); the creases hold dirt (+0.04).
+      const r = 0.45 + H(x, y) * 0.06 + crease[i] * 0.04;
       const rv = Math.min(255, Math.max(0, r * 255));
       rimg.data[o] = rv; rimg.data[o + 1] = rv; rimg.data[o + 2] = rv; rimg.data[o + 3] = 255;
-      // Albedo (sRGB): #AA1A15 vinyl; burnished −10 %; the floor of a through-crack is the
-      // pale cotton scrim the vinyl was cast on (rev 2 — the critic's "scrim in the crack").
-      const k = 1 - 0.1 * worn;
-      const scrim = smoothstep(0.35, 0.85, crack[i]);
-      mimg.data[o] = 170 * k * (1 - scrim) + 206 * scrim;
-      mimg.data[o + 1] = 26 * k * (1 - scrim) + 196 * scrim;
-      mimg.data[o + 2] = 21 * k * (1 - scrim) + 176 * scrim;
+      // Albedo (sRGB): #AA1A15 vinyl, the creases 4 % darker with grime.
+      const k = 1 - 0.04 * crease[i];
+      mimg.data[o] = 170 * k;
+      mimg.data[o + 1] = 26 * k;
+      mimg.data[o + 2] = 21 * k;
       mimg.data[o + 3] = 255;
     }
   }
@@ -970,13 +1080,367 @@ export function vinylSurface(size: number, metres: number, crazed: boolean, welt
   return { normalMap: finish(nc, false, 8), roughnessMap: finish(rc, false, 8), map: finish(mc, true, 8) };
 }
 
+/** Where each crazed vinyl piece sits in the `vinylCrazeAtlas` (all metres, u right / v up). */
+export interface VinylCrazeLayout {
+  /** Head roll unrolled: `len` along u from u = 0; arc length around the roll on v, the sewn seam at v0 + arcHalf. */
+  roll: { v0: number; len: number; arcHalf: number };
+  /** Channelled back panels, `w` × `h` from (0, v0); `valleys` = u of each sewn channel seam. */
+  panels: Array<{ v0: number; w: number; h: number; valleys: number[] }>;
+  /** Welt cords: `tracks` strips of `pitch` (the cord's circumference) stacked from v0, `len` along u. */
+  cords: { v0: number; tracks: number; pitch: number; len: number };
+}
+
+/**
+ * Non-repeating crazing atlas for one booth's vinyl (rev 3), sampled on UV channel 1 so
+ * the 0.5 mm pebble grain can keep tiling on channel 0. One square canvas = `metres`.
+ *
+ * Plasticiser-starved vinyl cracks where it is flexed: the model is sequential
+ * fragmentation, not a Voronoi print. Primary hairlines start at the flex lines (the
+ * sewn welt beside every channel cord, the head-roll seam, the tuck under the roll, the
+ * seat seam) and grow outward, wandering, fading, stopping when they meet another
+ * crack; secondaries branch off them sideways and stop at the next crack. Spacing along
+ * the seam is 2–6 mm where the strain is high, so cells are 2–4 mm there and open to
+ * 8–15 mm where the primaries have thinned out; the strain is gated along the seam by
+ * noise so there are stretches with nothing. The roll crest (sun-baked) carries a
+ * sparse coarse net. Cracks are dark (the vinyl's own colour × 0.35–0.5, the crack floor
+ * is in shadow). Where an old crack has opened wide, the pale cotton backing shows in its
+ * floor (rev 5 — rev 4's free-standing flaked islands read as gum / paint spatter). The welt
+ * carries transverse cracks and the stitch line (holes + thread dashes 3.5 mm pitch)
+ * runs 3.5 mm out from every cord.
+ */
+export function vinylCrazeAtlas(size: number, metres: number, layout: VinylCrazeLayout): { map: THREE.Texture; physMap: THREE.Texture } {
+  const pxPerM = size / metres;
+  const rng = makeRng(4099);
+  const gate = makeFbm(4101, 8, 3); // strain gating along seams (period = canvas)
+  const wob = makeFbm(4102, 64, 2); // crack wander
+  const crack = new Float32Array(size * size); // darkness 0..1
+  const occ = new Int32Array(size * size); // id of the crack that owns this texel (join test), 0 = none
+  const open = new Float32Array(size * size); // an old, wide crack has opened: the pale backing shows in its floor
+  const stitch = new Float32Array(size * size); // −: hole, +: thread
+  const wr = new Float32Array(size * size); // seam pucker wrinkles: + lit flank, − shaded flank
+  let wid = 0;
+  const toPx = (u: number, v: number): [number, number] => [Math.floor(u * pxPerM), Math.floor((metres - v) * pxPerM)];
+  const inside = (px: number, py: number) => px >= 0 && py >= 0 && px < size && py < size;
+  const mark = (px: number, py: number, d: number, op = 0) => {
+    if (!inside(px, py)) return;
+    const i = py * size + px;
+    crack[i] = Math.max(crack[i], d);
+    if (op > 0) open[i] = Math.max(open[i], op);
+    if (!occ[i]) occ[i] = wid;
+  };
+  /** Another crack (not this walk's own trail) within one texel. */
+  const occupied = (px: number, py: number) => {
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const xx = px + dx, yy = py + dy;
+        if (!inside(xx, yy)) continue;
+        const o = occ[yy * size + xx];
+        if (o && o !== wid) return true;
+      }
+    return false;
+  };
+  interface Region { u0: number; u1: number; v0: number; v1: number }
+  const inRegion = (r: Region, u: number, v: number) => u >= r.u0 && u <= r.u1 && v >= r.v0 && v <= r.v1;
+  /** One crack: from (u,v) at angle `ang`, up to `len` m, darkness `dark`, `wide` = old crack (2 px). Returns its points. */
+  const walk = (r: Region, u: number, v: number, ang: number, len: number, dark: number, wide: boolean, wobble: number): Array<[number, number]> => {
+    const step = 0.35 / 1000;
+    const n = Math.round(len / step);
+    const pts: Array<[number, number]> = [];
+    let lastPx = -1, lastPy = -1;
+    wid++;
+    const seedW = rng() * 10;
+    // Rev 4: every crack has its own width (0.5–1.6 texels; an old one 2+) — the share of
+    // darkness spilled onto the neighbour texel — and the heading wanders gently (a crack
+    // in vinyl is a fracture, it does not loop: the rev 3 wobble drew ring doodles).
+    const wfac = wide ? 1.8 + rng() * 0.6 : 0.5 + rng() * 1.1;
+    const spill = Math.min(1, Math.max(0, wfac - 0.6));
+    for (let i = 0; i < n; i++) {
+      ang += (rng() - 0.5) * wobble * 0.6 + (wob(u * 6 + seedW, v * 6) - 0.5) * wobble * 1.1;
+      u += Math.cos(ang) * step;
+      v += Math.sin(ang) * step;
+      if (!inRegion(r, u, v)) break;
+      const [px, py] = toPx(u, v);
+      if (px === lastPx && py === lastPy) continue;
+      if (i > 6 && occupied(px, py)) { mark(px, py, dark * 0.8); break; } // joined an older crack
+      const fade = (1 - 0.45 * (i / n) ** 2) * Math.min(1, 0.6 + 0.4 * wfac); // hairlines thin toward the tip
+      // rev 5: only an old, wide crack opens far enough for the cotton backing to show in its
+      // floor — pale wear lives INSIDE the crack lines, never as free-standing blobs
+      mark(px, py, dark * fade, wide ? fade * (0.5 + 0.5 * spill) : 0);
+      // the neighbour across the step carries this crack's width: a hairline spills a
+      // third, a wide one nearly all
+      const ax = Math.abs(Math.cos(ang)) > Math.abs(Math.sin(ang));
+      mark(ax ? px : px + 1, ax ? py + 1 : py, dark * fade * (0.3 + 0.6 * spill));
+      if (wfac > 1.3) { mark(px + 1, py, dark * fade * 0.5 * spill); mark(px, py + 1, dark * fade * 0.5 * spill); }
+      pts.push([u, v]);
+      lastPx = px; lastPy = py;
+    }
+    return pts;
+  };
+  /**
+   * Sequential fragmentation: `count` secondary cracks each start on a random point of the
+   * cracks already in `pool` and run off in a random direction until they meet another crack
+   * (or `maxLen`); their own points join the pool so the net closes into cells. Cells come
+   * out 2–4 mm where the pool is dense (beside a seam) and 8–15 mm where it thins.
+   */
+  const fragment = (r: Region, pool: Array<[number, number]>, count: number, maxLen: number, dark: number) => {
+    for (let k = 0; k < count && pool.length; k++) {
+      const [u, v] = pool[Math.floor(rng() * pool.length)];
+      const ang = rng() * Math.PI * 2;
+      const sub = walk(r, u, v, ang, maxLen * (0.3 + rng() * 0.7), dark * (0.6 + rng() * 0.4), false, 0.22);
+      if (sub.length > 6) for (let j = 2; j < sub.length; j += 3) pool.push(sub[j]);
+    }
+  };
+  /**
+   * A flex seam: a straight line from (ua,va) to (ub,vb) inside region `r`; primary cracks
+   * start `off` out from it on `sides` (+1/−1 or both) and grow away, perpendicular ± fan,
+   * then the band fragments into cells. `strength` scales spacing (1 = 1.5–5 mm) and length
+   * (reach ≈ 8–40 mm); `gateSeed` picks the noise that leaves stretches uncracked.
+   */
+  const seam = (r: Region, ua: number, va: number, ub: number, vb: number, off: number, sides: number[], strength: number, reach: number, gateSeed: number) => {
+    const L = Math.hypot(ub - ua, vb - va);
+    const tx = (ub - ua) / L, ty = (vb - va) / L; // along
+    const nx = -ty, ny = tx; // normal
+    const pool: Array<[number, number]> = [];
+    let t = rng() * 0.003;
+    while (t < L) {
+      const g = gate(t * 2.3 + gateSeed, gateSeed * 0.37);
+      const s = Math.min(1, Math.max(0, (g - 0.36) / 0.24)) * strength; // 0 = quiet stretch
+      if (s < 0.08) { t += 0.004; continue; }
+      const spacing = (0.0015 + rng() * 0.0035) / Math.max(0.5, s);
+      t += spacing;
+      for (const side of sides) {
+        if (rng() > 0.55 + 0.45 * s) continue;
+        const u = ua + tx * t + nx * side * off, v = va + ty * t + ny * side * off;
+        const baseAng = Math.atan2(ny * side, nx * side) + (rng() - 0.5) * 0.9;
+        const len = reach * Math.sqrt(s) * (0.3 + rng() * 0.7);
+        const old = rng() < 0.07 * s;
+        const dark = (0.7 + rng() * 0.3) * (0.7 + 0.3 * s);
+        const pts = walk(r, u, v, baseAng, len, dark, old, 0.18);
+        for (let j = 3; j < pts.length; j += 3) pool.push(pts[j]);
+      }
+    }
+    fragment(r, pool, Math.round(L * 650 * strength * sides.length), reach * 0.45, 0.85);
+  };
+  /* ---- head roll: seam band both sides, sun-baked crest net ---- */
+  {
+    const R = layout.roll;
+    // Nothing within 20 mm of the unrolled edges (v0, v0 + 2·arcHalf meet at the back of the
+    // roll against the divider): the atlas edge must not draw a line there.
+    const reg: Region = { u0: 0.002, u1: R.len - 0.002, v0: R.v0 + 0.02, v1: R.v0 + 2 * R.arcHalf - 0.02 };
+    const vs = R.v0 + R.arcHalf;
+    seam(reg, 0, vs, R.len, vs, 0.0035, [1, -1], 1, 0.03, 3.1);
+    // crest: coarse sparse net 0.06–0.11 m from the seam on either side, random directions
+    for (const side of [1, -1]) {
+      const pool: Array<[number, number]> = [];
+      const n = Math.round(R.len * 60);
+      for (let k = 0; k < n; k++) {
+        const u = rng() * R.len;
+        const g = gate(u * 1.7 + side, 0.61 + side * 0.2);
+        if (g < 0.46) continue; // stretches with no crazing
+        const v = vs + side * (0.055 + rng() * 0.06);
+        const ang = rng() * Math.PI * 2;
+        const pts = walk(reg, u, v, ang, 0.015 + rng() * 0.035, 0.7 + rng() * 0.3, rng() < 0.1, 0.2);
+        for (let j = 2; j < pts.length; j += 3) pool.push(pts[j]);
+      }
+      fragment(reg, pool, Math.round(R.len * 700), 0.014, 0.8);
+    }
+    // Rev 4: the seam's top-stitch rows, 4.5 mm out both sides of the piping (0.6 mm holes at
+    // 3.5 mm pitch, thread dashes between) along the whole roll.
+    for (const side of [1, -1]) {
+      const sv = vs + side * 0.0045;
+      for (let u = 0.004 + rng() * 0.002; u < R.len - 0.004; u += 0.0035) {
+        const [hx, hy] = toPx(u, sv);
+        if (inside(hx, hy)) stitch[hy * size + hx] -= 1;
+        for (let k = 1; k <= 3; k++) {
+          const [tx, ty] = toPx(u + (k / 5) * 0.0035, sv);
+          if (inside(tx, ty)) stitch[ty * size + tx] += 0.6;
+        }
+      }
+    }
+    // (rev 4's flaked scrim islands on the seam band are gone — rev 5: they read as gum /
+    // paint spatter; flaking shows inside the open cracks instead)
+  }
+  /* ---- channelled panels ---- */
+  layout.panels.forEach((P, pi) => {
+    const reg: Region = { u0: 0.001, u1: P.w - 0.001, v0: P.v0 + 0.001, v1: P.v0 + P.h - 0.001 };
+    P.valleys.forEach((vx, vi) => {
+      const gs = 7 + pi * 13 + vi * 1.7;
+      // not every seam has gone: the middle of the bench (where people lean) worst, 0.3–1
+      const mid = 1 - Math.abs(vx / P.w - 0.5) * 1.2;
+      seam(reg, vx, P.v0, vx, P.v0 + P.h, 0.004, [1, -1], 0.2 + 0.45 * mid * (0.4 + 0.6 * rng()), 0.026, gs);
+      // one or two long cracks running parallel to the cord 5–9 mm out, in stretches
+      for (const side of [1, -1]) {
+        if (rng() < 0.45) continue;
+        const off = 0.005 + rng() * 0.004;
+        const v0 = P.v0 + rng() * P.h * 0.5, len = 0.04 + rng() * P.h * 0.5;
+        const pts = walk(reg, vx + side * off, v0, Math.PI / 2, len, 0.85, rng() < 0.4, 0.12);
+        fragment(reg, pts.filter((_, j) => j % 3 === 0), 8, 0.01, 0.7);
+      }
+      // stitch line 3.5 mm out both sides: 0.6 mm holes at 3.5 mm pitch, thread dashes between
+      for (const side of [1, -1]) {
+        const su = vx + side * 0.0035;
+        for (let v = P.v0 + 0.006 + rng() * 0.002; v < P.v0 + P.h - 0.006; v += 0.0035) {
+          const [hx, hy] = toPx(su, v);
+          if (inside(hx, hy)) stitch[hy * size + hx] -= 1;
+          if (inside(hx + side, hy)) stitch[hy * size + hx + side] -= 0.5; // rev 5: the hole is 1.4 mm — legible beside the cord
+          for (let k = 1; k <= 3; k++) {
+            const [tx, ty] = toPx(su, v + (k / 5) * 0.0035);
+            if (inside(tx, ty)) stitch[ty * size + tx] += 0.8;
+          }
+        }
+      }
+    });
+    // tuck under the roll (top) and the seat seam (bottom): cracks grow down/up from them.
+    // Rev 5: the top band is mostly PUCKER, not crazing — the vinyl gathered under the piping
+    // throws a short diagonal wrinkle off every stitch (3–7 mm, ±25–40° off the seam normal,
+    // lit flank one side, shaded flank the other); the crack band there is a third of rev 4's.
+    seam(reg, 0, P.v0 + P.h, P.w, P.v0 + P.h, 0.003, [-1], 0.25, 0.012, 21 + pi);
+    seam(reg, 0, P.v0, P.w, P.v0, 0.003, [1], 0.5, 0.018, 29 + pi);
+    {
+      const vTop = P.v0 + P.h - 0.0008;
+      for (let u = 0.004 + rng() * 0.002; u < P.w - 0.004; u += 0.0035) {
+        if (rng() < 0.25) continue; // not every stitch puckers
+        const dir = rng() < 0.5 ? 1 : -1;
+        const th = -Math.PI / 2 + dir * (0.45 + rng() * 0.3); // down and to one side
+        const len = 0.003 + rng() * 0.004, amp = 0.5 + rng() * 0.5;
+        const n = Math.round(len / 0.0003);
+        for (let k = 0; k <= n; k++) {
+          const t = k / n, f = amp * (1 - t * t) * Math.min(1, k / 2);
+          const uu = u + Math.cos(th) * len * t, vv = vTop + Math.sin(th) * len * t;
+          const [px, py] = toPx(uu, vv);
+          if (!inside(px, py) || !inside(px + 1, py)) continue;
+          // the ridge: lit flank toward the window (−u side), shaded flank the other
+          wr[py * size + px] += f;
+          wr[py * size + px + 1] -= f * 0.9;
+        }
+      }
+    }
+  });
+  /* ---- welt cords: transverse cracks around the bead in stretches ---- */
+  {
+    const C = layout.cords;
+    for (let t = 0; t < C.tracks; t++) {
+      const v0 = C.v0 + t * C.pitch;
+      const reg: Region = { u0: 0, u1: C.len, v0, v1: v0 + C.pitch };
+      // Rev 4: the stitch line that holds the cord on — along the bead's foot (v0 + 14 % of
+      // the visible circumference), holes at 3.5 mm pitch with thread dashes between.
+      {
+        const sv = v0 + C.pitch * 0.14;
+        for (let u = 0.004 + rng() * 0.002; u < C.len - 0.004; u += 0.0035) {
+          const [hx, hy] = toPx(u, sv);
+          if (inside(hx, hy)) stitch[hy * size + hx] -= 1;
+          for (let k = 1; k <= 3; k++) {
+            const [tx, ty] = toPx(u + (k / 5) * 0.0035, sv);
+            if (inside(tx, ty)) stitch[ty * size + tx] += 0.6;
+          }
+        }
+      }
+      for (let u = rng() * 0.004; u < C.len; ) {
+        const g = gate(u * 3.1 + t * 0.71, 0.9 + t * 0.05);
+        const s = Math.min(1, Math.max(0, (g - 0.45) / 0.2));
+        if (s < 0.1) { u += 0.005; continue; }
+        u += (0.0025 + rng() * 0.006) / Math.max(0.4, s);
+        const va = v0 + rng() * C.pitch * 0.3;
+        walk(reg, u, va, Math.PI / 2 + (rng() - 0.5) * 0.5, C.pitch * (0.3 + rng() * 0.6), (0.5 + rng() * 0.5) * s, rng() < 0.08, 0.2);
+      }
+    }
+  }
+
+  /* ---- the crazed field (rev 4): where the cracks are dense the topcoat has gone matte ---- */
+  // A 5 mm box blur of the crack field, normalised so a 3 mm net saturates. Written to `physMap` — R = clearcoat factor, A = specular-intensity
+  // factor (both sampled on UV channel 1) — so at 2 m the crazing reads as a dull patch on
+  // the gloss before any hairline resolves, which is how crazed vinyl announces itself.
+  const dens = new Float32Array(size * size);
+  {
+    const R = Math.max(2, Math.round(0.0025 * pxPerM));
+    const row = new Float32Array(size * size);
+    for (let y = 0; y < size; y++) {
+      let acc = 0;
+      for (let x = -R; x < size; x++) {
+        if (x + R < size) acc += Math.min(1, crack[y * size + x + R]);
+        if (x - R - 1 >= 0) acc -= Math.min(1, crack[y * size + x - R - 1]);
+        if (x >= 0) row[y * size + x] = acc;
+      }
+    }
+    for (let x = 0; x < size; x++) {
+      let acc = 0;
+      for (let y = -R; y < size; y++) {
+        if (y + R < size) acc += row[(y + R) * size + x];
+        if (y - R - 1 >= 0) acc -= row[(y - R - 1) * size + x];
+        if (y >= 0) {
+          const i = y * size + x;
+          const d = acc / ((2 * R + 1) * (2 * R + 1) * 0.14);
+          dens[i] = Math.min(1, d);
+        }
+      }
+    }
+  }
+  /* ---- compose ---- */
+  const { c, ctx } = canvas(size, size);
+  const img = ctx.createImageData(size, size);
+  const { c: pc, ctx: pctx } = canvas(size, size);
+  const pimg = pctx.createImageData(size, size);
+  const tone = makeFbm(4103, 6, 3);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x, o = i * 4;
+      const k = 1 - 0.05 * (tone(x / size, y / size) - 0.5);
+      let r = 170 * k, g = 26 * k, b = 21 * k;
+      // the crack floor: grime in a dark red-brown groove — toward sRGB (92, 30, 20), which
+      // is × 0.62–0.7 of the vinyl at full darkness (rev 3's × 0.25 drew ink lines)
+      const cd = Math.min(1, crack[i]);
+      const a = 0.8 * cd;
+      // an opened crack shows the pale cotton backing in its floor (rev 5; the only pale wear)
+      const op = Math.min(1, open[i]) * 0.75;
+      const fr = 92 * (1 - op) + 196 * op, fg = 30 * (1 - op) + 182 * op, fb = 20 * (1 - op) + 160 * op;
+      r = r * (1 - a) + fr * a; g = g * (1 - a) + fg * a; b = b * (1 - a) + fb * a;
+      // the lip beside a crack lifts and catches the light: the texel on the lit side
+      // (up / left, toward the window) of a crack is 8–14 % lighter
+      if (cd < 0.15) {
+        const lift = Math.max(x > 0 ? crack[i - 1] : 0, y > 0 ? crack[i - size] : 0, x > 1 ? crack[i - 2] * 0.5 : 0, y > 1 ? crack[i - 2 * size] * 0.5 : 0);
+        const lf = 1 + 0.14 * Math.min(1, lift);
+        r *= lf; g *= lf; b *= lf;
+      }
+      // the crazed field itself has gone a shade paler and greyer (chalked plasticiser)
+      const dn = dens[i] * 0.24;
+      r = r * (1 - dn) + 178 * dn; g = g * (1 - dn) + 70 * dn; b = b * (1 - dn) + 60 * dn;
+      // physics map: clearcoat 1 → 0.15 and specular 1 → 0.45 across the crazed field
+      const pv = 255 * (1 - 0.85 * dens[i]), pa = 255 * (1 - 0.55 * dens[i]);
+      pimg.data[o] = pv; pimg.data[o + 1] = pv; pimg.data[o + 2] = pv; pimg.data[o + 3] = pa;
+      // pucker wrinkles under the roll seam: ±22 % flank shading
+      const wk = Math.max(-1, Math.min(1, wr[i]));
+      if (wk !== 0) { const wm = 1 + 0.22 * wk; r *= wm; g *= wm; b *= wm; }
+      // stitch: holes near-black, thread a lighter red (matching thread, catches light)
+      const st = stitch[i];
+      if (st < 0) { r *= 0.35; g *= 0.35; b *= 0.35; }
+      else if (st > 0) { const tm = 1 + 0.22 * Math.min(1, st); r *= tm; g *= tm; b *= tm; }
+      img.data[o] = Math.min(255, r); img.data[o + 1] = Math.min(255, g); img.data[o + 2] = Math.min(255, b); img.data[o + 3] = 255;
+    }
+  ctx.putImageData(img, 0, 0);
+  pctx.putImageData(pimg, 0, 0);
+  const t = finish(c, true, 8);
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  const pt = finish(pc, false, 8);
+  pt.wrapS = pt.wrapT = THREE.ClampToEdgeWrapping;
+  return { map: t, physMap: pt };
+}
+
+
 /**
  * Formica 6942 "Skylark" boomerang laminate on a plain cream field. Each shape is
  * a genuine boomerang bent 100–130°, tapered from the elbow to rounded tips (drawn
- * as a chain of discs along the centre line). Two size classes — large 30–38 mm tip
- * to tip and small 16–21 mm — three tones at low contrast, ~15 % of the shapes drawn
- * outline-only, random rotation, ~3.5 per 100 cm² (≈ 8 % cover), none touching. One canvas = `metres` (use ≥ 1.2 m so a
- * whole table shows no repeat).
+ * as a chain of discs along the centre line). Rev 3: two size classes — large 20–30 mm
+ * tip to tip and small 10–16 mm — four tones at low contrast, ~6 per 100 cm² with a
+ * third of them overlapping a neighbour (the print's tones cross), ~12 % outline-only,
+ * random rotation. One canvas = `metres` (use ≥ 1.2 m so a whole table shows no repeat).
+ *
+ * Use (rev 3, albedo + roughness from one generator so the marks coincide): a milky,
+ * featureless wipe haze in broad irregular patches (roughness 0.3 → 0.55, albedo 6 %
+ * toward grey-white; dithered — the rev 2 gradient quantised into contour lines that
+ * rendered as a fingerprint under the sun), a few hundred micro-scratches 5–60 mm at
+ * random angles weighted to one wiping direction, two dark gouges, and cup rings as
+ * partial arcs with a sharp dense outer edge fading inward over 3 mm. Roughness never
+ * below 0.28 (specular aliasing under the sun at 0.13).
  */
 export function formicaBoomerang(size: number, metres: number, seed: number): TextureSet {
   const { c, ctx } = canvas(size, size);
@@ -994,9 +1458,9 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
       img.data[o] *= 1 + n; img.data[o + 1] *= 1 + n; img.data[o + 2] *= 1 + n;
     }
   ctx.putImageData(img, 0, 0);
-  const tones = ["#CBBB9F", "#A3A8AC", "#FBF9F4"];
+  const tones = ["#CBBB9F", "#A3A8AC", "#FBF9F4", "#B9AD9A"];
   const areaCm2 = metres * metres * 1e4;
-  const target = Math.round(areaCm2 * 0.04);
+  const target = Math.round(areaCm2 * 0.06);
   const placed: Array<[number, number, number]> = [];
   const torusDist = (ax: number, ay: number, bx: number, by: number) => {
     let dx = Math.abs(ax - bx), dy = Math.abs(ay - by);
@@ -1005,21 +1469,26 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
   };
   const wraps = [[0, 0], [size, 0], [-size, 0], [0, size], [0, -size], [size, size], [-size, -size], [size, -size], [-size, size]];
   let attempts = 0;
-  while (placed.length < target && attempts < 60000) {
+  while (placed.length < target && attempts < 90000) {
     attempts++;
     const x = rng() * size, y = rng() * size;
-    const big = rng() < 0.6;
-    // Large class: arm 15–19 mm (30–38 mm tip to tip with caps); small: 7–9 mm (16–21 mm).
-    const arm = (big ? 15 + rng() * 4 : 7 + rng() * 2) * pxPerMm;
-    const reach = arm + 4 * pxPerMm;
-    if (placed.some(([px, py, pr]) => torusDist(x, y, px, py) < reach + pr + 6 * pxPerMm)) continue;
+    const big = rng() < 0.55;
+    // Large class: arm 10–14 mm (20–30 mm tip to tip with caps); small: 4.5–7 mm (10–16 mm).
+    const arm = (big ? 10 + rng() * 4 : 4.5 + rng() * 2.5) * pxPerMm;
+    const reach = arm + 3 * pxPerMm;
+    // A third may overlap a neighbour (the print's tones cross); the rest keep a 4 mm gap.
+    const overlap = rng() < 0.33;
+    if (!overlap && placed.some(([px, py, pr]) => torusDist(x, y, px, py) < reach + pr + 4 * pxPerMm)) continue;
+    if (overlap && placed.some(([px, py, pr]) => torusDist(x, y, px, py) < (reach + pr) * 0.35)) continue;
     placed.push([x, y, reach]);
     const half = THREE.MathUtils.degToRad(50 + rng() * 15); // arm half-angle (100–130° included)
-    const wMax = (big ? 3.4 + rng() * 1.0 : 2.2 + rng() * 0.5) * pxPerMm; // elbow half-width
+    const wMax = (big ? 2.4 + rng() * 0.8 : 1.6 + rng() * 0.5) * pxPerMm; // elbow half-width
     const rot = rng() * Math.PI * 2;
-    const outline = rng() < 0.15;
+    // Rev 4: no outline-only boomerangs — the hollow ones read as dark-outlined stickers at
+    // the macro pose (Skylark's outline shapes are a lighter tone on the real sheet anyway).
+    const outline = false;
     const tone = tones[Math.floor(rng() * tones.length)];
-    const steps = 48;
+    const steps = 40;
     // Two straight arms from the elbow (origin) with a rounded knee: the middle 30 % of
     // the centre line is a quadratic blend through the elbow point.
     const T1: [number, number] = [arm * Math.cos(half), arm * Math.sin(half)];
@@ -1050,7 +1519,7 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
       if (px < -arm * 2 || px > size + arm * 2 || py < -arm * 2 || py > size + arm * 2) continue;
       ctx.fillStyle = tone;
       draw(px, py, 0);
-      if (outline) { ctx.fillStyle = "#EDE6D6"; draw(px, py, 1.1 * pxPerMm); } // 1.1 mm outline stroke
+      if (outline) { ctx.fillStyle = "#EDE6D6"; draw(px, py, 0.9 * pxPerMm); } // 0.9 mm outline stroke
     }
   }
   // Gold flecks in the print: soft 1.5 mm dots at 0.3/cm² (rev 2: the 1-texel hard dots at
@@ -1058,70 +1527,93 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
   ctx.fillStyle = "rgba(216,194,138,0.55)";
   for (let k = 0; k < areaCm2 * 0.3; k++) { ctx.beginPath(); ctx.arc(rng() * size, rng() * size, 0.75 * pxPerMm, 0, Math.PI * 2); ctx.fill(); }
 
-  // Use (rev 2, in the albedo — the roughness alone never read): wipe haze — the last rag's
-  // sweeps left a faint greyer film in long arcs; two or three cup rings (coffee residue,
-  // usually incomplete); fine scratches, light where the print's clear coat scattered, one
-  // or two dark where something dug in.
-  const wipe = makeFbm(seed + 5, 6, 3);
-  const rimg = rctx.createImageData(size, size);
-  const arcs: Array<[number, number, number, number, number]> = [];
-  for (let k = 0; k < 4; k++) arcs.push([rng() * size, size * (0.3 + rng() * 0.7), size * (0.3 + rng() * 0.4), rng() * Math.PI * 2, 0.6 + rng() * 0.9]);
-  ctx.lineCap = "round";
-  for (const [ax, ay, ar, a0, sweep] of arcs) {
-    for (let p = 0; p < 5; p++) {
-      ctx.strokeStyle = `rgba(150,146,140,${0.035 + rng() * 0.03})`;
-      ctx.lineWidth = (8 + rng() * 16) * pxPerMm;
-      ctx.beginPath();
-      ctx.arc(ax, ay, ar + (p - 2) * 14 * pxPerMm, a0, a0 + sweep);
-      ctx.stroke();
-    }
-  }
-  const rings: Array<[number, number, number, number]> = [];
-  for (let k = 0; k < 3; k++) {
-    const rx = size * (0.15 + rng() * 0.7), ry = size * (0.15 + rng() * 0.7), rr = (34 + rng() * 10) * pxPerMm;
-    rings.push([rx, ry, rr, rng() * Math.PI * 2]);
-    const a0 = rng() * Math.PI * 2, gap = rng() < 0.7 ? 0.5 + rng() * 1.2 : 0;
-    ctx.strokeStyle = "rgba(118,86,48,0.16)";
-    ctx.lineWidth = 3.5 * pxPerMm;
-    ctx.beginPath(); ctx.arc(rx, ry, rr, a0 + gap, a0 + Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = "rgba(118,86,48,0.28)"; // the dried outer edge is denser
-    ctx.lineWidth = 0.9 * pxPerMm;
-    ctx.beginPath(); ctx.arc(rx, ry, rr + 1.6 * pxPerMm, a0 + gap + 0.1, a0 + Math.PI * 2 - 0.1); ctx.stroke();
-  }
-  ctx.lineCap = "butt";
-  const scr: Array<[number, number, number, number]> = [];
-  for (let k = 0; k < 11; k++) {
-    const sx = rng() * size, sy = rng() * size, len = (40 + rng() * 180) * pxPerMm, ang = rng() * Math.PI;
-    const dark = k < 2;
-    ctx.strokeStyle = dark ? "rgba(70,60,50,0.5)" : `rgba(255,255,255,${0.3 + rng() * 0.25})`;
-    ctx.lineWidth = dark ? 1.1 : 0.9;
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(sx + Math.cos(ang) * len, sy + Math.sin(ang) * len); ctx.stroke();
-    scr.push([sx, sy, sx + Math.cos(ang) * len, sy + Math.sin(ang) * len]);
-  }
+  /* ---- use ---- */
+  // Haze: where the last rag left a film, the clear coat is dulled — broad irregular patches
+  // (fbm at ~0.2–0.4 m, isotropic, no coherent direction) — and where years of sleeves and
+  // rags have rubbed, a general soft dulling. Micro-scratches: 1-texel streaks.
+  const hazeN = makeFbm(seed + 5, 5, 3);
+  const grainN = makeFbm(seed + 7, 256, 1);
+  const rough = new Float32Array(size * size);
+  const hazeF = new Float32Array(size * size);
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
-      const n = wipe(x / size, (y / size) * 0.15) - 0.5;
-      let r = 0.18 + n * 0.1;
-      for (const [rx, ry, rr] of rings) { const dd = Math.abs(Math.hypot(x - rx, y - ry) - rr); if (dd < 2.5 * pxPerMm) r += 0.3 * (1 - dd / (2.5 * pxPerMm)); }
-      const v = Math.min(255, Math.max(0, r * 255));
-      const o = (y * size + x) * 4;
+      const i = y * size + x;
+      const h = smoothstep(0.42, 0.66, hazeN(x / size, y / size));
+      hazeF[i] = h;
+      rough[i] = 0.3 + 0.24 * h + (grainN(x / size, y / size) - 0.5) * 0.02;
+    }
+  // Scratches (roughness up, albedo a touch lighter — the clear coat scatters); angles weighted
+  // to one wiping direction ± 35° with a quarter fully random. Two dark gouges.
+  const wipeDir = rng() * Math.PI;
+  const scratches: Array<[number, number, number, number, number, boolean]> = [];
+  for (let k = 0; k < 320; k++) {
+    const sx = rng() * size, sy = rng() * size;
+    const len = (5 + rng() * rng() * 55) * pxPerMm;
+    const ang = rng() < 0.75 ? wipeDir + (rng() - 0.5) * 1.2 : rng() * Math.PI;
+    scratches.push([sx, sy, sx + Math.cos(ang) * len, sy + Math.sin(ang) * len, 0.25 + rng() * 0.45, k < 2]);
+  }
+  const linePts = (x0: number, y0: number, x1: number, y1: number): Array<[number, number]> => {
+    const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 0.7));
+    return Array.from({ length: n + 1 }, (_, k) => [x0 + ((x1 - x0) * k) / n, y0 + ((y1 - y0) * k) / n] as [number, number]);
+  };
+  for (const [x0, y0, x1, y1, a, dark] of scratches) strokeField(rough, size, linePts(x0, y0, x1, y1), dark ? 0.35 : 0.45 * a, dark ? 1.6 : 1.1);
+  // Cup rings: coffee residue dries from the outside in — a sharp dense outer edge (the
+  // tide line) fading inward over ~3 mm; partial arcs (the cup was lifted before it dried).
+  // Rev 5: seven per 1.2 m canvas — a 0.7 m table top samples a third of it, so rev 4's three
+  // left most tops (the `table` / `macro-table` ones) with no ring at all.
+  const rings: Array<[number, number, number, number, number]> = [];
+  for (let k = 0; k < 7; k++) {
+    const rx = size * (0.08 + rng() * 0.84), ry = size * (0.08 + rng() * 0.84), rr = (32 + rng() * 12) * pxPerMm;
+    const a0 = rng() * Math.PI * 2, sweep = 3.5 + rng() * 2.6; // 200–350°
+    rings.push([rx, ry, rr, a0, sweep]);
+  }
+  const rimg = rctx.createImageData(size, size);
+  const rg = makeRng(seed + 11);
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x, o = i * 4;
+      let r = rough[i];
+      for (const [rx, ry, rr, a0, sweep] of rings) {
+        const d = Math.hypot(x - rx, y - ry) - rr; // + outside
+        let ang = Math.atan2(y - ry, x - rx) - a0;
+        ang = ((ang % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        if (ang > sweep) continue;
+        if (d > -3 * pxPerMm && d < 0.6 * pxPerMm) r += 0.42 * (d > -0.8 * pxPerMm ? 1 : 0.4 * (1 + d / (3 * pxPerMm)));
+      }
+      // dither: ±0.6/255 breaks the 8-bit contours that drew rev 2's fingerprint
+      const v = Math.min(255, Math.max(0, r * 255 + (rg() - 0.5) * 1.2));
       rimg.data[o] = v; rimg.data[o + 1] = v; rimg.data[o + 2] = v; rimg.data[o + 3] = 255;
     }
   rctx.putImageData(rimg, 0, 0);
-  // The same haze arcs and scratches in the roughness (lighter = duller), so the albedo marks
-  // and the gloss breaks coincide — one map pair, one UV offset per table (Booths.ts).
-  rctx.lineCap = "round";
-  for (const [ax, ay, ar, a0, sweep] of arcs) {
-    rctx.strokeStyle = "rgba(255,255,255,0.14)";
-    rctx.lineWidth = 60 * pxPerMm;
-    rctx.beginPath(); rctx.arc(ax, ay, ar, a0, a0 + sweep); rctx.stroke();
+  // Albedo side of the same marks.
+  const aimg = ctx.getImageData(0, 0, size, size);
+  const ad = aimg.data;
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x, o = i * 4;
+      const h = hazeF[i] * 0.06; // milky film: toward grey-white
+      ad[o] = ad[o] * (1 - h) + 214 * h; ad[o + 1] = ad[o + 1] * (1 - h) + 210 * h; ad[o + 2] = ad[o + 2] * (1 - h) + 204 * h;
+      for (const [rx, ry, rr, a0, sweep] of rings) {
+        const d = Math.hypot(x - rx, y - ry) - rr;
+        if (d < -3.2 * pxPerMm || d > 0.7 * pxPerMm) continue;
+        let ang = Math.atan2(y - ry, x - rx) - a0;
+        ang = ((ang % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        if (ang > sweep) continue;
+        const k = d > -0.8 * pxPerMm ? 0.5 : 0.2 * (1 + d / (3 * pxPerMm)); // rev 4: a ring you can see
+        ad[o] = ad[o] * (1 - k) + 118 * k; ad[o + 1] = ad[o + 1] * (1 - k) + 86 * k; ad[o + 2] = ad[o + 2] * (1 - k) + 48 * k;
+      }
+    }
+  ctx.putImageData(aimg, 0, 0);
+  for (const [x0, y0, x1, y1, a, dark] of scratches) {
+    // rev 5: an abraded scratch is a lighter line in the diffuse too (the gloss layer is gone,
+    // the paper shows) — 0.55·a white at 1.3 texels so it reads in the shaded half of a top
+    ctx.strokeStyle = dark ? "rgba(70,60,50,0.55)" : `rgba(255,255,255,${(0.55 * a).toFixed(3)})`;
+    ctx.lineWidth = dark ? 1.2 : 1.3;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
   }
-  rctx.lineCap = "butt";
-  rctx.strokeStyle = "rgba(255,255,255,0.6)";
-  rctx.lineWidth = 1;
-  for (const [sx, sy, ex, ey] of scr) { rctx.beginPath(); rctx.moveTo(sx, sy); rctx.lineTo(ex, ey); rctx.stroke(); }
   return { map: finish(c, true, 8), roughnessMap: finish(rc, false, 8) };
 }
+
 
 export interface WoodSet {
   map: THREE.Texture;
@@ -1426,6 +1918,116 @@ export function speckleRoughness(size: number, base: number, amp: number, seed: 
   return t;
 }
 
+/**
+ * Door kick plate (rev 3): one canvas over the plate's face (`wM` × `hM` m, UV 0..1 — the
+ * RoundedBox face UVs). Satin brushed aluminium: the map is the metal's own tint with
+ * 1–2 % vertical brush streaks (the roughness carries the brushing proper, 0.36–0.5 in
+ * vertical runs, so the floor reflection smears up the plate). On it, what shoes do to a
+ * kick plate: black rubber transfer as smears — dense core, feathered, streaked along the
+ * kick, broken where the sole lifted — MULTIPLIED into the tint (× 0.4 at full density,
+ * matte where the rubber sits), 80 % of them in the lower half and toward the latch side
+ * (`latchU`) where a foot pushes the door; a grey mop-splash film over the bottom 15 mm; a
+ * band of dulled, scratched metal along the bottom edge where the mop bucket and the vacuum
+ * catch it. The dent/lifted lip is geometry (Door.ts).
+ */
+export function kickPlateWear(w: number, h: number, wM: number, hM: number, seed: number, latchU: number): { map: THREE.Texture; roughnessMap: THREE.Texture } {
+  const { c, ctx } = canvas(w, h);
+  const rng = makeRng(seed);
+  const mPerPx = wM / w;
+  const col = makeFbm(seed + 1, 96, 2); // brush streak field, sampled along u only
+  const fine = makeFbm(seed + 2, 128, 2);
+  const grime = makeFbm(seed + 3, 8, 3);
+  const smearN = makeFbm(seed + 7, 64, 2);
+  const T = new Float32Array(w * h); // rubber transfer 0..1
+  const Hd = new Float32Array(w * h); // rubber-dust halo 0..1 (grey, wide, faint)
+  // Rev 5: each mark is ONE continuous drag, integrated as a path (heading = arc + drift,
+  // an optional hook over the last fifth), densest and widest at the impact end and
+  // feathering out along its length — rev 4 gated the path with a 64-cell fbm, which cut
+  // every drag into 6–9 equal dashes ("a dashed stamp"). Breaks only in the trailing half,
+  // from a 5-cell field, so a lifted sole reads as one gap, not a chain.
+  const marks = 16;
+  for (let s = 0; s < marks; s++) {
+    // origin: lower half, latch-side weighted; direction: an arc of a swinging foot — mostly
+    // 10–40° off horizontal, either way. A few broad faint sole-drags, most narrower.
+    const side = rng() < 0.8 ? latchU + (rng() - 0.5) * 0.7 : rng();
+    const px = ((side + 1) % 1) * w, py = h * (rng() < 0.8 ? 0.5 + rng() * 0.48 : rng() * 0.5);
+    // the first two are the long drags by the latch (120–200 mm, one of them hooked)
+    const long = s < 2;
+    const lenPx = (long ? 0.12 + rng() * 0.08 : 0.03 + rng() * rng() * 0.16) / mPerPx;
+    const ang = (rng() < 0.5 ? 1 : -1) * (0.17 + rng() * 0.5) + (rng() < 0.5 ? Math.PI : 0);
+    const bend = (rng() - 0.5) * 0.8;
+    const hook = s === 1 || rng() < 0.3 ? (rng() < 0.5 ? 1 : -1) * (0.9 + rng() * 0.8) : 0;
+    const broad = !long && rng() < 0.3;
+    const wMm = broad ? 14 + rng() * 16 : 5 + rng() * 9;
+    const weight = broad ? 0.2 + rng() * 0.25 : 0.3 + rng() * 0.5, seed2 = rng() * 10;
+    const steps = Math.max(4, Math.ceil(lenPx * 1.5));
+    let qx = px, qy = py;
+    const dirX = Math.cos(ang), dirY = Math.sin(ang);
+    for (let k = 0; k <= steps; k++) {
+      const t = k / steps;
+      if (k) {
+        const th = ang + bend * t + hook * smoothstep(0.78, 1, t) * 1.3;
+        qx += (Math.cos(th) * lenPx) / steps;
+        qy += (Math.sin(th) * lenPx) / steps;
+      }
+      const along = smearN(t * 0.08 + seed2, seed2 * 0.3);
+      const gap = 1 - smoothstep(0.35, 0.7, t) * (1 - smoothstep(0.3, 0.42, along));
+      if (gap <= 0) continue;
+      // impact end: full density within 5 % of the length, then feathering to nothing
+      const ends = smoothstep(0, 0.05, t) * Math.pow(1 - t, 1.3) * (0.7 + 0.3 * smearN(t * 0.5 + seed2 + 5, 0.3));
+      const widthPx = (wMm / 1000 / mPerPx) * (0.75 + 0.25 * smearN(t * 1.3 + seed2 + 3, 0.7)) * (1 - 0.45 * t);
+      const halo = widthPx * 2.4;
+      const R = Math.ceil(halo / 2 + 1);
+      const dens = weight * gap * ends;
+      for (let dy = -R; dy <= R; dy++)
+        for (let dx = -R; dx <= R; dx++) {
+          const xx = Math.round(qx) + dx, yy = Math.round(qy) + dy;
+          if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+          const dist = Math.hypot(xx - qx, yy - qy);
+          const i = yy * w + xx;
+          const dh = dist / (halo / 2 + 0.5);
+          if (dh <= 1) Hd[i] = Math.max(Hd[i], dens * (1 - dh * dh) * 0.7);
+          const dd = dist / (widthPx / 2 + 0.5);
+          if (dd > 1) continue;
+          const perp = (xx - qx) * -dirY + (yy - qy) * dirX;
+          const streak = smearN(t * lenPx * 0.02 + seed2 * 3, perp * 0.16 + seed2);
+          const prof = Math.pow(1 - dd * dd, 0.8) * (0.55 + 0.9 * streak);
+          T[i] = Math.max(T[i], Math.min(1, dens * prof));
+        }
+    }
+  }
+  const img = ctx.createImageData(w, h);
+  const d = img.data;
+  const rough = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const v = 1 - y / h; // v = 0 at the plate's bottom edge
+    const mm = v * hM * 1000; // height above the bottom edge
+    for (let x = 0; x < w; x++) {
+      const u = x / w, i = y * w + x, o = i * 4;
+      // brushing: vertical runs (u-only streak field) + a fine grain
+      const streak = col(u * 8, 0.5) - 0.5, grain = fine(x / w, y / h) - 0.5;
+      // rev 4: 0.30–0.40 in the runs (satin, a stretched mirror), not 0.36–0.54
+      let r = 0.27 + streak * 0.1 + grain * 0.02;
+      let k = 1 + streak * 0.03 + grain * 0.01;
+      // mop-splash film over the bottom 15 mm, ragged top edge, and the dulled/scratched
+      // bottom band (40 mm, heaviest at the edge)
+      const splash = (1 - smoothstep(6, 18 + 8 * grime(u * 3, 0.2), mm)) * (0.6 + 0.4 * grime(u * 6, v * 3));
+      const bottom = 1 - smoothstep(0, 40, mm);
+      k *= 1 - 0.14 * splash - 0.04 * bottom;
+      r += splash * 0.28 + bottom * 0.1 * (0.5 + grime(u * 10, 0.7));
+      // rubber transfer: black core, and the grey dust halo the sole leaves around it
+      const t = T[i], hd = Hd[i] * (1 - t);
+      k *= (1 - 0.5 * t) * (1 - 0.1 * hd);
+      r += t * 0.35 + hd * 0.12;
+      // F0 of oxidised aluminium: neutral cool grey (sRGB ≈ 238/240/243; linear ≈ 0.85/0.87/0.89)
+      d[o] = Math.min(255, 238 * k); d[o + 1] = Math.min(255, 240 * k); d[o + 2] = Math.min(255, 243 * k); d[o + 3] = 255;
+      rough[i] = Math.min(0.9, Math.max(0.22, r));
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return { map: finish(c, true, 4), roughnessMap: greyFromField(rough, w, h, 4) };
+}
+
 /** Coarse asphalt for the lot placeholder. */
 export function asphalt(size: number): TextureSet {
   const { c, ctx } = canvas(size, size);
@@ -1492,10 +2094,17 @@ function strokeField(f: Float32Array, size: number, pts: Array<[number, number]>
 export function laminateWear(size: number, metres: number, base: number, seed: number, rings: number): { map: THREE.Texture; roughnessMap: THREE.Texture } {
   const rng = makeRng(seed);
   const pxPerM = size / metres;
-  const wipe = makeFbm(seed + 5, 6, 3);
+  // Rev 3: isotropic haze patches (the rev 2 wipe field was stretched 6.7:1 along v and its
+  // slow gradient quantised into contour bands), a fine grain, and a ±0.6/255 dither.
+  const wipe = makeFbm(seed + 5, 5, 3);
+  const grainN = makeFbm(seed + 9, 256, 1);
+  const dith = makeRng(seed + 13);
   const f = new Float32Array(size * size);
   for (let y = 0; y < size; y++)
-    for (let x = 0; x < size; x++) f[y * size + x] = base + (wipe(x / size, (y / size) * 0.15) - 0.5) * 0.08;
+    for (let x = 0; x < size; x++) {
+      const h = smoothstep(0.44, 0.64, wipe(x / size, y / size));
+      f[y * size + x] = base - 0.02 + h * 0.1 + (grainN(x / size, y / size) - 0.5) * 0.02 + (dith() - 0.5) * (1.2 / 255);
+    }
   const arcs = Math.round(260 * metres * metres);
   for (let a = 0; a < arcs; a++) {
     const cx = rng() * size, cy = rng() * size, r = (0.03 + rng() * 0.17) * pxPerM;

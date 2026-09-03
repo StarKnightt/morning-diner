@@ -9,7 +9,8 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { DECAL, atlasQuad } from "../core/shapes";
-import { dinerFloorWear, floorCrackPath } from "../procedural/textures";
+import { makeRng } from "../core/rng";
+import { dinerFloorWear, floorCrackSegments } from "../procedural/textures";
 import { DOOR, KITCHEN_DOOR, PASS_THROUGH, REGISTER, ROOM, WINDOW } from "./layout";
 
 export interface Opening {
@@ -77,7 +78,48 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     g1.translate((dx0 + dx1) / 2, 0, (zFront + dz1) / 2);
     const uv1 = g1.attributes.uv as THREE.BufferAttribute, p1 = g1.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < p1.count; i++) uv1.setXY(i, (p1.getX(i) + halfX) / w, (zFront - p1.getZ(i)) / d);
-    const g = mergeGeometries([g0, g1], false)!;
+    // The crack's lips (rev 3): the slab moved and one side of the VCT sits 0.9–2.2 mm proud of
+    // the other, so each side of the dark floor is a 4.5 mm ramp — a lit edge and a shadow edge
+    // under the sun — merged into the floor mesh (same material, same UVs; +0 draw calls).
+    const wear = dinerFloorWear();
+    const segs = floorCrackSegments(wear);
+    const lips: THREE.BufferGeometry[] = [];
+    const floorUv = (x: number, z: number): [number, number] => [(x + halfX) / w, (zFront - z) / d];
+    segs.forEach((seg, si) => {
+      if (seg.length < 2) return;
+      const lipW = 0.0045;
+      // which side stands proud flips between segments (the slab tilts either way); the floor
+      // map's pale/dark edge strokes (textures.ts) follow the same parity.
+      const hiL = si % 2 === 0 ? 0.0022 : 0.0009, hiR = si % 2 === 0 ? 0.0009 : 0.0022;
+      for (const side of [-1, 1]) {
+        const pos: number[] = [], nrm: number[] = [], uv: number[] = [], idx: number[] = [];
+        const hi = side < 0 ? hiL : hiR;
+        for (let i = 0; i < seg.length; i++) {
+          const [x, z, hw] = seg[i];
+          const [px, pz] = seg[Math.max(0, i - 1)], [nx, nz] = seg[Math.min(seg.length - 1, i + 1)];
+          const dx = nx - px, dz = nz - pz, l = Math.hypot(dx, dz) || 1;
+          const ox = (-dz / l) * side, oz = (dx / l) * side; // unit perpendicular, this side
+          const taper = Math.min(1, i / 2, (seg.length - 1 - i) / 2);
+          // wider gap → the tile moved more → the lip stands higher
+          const h = 0.0003 + (hi - 0.0003) * taper * (0.6 + 0.4 * Math.min(1, hw / 0.0014));
+          // inner edge (at the dark floor) high, outer edge down on the tile
+          pos.push(x + ox * hw, h, z + oz * hw, x + ox * (hw + lipW), 0.0003, z + oz * (lipW + hw));
+          const slope = (h - 0.0003) / lipW;
+          const nl = Math.hypot(slope, 1);
+          nrm.push(-ox * slope / nl, 1 / nl, -oz * slope / nl, -ox * slope / nl, 1 / nl, -oz * slope / nl);
+          const [u0, v0] = floorUv(x + ox * hw, z + oz * hw), [u1, v1] = floorUv(x + ox * (hw + lipW), z + oz * (hw + lipW));
+          uv.push(u0, v0, u1, v1);
+          if (i) { const k = i * 2; if (side < 0) idx.push(k - 2, k, k - 1, k - 1, k, k + 1); else idx.push(k - 2, k - 1, k, k - 1, k + 1, k); }
+        }
+        const lg = new THREE.BufferGeometry();
+        lg.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+        lg.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+        lg.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+        lg.setIndex(idx);
+        lips.push(lg.toNonIndexed());
+      }
+    });
+    const g = mergeGeometries([g0.toNonIndexed(), g1.toNonIndexed(), ...lips], false)!;
     const floor = new THREE.Mesh(g, pal.floor);
     // 40 × 20 tiles on the canvas; tiles are 0.3 m.
     const map = pal.floor.map!;
@@ -94,22 +136,25 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     // (3.75 mm) magnified through bilinear filtering — so the dark floor of the crack is
     // geometry. Folded into the cove-base bucket: the top strip of that map is plain matte
     // black vinyl, which is what a crack floor looks like. +0 draw calls.
-    {
-      const wear = dinerFloorWear();
-      const pts = floorCrackPath(wear);
-      const hw = 0.0011, y = 0.0006;
+    // Rev 3: the dark floor is one ribbon per segment (the crack breaks at a third of the seams
+    // it crosses), its half-width the segment's own (0.3–1.0 mm), sunk 0.2 mm below the lips'
+    // inner edges so it reads as the bottom of the gap.
+    // Rev 4: the ribbon was wound clockwise from above and back-face culled — it had never
+    // drawn; the "crack" the critic saw in rev 2/3 was the floor map's feathered strokes.
+    for (const seg of segs) {
+      if (seg.length < 2) continue;
+      const y = 0.0006;
       const pos: number[] = [], nrm: number[] = [], uv: number[] = [], idx: number[] = [];
-      for (let i = 0; i < pts.length; i++) {
-        const [x, z] = pts[i];
-        const [px, pz] = pts[Math.max(0, i - 1)], [nx, nz] = pts[Math.min(pts.length - 1, i + 1)];
+      for (let i = 0; i < seg.length; i++) {
+        const [x, z, hw] = seg[i];
+        const [px, pz] = seg[Math.max(0, i - 1)], [nx, nz] = seg[Math.min(seg.length - 1, i + 1)];
         const dx = nx - px, dz = nz - pz, l = Math.hypot(dx, dz) || 1;
-        // Perpendicular, tapering to a point at both ends
-        const taper = i === 0 || i === pts.length - 1 ? 0.15 : 1;
+        const taper = Math.min(1, 0.15 + i / 2, 0.15 + (seg.length - 1 - i) / 2);
         const ox = (-dz / l) * hw * taper, oz = (dx / l) * hw * taper;
         pos.push(x + ox, y, z + oz, x - ox, y, z - oz);
         nrm.push(0, 1, 0, 0, 1, 0);
-        uv.push(i / (pts.length - 1) * 3, 0.96, i / (pts.length - 1) * 3, 0.95);
-        if (i) { const k = i * 2; idx.push(k - 2, k - 1, k, k - 1, k + 1, k); }
+        uv.push(i / (seg.length - 1) * 3, 0.96, i / (seg.length - 1) * 3, 0.95);
+        if (i) { const k = i * 2; idx.push(k - 2, k, k - 1, k - 1, k, k + 1); }
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
@@ -117,6 +162,56 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
       g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
       g.setIndex(idx);
       b.add(g, pal.baseboardWorn);
+    }
+    // Rev 5: the CHIPS are geometry too. A 3–6 mm bite out of a VCT lip is one texel of the
+    // 3.75 mm floor map (it never resolved in two revs of trying); here each is a ragged
+    // 5–8-gon of pale matte almond (`pal.cord`: a fresh through-colour break is the tile's own
+    // body a shade lighter and dead matte) laid 0.4 mm over the lip, 2–3 clustered at every
+    // segment end (the joint, where the tile broke) and one every 60–120 mm along the run.
+    {
+      const crng = makeRng(wear.seed + 79);
+      // two buckets: almond bites on the cream tiles, a dull grey lift on the charcoal ones
+      // (the map's canvas row y runs with world z from `originZ`; (tx + ty) even = charcoal)
+      const buckets = [{ pos: [] as number[], nrm: [] as number[], idx: [] as number[] }, { pos: [] as number[], nrm: [] as number[], idx: [] as number[] }];
+      const onBlack = (x: number, z: number) => (Math.floor((x - wear.originX) / wear.metresPerTile) + Math.floor((z - wear.originZ) / wear.metresPerTile)) % 2 === 0;
+      const chip = (x: number, z: number, r: number, ang: number) => {
+        const { pos, nrm, idx } = buckets[onBlack(x, z) ? 1 : 0];
+        const n = 5 + Math.floor(crng() * 4), base = pos.length / 3;
+        pos.push(x, 0.0004, z); nrm.push(0, 1, 0);
+        for (let j = 0; j < n; j++) {
+          const a = ang + (j / n) * Math.PI * 2;
+          const rj = r * (0.5 + crng() * 0.7) * (1 + 0.6 * Math.abs(Math.cos(a - ang)));
+          pos.push(x + Math.cos(a) * rj, 0.0004, z + Math.sin(a) * rj); nrm.push(0, 1, 0);
+        }
+        for (let j = 1; j <= n; j++) idx.push(base, base + (j % n) + 1, base + j); // CCW from above
+      };
+      for (const seg of segs) {
+        if (seg.length < 3) continue;
+        let since = 0.06 + crng() * 0.06;
+        for (let i = 0; i + 1 < seg.length; i++) {
+          const [ax, az, hw] = seg[i], [bx, bz] = seg[i + 1];
+          const dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz) || 1;
+          const end = i === 0 || i + 2 === seg.length;
+          since -= l;
+          if (!end && since > 0) continue;
+          if (!end) since = 0.06 + crng() * 0.06;
+          const count = end ? 2 + Math.floor(crng() * 2) : 1;
+          for (let c = 0; c < count; c++) {
+            const side = crng() < 0.5 ? -1 : 1, t = end ? crng() * 0.6 : crng();
+            const r = (end ? 0.002 : 0.0015) + crng() * 0.0025;
+            const off = hw + 0.001 + r * 0.6;
+            chip(ax + dx * t + (-dz / l) * side * off, az + dz * t + (dx / l) * side * off, r, Math.atan2(dz, dx));
+          }
+        }
+      }
+      buckets.forEach(({ pos, nrm, idx }, k) => {
+        if (!idx.length) return;
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+        g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+        g.setIndex(idx);
+        b.add(g, k ? pal.tileBacking : pal.cord);
+      });
     }
   }
 

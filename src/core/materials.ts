@@ -6,7 +6,8 @@
 import * as THREE from "three";
 import * as texModule from "../procedural/textures";
 import * as extModule from "../procedural/exterior";
-import { WINDOW } from "../scene/layout";
+import { DOOR, ROOM, WINDOW } from "../scene/layout";
+import { VINYL_CRAZE_METRES, boothVinylCrazeLayout } from "./upholstery";
 import { FLUORESCENT, TROFFER_LENS_NITS, luminance, nits } from "../scene/Lighting";
 import type { TextureBank } from "./textureBank";
 
@@ -116,6 +117,8 @@ export interface Palette {
   kickPlate: THREE.MeshPhysicalMaterial;
   /** Counter backsplash lip: satin (0.5) brushed stainless in the `stainless` colour (derived from `kickPlate`; System 4 rev 4). */
   stainlessLip: THREE.MeshPhysicalMaterial;
+  /** The kick plate proper: satin aluminium with boot rubber, mop film and brushing on its own canvas (rev 3). */
+  kickPlateWorn: THREE.MeshPhysicalMaterial;
   /** Cast pedestal bells: dark metal with a grey dust film and kick marks over the bottom 30 mm (derived from `darkMetal`). */
   castBaseDusty: THREE.MeshStandardMaterial;
   /** Door/window dressing atlas: OPEN sign, hours, PUSH, card sticker, film edge. */
@@ -123,7 +126,7 @@ export interface Palette {
 }
 
 /** Palette fields that are derived from tuned base materials after the env-intensity pass. */
-type DerivedKey = "tbarPainted" | "formicaCounterWorn" | "formicaEdgeBrushed" | "chromeScuffed" | "chromeBar" | "stainlessTouched" | "glassCarafe" | "baseboardWorn" | "vinylRedWeltCracked" | "kickPlate" | "stainlessLip" | "castBaseDusty";
+type DerivedKey = "tbarPainted" | "formicaCounterWorn" | "formicaEdgeBrushed" | "chromeScuffed" | "chromeBar" | "stainlessTouched" | "glassCarafe" | "baseboardWorn" | "vinylRedWeltCracked" | "kickPlate" | "stainlessLip" | "kickPlateWorn" | "castBaseDusty";
 
 export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palette {
   const aniso = Math.min(8, maxAnisotropy);
@@ -135,19 +138,22 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // System 5: the floor canvas is the whole room (40 × 20 tiles ≥ 38.7 × 19.5), so wear is
   // authored in world metres (textures.ts dinerFloorWear); grout relief is a 2 × 2-tile
   // detail normal whose repeat Shell.ts sets alongside the map's.
-  const floorTex = tex.checkerFloor(40, 20, 80, aniso, texModule.dinerFloorWear());
+  const floorWear = texModule.dinerFloorWear();
+  // `?noshelter`: the A/B for the floor's sheltered-roughness rectangles (System 5 rev 5).
+  if (typeof location !== "undefined" && new URLSearchParams(location.search).has("noshelter")) floorWear.sheltered = [];
+  const floorTex = tex.checkerFloor(40, 20, 80, aniso, floorWear);
   // Walls: canvas = 2.4 m (two 1.2 m drywall joints per tile; horizontal joint at 1.2 m),
   // world-anchored UVs (merge.ts worldBoxUv) so seams and the 0.95–1.12 m scuff band run
   // through every pier and spandrel. Stipple relief is a 0.6 m detail normal (repeat 4).
   const WALL_M = 2.4;
-  const wallTex = tex.paintedWall("#e9e2d2", 2048, 11, 0.06, { metres: WALL_M, seamsU: [0, 0.5], seamsV: [0.5], scuff: { v0: 0.95 / WALL_M, v1: 1.12 / WALL_M, perMetre: 3 } });
+  const wallTex = tex.paintedWall("#e9e2d2", 2048, 11, 0.06, { metres: WALL_M, seamsU: [0, 0.5], seamsV: [0.5], scuff: { v0: 0.88 / WALL_M, v1: 1.08 / WALL_M, perMetre: 3 } });
   // Window wall: canvas = the 1.8 m window pitch, u 0.5 on every window centre (Shell.ts
   // offsets the UVs), so the sun-fade halo lands beside each jamb (u 0.125 / 0.875).
   const WIN_M = WINDOW.centersX[1] - WINDOW.centersX[0]; // 1.8
   const winWallTex = tex.paintedWall("#e9e2d2", 2048, 13, 0.06, {
     metres: WIN_M,
     seamsV: [1.2 / WIN_M],
-    scuff: { v0: 0.95 / WIN_M, v1: 1.12 / WIN_M, perMetre: 2 },
+    scuff: { v0: 0.88 / WIN_M, v1: 1.08 / WIN_M, perMetre: 2 },
     fade: { jambsU: [0.5 - WINDOW.width / 2 / WIN_M, 0.5 + WINDOW.width / 2 / WIN_M], reach: 0.22 / WIN_M, v0: WINDOW.sill / WIN_M, v1: WINDOW.head / WIN_M, amount: 0.028 },
   });
   const extWallTex = tex.paintedWall("#d9cfbd", 1024, 12, 0.08);
@@ -202,17 +208,19 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // and AgX then rendered its sunlit stripes pink. Warmed to a cherry red (G ≥ B) so the
   // sunlit crowns roll off toward orange-white and the shade stays a deep red (System 4).
   // Vinyl red #AA1A15 (reads ≈ #AF1C17 after the crown vertex tint) — baked into the map below.
-  const mkVinyl = (crazed: boolean) => {
-    // System 5: authored at the displayed scale — repeat 4 on metric UVs shows one canvas per
-    // 0.25 m, so `metres` is 0.25 and the 0.55 mm pebble grain / 3.5 mm crazing cells are true size.
-    const t = tex.vinylSurface(1024, 0.25, crazed);
+  // System 5: authored at the displayed scale — repeat 4 on metric UVs shows one canvas per
+  // 0.25 m, so `metres` is 0.25 and the 0.55 mm pebble grain is true size. One grain set
+  // serves both materials (rev 3: the crazing is no longer in the tiling maps).
+  const vinylGrain = tex.vinylSurface(1024, 0.25);
+  const mkVinyl = (map: THREE.Texture) => {
+    const t = vinylGrain;
     t.normalMap.repeat.set(4, 4);
     t.roughnessMap.repeat.set(4, 4);
     t.map.repeat.set(4, 4);
-    return new THREE.MeshPhysicalMaterial({
-      // Rev 2: the red moved into the map (burnished blotches darker, scrim in the cracks).
+    const m = new THREE.MeshPhysicalMaterial({
+      // Rev 2: the red moved into the map.
       color: 0xffffff,
-      map: t.map,
+      map,
       normalMap: t.normalMap,
       // 0.8 (was 1.25): at 1.25 the 0.1 mm/texel grain under a 0.3-rough clearcoat sparkled —
       // pixel-scale highlights that changed with every camera step read as flicker (rev 7).
@@ -225,9 +233,70 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
       clearcoatRoughness: 0.45,
       vertexColors: true,
     });
+    // System 5 rev 4: the vertex colour's green excess (> 1 where upholstery.ts burnished the
+    // seat nose and polished the cushion edges) also FLATTENS the pebble grain and halves the
+    // roughness there — burnished vinyl is a lighter AND glossier band, not just a paler tint.
+    // Rev 5: the signal is G − R (upholstery.ts lifts G 1.6× over R in the band; plainColor's
+    // uniform tints on welts and cords cancel out, so they no longer pick it up).
+    m.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <normal_fragment_maps>",
+          /* glsl */ `#include <normal_fragment_maps>
+#ifdef USE_COLOR
+	normal = normalize( mix( normal, nonPerturbedNormal, clamp( ( vColor.g - vColor.r ) * 5.0, 0.0, 0.85 ) ) );
+#endif`,
+        )
+        .replace(
+          "#include <roughnessmap_fragment>",
+          /* glsl */ `#include <roughnessmap_fragment>
+#ifdef USE_COLOR
+	roughnessFactor *= clamp( 1.0 - ( vColor.g - vColor.r ) * 3.5, 0.3, 1.0 );
+#endif`,
+        )
+        // Rev 5: the band was invisible in shade — a 35 % lift of G on a red whose G is 26/255
+        // is nothing, and a halved roughness has no light to mirror there. Burnished vinyl in
+        // shade is a PINKER, lighter band (the flat surface sheens the room) under a stronger
+        // clearcoat: lift the diffuse toward a pale pink and add 0.5 clearcoat in the band.
+        .replace(
+          "#include <color_fragment>",
+          /* glsl */ `#include <color_fragment>
+#ifdef USE_COLOR
+	{
+		float burnish = clamp( ( vColor.g - vColor.r ) * 5.0, 0.0, 1.0 );
+		diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * 0.65 + vec3( 0.26, 0.09, 0.08 ), burnish * 0.55 );
+	}
+#endif`,
+        )
+        .replace(
+          "material.clearcoat = clearcoat;",
+          /* glsl */ `material.clearcoat = clearcoat;
+#ifdef USE_COLOR
+	material.clearcoat += clamp( ( vColor.g - vColor.r ) * 5.0, 0.0, 1.0 ) * 0.5;
+#endif`,
+        );
+    };
+    m.customProgramCacheKey = () => "vinylBurnish5";
+    return m;
   };
-  const vinylRed = mkVinyl(false);
-  const vinylRedCrazed = mkVinyl(true);
+  const vinylRed = mkVinyl(vinylGrain.map);
+  // Rev 3: the crazed booth samples a non-repeating 2048² atlas (0.68 mm/texel over 1.4 m)
+  // on UV channel 1 — dark hairline fractures grown from the flex lines, flaked scrim
+  // islands, the stitch lines — while the 0.5 mm grain keeps tiling on channel 0.
+  // Booths.ts lays the head roll, both channel panels and the welt cords out in it.
+  const craze = tex.vinylCrazeAtlas(2048, VINYL_CRAZE_METRES, boothVinylCrazeLayout());
+  const crazeMap = craze.map;
+  crazeMap.channel = 1;
+  crazeMap.repeat.set(1 / VINYL_CRAZE_METRES, 1 / VINYL_CRAZE_METRES);
+  const vinylRedCrazed = mkVinyl(crazeMap);
+  // Rev 4: the crazed field is MATTE — the atlas's physics map (R = clearcoat factor, A =
+  // specular-intensity factor, same channel-1 UVs) takes the clearcoat to ≈ 0 and the
+  // specular to 45 % where the net is dense, so at 2 m the crazing is a dull patch on the
+  // gloss before a single hairline resolves.
+  craze.physMap.channel = 1;
+  craze.physMap.repeat.copy(crazeMap.repeat);
+  vinylRedCrazed.clearcoatMap = craze.physMap;
+  vinylRedCrazed.specularIntensityMap = craze.physMap;
 
   // Laminates: ExtrudeGeometry UVs are in metres; one canvas = 0.5 m.
   // One 2048 canvas covers 1.2 m: a whole table top without a visible repeat.
@@ -238,12 +307,19 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // canvas itself — albedo AND roughness from one generator, so the marks coincide (rev 1 had
   // them in a separate roughness-only map at a different period: invisible under this light,
   // and misaligned with anything that could have shown). Booths.ts offsets each table's UVs.
+  // `?lamflat` (rev 4 A/B): the table laminate with its maps swapped for constants — if the
+  // sunlit ripples survive this, they are the light path's, not the maps'.
+  const lamQ = typeof location !== "undefined" ? new URLSearchParams(location.search).get("lamflat") : null;
+  const lamFlat = lamQ !== null;
+  const lamMatte = lamQ === "matte"; // …and no specular at all: is the pattern in the diffuse term?
   const formica = new THREE.MeshPhysicalMaterial({
-    map: boomerang.map,
-    roughnessMap: boomerang.roughnessMap,
-    roughness: 1, // × map ≈ 0.18
+    map: lamFlat ? null : boomerang.map,
+    color: lamFlat ? 0xede6d6 : 0xffffff,
+    roughnessMap: lamFlat ? null : boomerang.roughnessMap,
+    roughness: lamMatte ? 1 : lamFlat ? 0.4 : 1, // × map
     metalness: 0,
-    clearcoat: 0.2,
+    specularIntensity: lamMatte ? 0 : 1,
+    clearcoat: lamMatte ? 0 : 0.2,
     clearcoatRoughness: 0.15,
   });
   const speckle = tex.formicaSpeckle(1024, 44);
@@ -635,14 +711,8 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   const chromeScuffed = withRough(palette.chrome.clone(), tex.scuffRoughness(512, palette.chrome.roughness, 61));
   // Hands on chrome: the push bar and pull handle (v along the bar).
   const chromeBar = withRough(palette.chrome.clone(), tex.handWear(512, palette.chrome.roughness, 62));
-  const vinylRedWeltCracked = palette.vinylRedCrazed.clone();
-  {
-    const t = tex.vinylSurface(1024, 0.25, true, true);
-    for (const m of [t.normalMap, t.roughnessMap, t.map]) { m.wrapS = m.wrapT = THREE.RepeatWrapping; m.repeat.set(4, 4); }
-    vinylRedWeltCracked.normalMap = t.normalMap;
-    vinylRedWeltCracked.roughnessMap = t.roughnessMap;
-    vinylRedWeltCracked.map = t.map;
-  }
+  // Rev 3: the welt-cracked panels and the crazed roll are one atlas, one material (−1 draw call).
+  const vinylRedWeltCracked = palette.vinylRedCrazed;
   // Kick plate: satin brushed stainless — a looser finish than the brewer trim (0.45) so it
   // scatters the room into a light grey instead of mirroring the dark floor (rev 1 read as
   // a flat mauve-brown rectangle), horizontal brushing along the plate.
@@ -657,6 +727,87 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // blinds from the one-point probe — a clipped white streak the critics read as a neon tube.
   const stainlessLip = kickPlate.clone();
   stainlessLip.color.copy(palette.stainless.color);
+  // Rev 3: the plate itself gets its own wear canvas (tint + brushing + boot rubber + mop
+  // film; textures.ts kickPlateWear) on the RoundedBox face UVs; the push-bar roses keep the
+  // plain satin above. Roughness floor 0.3 (no sub-texel roughness → no specular sparkle
+  // from the map). +1 draw call.
+  // Rev 4: satin aluminium is a stretched anisotropic MIRROR — the rev 3 plate (roughness
+  // 0.36–0.54, anisotropy 0.7, the room probe) read as brown-painted board because the one
+  // room probe, taken 7 m away, shows the kitchen partition where the plate should show
+  // the floor in front of the door. It now takes its own probe (Diner.ts `doorProbe`, at the
+  // plate, so the checker and the bright doorway are what it mirrors), roughness 0.3–0.4 in
+  // vertical brush runs (the map), anisotropy 0.8 along them, a neutral cool-grey F0.
+  const kickPlateWorn = kickPlate.clone();
+  {
+    const kw = tex.kickPlateWear(1024, 256, DOOR.width - 2 * DOOR.jamb - 2 * DOOR.reveal - 2 * 0.123, 0.203, 97, 0.15 /* u runs from the latch (+x) end on the −z face */);
+    kw.map.wrapS = kw.map.wrapT = THREE.ClampToEdgeWrapping;
+    kw.roughnessMap.wrapS = kw.roughnessMap.wrapT = THREE.ClampToEdgeWrapping;
+    kickPlateWorn.map = kw.map;
+    kickPlateWorn.roughnessMap = kw.roughnessMap;
+    kickPlateWorn.color.setRGB(1, 1, 1);
+    kickPlateWorn.roughness = 1;
+    kickPlateWorn.envMapIntensity = 1.3;
+    kickPlateWorn.userData.doorProbe = true;
+    // three's `anisotropy` bends the environment lookup toward one direction (a single bent
+    // normal), so on a 0.8 m plate it returned one colour — the rev 3 board. The stretched
+    // mirror is done by hand: five environment taps fanned along the brush (world y, the
+    // brush runs vertically) with the lookup roughness lowered across it, and each tap
+    // PARALLAX-CORRECTED against the room box from the door probe's station (a one-point
+    // probe otherwise shows the same floor patch across the whole plate — no checker).
+    kickPlateWorn.anisotropy = 0;
+    const probePos = new THREE.Vector3(DOOR.hingeX + DOOR.width / 2, 0.35, ROOM.zFront - 0.22);
+    kickPlateWorn.userData.doorProbePos = probePos;
+    // `?kpmirror`: a polished plate, to read the probe and the projection.
+    const kpMirror = typeof location !== "undefined" && new URLSearchParams(location.search).has("kpmirror");
+    kickPlateWorn.onBeforeCompile = (shader) => {
+      shader.defines = { ...shader.defines, KP_SPREAD: kpMirror ? "0.0" : "0.6", KP_LR: kpMirror ? "0.05" : "0.6" };
+      shader.uniforms.uKpProbe = { value: probePos };
+      shader.uniforms.uKpBoxMin = { value: new THREE.Vector3(-ROOM.halfX, 0, ROOM.zBack) };
+      shader.uniforms.uKpBoxMax = { value: new THREE.Vector3(ROOM.halfX, ROOM.height, ROOM.zFront) };
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying vec3 vKpPos;")
+        .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvKpPos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;");
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <common>",
+          /* glsl */ `#include <common>
+varying vec3 vKpPos;
+uniform vec3 uKpProbe, uKpBoxMin, uKpBoxMax;
+vec3 kpBoxDir( vec3 R ) {
+	vec3 rbmax = ( uKpBoxMax - vKpPos ) / R, rbmin = ( uKpBoxMin - vKpPos ) / R;
+	vec3 rb = mix( rbmin, rbmax, step( vec3( 0.0 ), R ) );
+	float d = min( min( rb.x, rb.y ), rb.z );
+	return normalize( vKpPos + R * d - uKpProbe );
+}`,
+        )
+        // (the chunk includes are expanded after onBeforeCompile, so the edited chunk is inlined)
+        .replace(
+          "#include <lights_fragment_maps>",
+          THREE.ShaderChunk.lights_fragment_maps.replace(
+            "radiance += getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );",
+            /* glsl */ `{
+	vec3 R = reflect( - geometryViewDir, geometryNormal );
+	R = transformDirectionByInverseViewMatrix( R, viewMatrix );
+	// Nine taps up a Gaussian fan (±spread at 2σ) along the brush; the fan width rides the
+	// brush roughness texel by texel, so the streaks break up run by run as brushing does.
+	float spread = KP_SPREAD * material.roughness;
+	float lr = material.roughness * KP_LR;
+	vec3 acc = vec3( 0.0 );
+	float wsum = 0.0;
+	for ( int k = -4; k <= 4; k ++ ) {
+		float f = float( k ) / 4.0;
+		float wgt = exp( - 2.0 * f * f );
+		vec3 Rk = normalize( R + vec3( 0.0, f * spread, 0.0 ) );
+		acc += wgt * textureCubeUV( envMap, envMapRotation * kpBoxDir( Rk ), lr ).rgb;
+		wsum += wgt;
+	}
+	radiance += acc * ( envMapIntensity / wsum );
+}`,
+          ),
+        );
+    };
+    kickPlateWorn.customProgramCacheKey = () => "kickPlateBoxProbe";
+  }
   // Pedestal bells at floor contact (rev 2): the LatheGeometry's v runs up the profile, the
   // rim and shoulder are v ≲ 0.2. A 64 × 64 DataTexture (no worker) carries the cast's own
   // colour with a grey dust film and mop splash over the bottom, patchy around the base, and
@@ -722,5 +873,5 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // upward with drips (additive param on the existing material).
   palette.coffeeStain.alphaMap = tex.tideLineAlpha(512, 65);
 
-  return { ...palette, formicaEdgeBrushed, chromeScuffed, chromeBar, stainlessTouched, glassCarafe, formicaCounterWorn, tbarPainted, baseboardWorn, vinylRedWeltCracked, kickPlate, stainlessLip, castBaseDusty };
+  return { ...palette, formicaEdgeBrushed, chromeScuffed, chromeBar, stainlessTouched, glassCarafe, formicaCounterWorn, tbarPainted, baseboardWorn, vinylRedWeltCracked, kickPlate, stainlessLip, kickPlateWorn, castBaseDusty };
 }

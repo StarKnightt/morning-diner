@@ -24,7 +24,7 @@ import { ROOM_PROBE_INTENSITY, buildContactShadows, buildLighting, installShadow
 import { buildProps } from "./Props";
 import { buildShell } from "./Shell";
 import { buildSystem9, type System9 } from "./Sys9";
-import { FAN } from "./layout";
+import { DOOR, FAN, ROOM } from "./layout";
 
 export interface BuildHooks {
   /** Main-pass camera; its program variant is compiled ahead of the first frame. */
@@ -295,6 +295,20 @@ export class Diner {
         assign([this.palette.formicaCounter, this.palette.formicaCounterWorn], roomSpec.texture);
         assign(propMats, prop.texture);
         assign(exteriorMats, lot.texture);
+      }
+      // Door probe (System 5 rev 4): the kick plate is a satin mirror facing the room from
+      // the door, and from the room probe's station 7 m away its mirror direction (down and
+      // into the room) lands on the kitchen partition, not on the checker floor a metre in
+      // front of the door that it physically reflects. One more capture at the plate itself
+      // (sun on, under the final probes; +6 face renders, once) for the materials that ask
+      // for it (`userData.doorProbe`).
+      {
+        const doorMats = (Object.values(this.palette) as THREE.Material[]).filter((m): m is THREE.MeshStandardMaterial => (m as THREE.MeshStandardMaterial).isMeshStandardMaterial && m.userData.doorProbe === true);
+        if (doorMats.length) {
+          const p = (doorMats[0].userData.doorProbePos as THREE.Vector3 | undefined) ?? new THREE.Vector3(DOOR.hingeX + DOOR.width / 2, 0.35, ROOM.zFront - 0.22);
+          const door = probe(p.x, p.y, p.z);
+          assign(doorMats, door.texture);
+        }
       }
       // Station probes (System 9 rev 4): a satin plate is a stretched mirror, and from the
       // metals' probe 3 m away its mirror directions land on the wrong walls (the kitchen

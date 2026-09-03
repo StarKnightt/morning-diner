@@ -75,20 +75,67 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   }
   // Kick plate (System 5): 8" (203 mm) satin stainless on the push side, door width less 2",
   // screwed to the bottom rail — standard commercial hardware (ANSI/BHMA A156.6 protective plates).
-  // Rev 2: its own satin material, a 1.5 mm rolled edge that catches a highlight, and six
-  // Ø 8 mm oval-head screws (25 mm in from the corners, one pair mid-run).
+  // Rev 3: the plate wears its own canvas (pal.kickPlateWorn: brushing, boot rubber, mop
+  // film); twelve Ø 8 mm oval-head PHILLIPS screws on the standard template — one row along
+  // the top and one along the bottom, 25 mm in, at ~150 mm centres (5 per row), plus one at
+  // mid-height on each end; and the plate's bottom edge is bent out over 160 mm toward the
+  // latch side where a heel caught it — a lip standing 2.5 mm off the door, the plate face
+  // dished into it.
   const kx0 = stile + 0.023, kx1 = leafW - stile - 0.023, ky0 = y0 + 0.012, ky1 = ky0 + 0.203;
-  b.rbox(pal.kickPlate, [kx0, ky0, z0 - 0.0015], [kx1, ky1, z0], 0.0012, 2);
-  for (const sx of [kx0 + 0.025, (kx0 + kx1) / 2, kx1 - 0.025])
-    for (const sy of [ky0 + 0.025, ky1 - 0.025]) {
-      const screw = new THREE.SphereGeometry(0.004, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2);
-      screw.scale(1, 0.45, 1);
-      screw.rotateX(-Math.PI / 2);
-      screw.translate(sx, sy, z0 - 0.0015);
-      b.add(screw, pal.chromeBar);
-      // Slot: a dark hairline across the head
-      b.box(pal.darkMetal, [sx - 0.003, sy - 0.0003, z0 - 0.0035], [sx + 0.003, sy + 0.0003, z0 - 0.0015]);
-    }
+  b.rbox(pal.kickPlateWorn, [kx0, ky0, z0 - 0.0015], [kx1, ky1, z0], 0.0012, 2);
+  {
+    // Lifted lip: a strip of plate 14 mm tall along the bottom edge, hinged at its top,
+    // rotated out 10°, over a 160 mm run ending 90 mm from the latch end; the dish above it
+    // is a shallow wedge (2 mm proud at the strip, fading over 30 mm).
+    const lx1 = kx1 - 0.09, lx0 = lx1 - 0.16, lipH = 0.014, lift = THREE.MathUtils.degToRad(10);
+    // The sheet carries the plate's own canvas: its UVs are the plate-face UVs of the spot it
+    // covers (the RoundedBox −z face runs u from the +x end, v up), so the brushing and the
+    // rubber continue across the bend instead of a patch of clean metal.
+    // (+z is the door's exterior; the plate face is at z0 − 0.0015 on the interior side, so
+    // "out" is −z.) One bent sheet, not boxes: a 24 × 8 grid over 160 × 48 mm whose stand-off
+    // from the plate face is a bell along the run (nothing at the ends — a dent has no step)
+    // times a profile up the plate: 1 at the lip's bend line, the lip below it swinging out
+    // a further 10°, fading to nothing 48 mm up.
+    const dishH = 0.048, nx = 24, ny = 8;
+    const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+    for (let j = 0; j <= ny; j++)
+      for (let i = 0; i <= nx; i++) {
+        const fx = i / nx, fy = j / ny;
+        const x = lx0 + (lx1 - lx0) * fx, y = ky0 + dishH * fy;
+        const bell = Math.sin(Math.PI * fx) ** 1.5;
+        const yl = y - (ky0 + lipH); // height above the bend line
+        const prof = yl >= 0 ? 1 - yl / (dishH - lipH) : 1 + (-yl / lipH) * (lipH * Math.tan(lift)) / 0.0025;
+        const out = 0.0025 * bell * Math.max(0, prof);
+        pos.push(x, y, z0 - 0.0015 - out);
+        uv.push((kx1 - x) / (kx1 - kx0), (y - ky0) / (ky1 - ky0));
+        // wound to face −z (the room)
+        if (i < nx && j < ny) { const k = j * (nx + 1) + i; idx.push(k, k + nx + 1, k + 1, k + 1, k + nx + 1, k + nx + 2); }
+      }
+    const dent = new THREE.BufferGeometry();
+    dent.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    dent.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    dent.setIndex(idx);
+    dent.computeVertexNormals();
+    b.add(dent.toNonIndexed(), pal.kickPlateWorn);
+  }
+  const screwAt = (sx: number, sy: number) => {
+    const screw = new THREE.SphereGeometry(0.004, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+    screw.scale(1, 0.45, 1);
+    screw.rotateX(-Math.PI / 2);
+    screw.translate(sx, sy, z0 - 0.0015);
+    b.add(screw, pal.chromeBar);
+    // Phillips recess: two dark hairlines crossing at the crown
+    b.box(pal.darkMetal, [sx - 0.0022, sy - 0.0003, z0 - 0.0034], [sx + 0.0022, sy + 0.0003, z0 - 0.0015]);
+    b.box(pal.darkMetal, [sx - 0.0003, sy - 0.0022, z0 - 0.0034], [sx + 0.0003, sy + 0.0022, z0 - 0.0015]);
+  };
+  const nCol = 5;
+  for (let i = 0; i < nCol; i++) {
+    const sx = kx0 + 0.025 + ((kx1 - kx0 - 0.05) * i) / (nCol - 1);
+    screwAt(sx, ky0 + 0.025);
+    screwAt(sx, ky1 - 0.025);
+  }
+  screwAt(kx0 + 0.025, (ky0 + ky1) / 2);
+  screwAt(kx1 - 0.025, (ky0 + ky1) / 2);
   // Surface closer on the top rail (interior side) with its arm reaching the head bracket
   const cy0 = leafH - topRail + 0.02, cy1 = leafH - 0.015;
   b.rbox(pal.darkMetal, [0.12, cy0, z0 - 0.06], [0.36, cy1, z0], 0.004);

@@ -6,6 +6,7 @@
  */
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { BOOTH, WINDOW } from "../scene/layout";
 
 /** Attach a constant vertex colour (default: no wear). */
 export function plainColor(g: THREE.BufferGeometry, v = 1): THREE.BufferGeometry {
@@ -33,6 +34,28 @@ export function metricUv(g: THREE.BufferGeometry, jitter: number | { u: number; 
   g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
 }
 
+/**
+ * Metric UVs for a `CylinderGeometry` laid along z (`rotateX(π/2)`, then `rotateZ(seam − π/2)`
+ * so the cylinder's own u = 0.5 column points along the seam direction `seam`, radians in the
+ * x–y plane): u = z, v = signed arc length from the seam, so a metric map runs continuously
+ * round the roll and its only join is the cylinder's own duplicated column diametrically
+ * opposite the seam (rev 3: `metricUv` mirrored the grain at the crest and the flip read as
+ * a seam). `vScale` lets the circumference map to a whole number of texture periods (pass
+ * period / 2πr). Returns the arc per vertex for a second UV channel.
+ */
+export function cylinderArcUv(g: THREE.BufferGeometry, r: number, vScale = 1): Float32Array {
+  const p = g.attributes.position, uv0 = g.attributes.uv;
+  const uv = new Float32Array(p.count * 2);
+  const arc = new Float32Array(p.count);
+  for (let i = 0; i < p.count; i++) {
+    arc[i] = (uv0.getX(i) - 0.5) * 2 * Math.PI * r;
+    uv[i * 2] = p.getZ(i);
+    uv[i * 2 + 1] = arc[i] * vScale;
+  }
+  g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  return arc;
+}
+
 const smooth = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
@@ -49,6 +72,8 @@ export interface CushionOptions {
   segments?: number;
   /** Seat sag: dips in the top face at these z positions (local), each `depth` deep over a ~0.22 m radius. */
   sags?: Array<{ z: number; depth: number }>;
+  /** Burnish strength at the front edge (0..0.3): one lighter zone where thighs slide (rev 3). */
+  burnish?: number;
 }
 
 /**
@@ -111,6 +136,24 @@ export function cushionGeometry(w: number, h: number, d: number, r: number, o: C
     col[i * 3] = 1 + k * 0.08;
     col[i * 3 + 1] = 1 + k * 0.35;
     col[i * 3 + 2] = 1 + k * 0.3;
+    // Seat burnish (rev 3): thighs slide over the front 10–12 cm of the seat and the nose
+    // every time someone sits down or gets up, and the pebble grain there is polished flat —
+    // lighter and pinker (the specular of a flat surface) in ONE zone along the front edge,
+    // strongest over the sit positions, fading to nothing 12 cm in and at the ends.
+    if (o.burnish && belly !== "none") {
+      const axis = belly[1], sign = belly[0] === "+" ? 1 : -1;
+      const half = axis === "x" ? w / 2 : d / 2;
+      const din = half - (axis === "x" ? sign * x : sign * z); // metres in from the front edge
+      const along = axis === "x" ? z : x, alongHalf = axis === "x" ? d / 2 : w / 2;
+      const upper = Math.max(0, ny) * 0.8 + Math.max(0, axis === "x" ? sign * nx : sign * nz) * 0.6;
+      let sit = 0.3;
+      for (const sg of o.sags ?? []) sit = Math.max(sit, Math.exp(-(((along - sg.z) / 0.22) ** 2)));
+      const bz = smooth(0.12, 0.015, din) * sit * smooth(0.02, 0.08, alongHalf - Math.abs(along)) * Math.min(1, upper);
+      const amt = o.burnish * bz;
+      col[i * 3] *= 1 + amt;
+      col[i * 3 + 1] *= 1 + amt * 1.6;
+      col[i * 3 + 2] *= 1 + amt * 1.5;
+    }
   }
   p.needsUpdate = true;
   n.needsUpdate = true;
@@ -158,7 +201,8 @@ export interface ChannelPanel {
  * of ±3 mm where it dives under the head roll / seat seam. The crowns fade to
  * zero at the panel's outer edge so it can sit 2–3 mm inside a flat backing.
  */
-export function channelPanel(w: number, h: number, pitch: number, depth: number, seed = 1): ChannelPanel {
+/** Channel boundaries of a `channelPanel` (local x, −w/2 … w/2): widths ±10 %, seeded. */
+export function channelBounds(w: number, pitch: number, seed = 1): number[] {
   const rng = (() => {
     let a = seed >>> 0;
     return () => {
@@ -169,11 +213,86 @@ export function channelPanel(w: number, h: number, pitch: number, depth: number,
     };
   })();
   const n = Math.max(1, Math.round(w / pitch));
-  // Channel widths ±10 %, normalised to fill w.
   const raw = Array.from({ length: n }, () => 0.9 + rng() * 0.2);
   const sum = raw.reduce((a, b) => a + b, 0);
   const bounds = [-w / 2];
   for (let k = 0; k < n; k++) bounds.push(bounds[k] + (raw[k] / sum) * w);
+  return bounds;
+}
+
+/**
+ * Booth back dimensions shared by Booths.ts and the crazed-vinyl atlas (materials.ts):
+ * the sewn channel panel on the reclined face and the head roll.
+ */
+/** Radius of the piped seam where the channels dive under the head roll. */
+export const ROLL_SEAM_R = 0.0035;
+/**
+ * The head roll's piped seam in booth-local (x, y) — x grows toward the divider, the face
+ * leans that way. Rev 4: the piping runs 25 mm out from the wedge face, parallel to it
+ * (proud of the 17–20 mm channel crowns and their tuck gathers, so the bead is never
+ * swallowed by the panel), at the point where it first touches the roll; rev 3's sat
+ * 5 mm off the roll with a shadowed gap, and rev 4a's buried in the puckers. `t` is the
+ * seam's position along the face from its base — the channel panel runs up to it.
+ */
+export function rollSeam(): { x: number; y: number; t: number } {
+  const { seat, back } = BOOTH;
+  const yb0 = seat.top + 0.01;
+  const dy = back.top - yb0;
+  const lean = Math.tan(THREE.MathUtils.degToRad(back.reclineDeg)) * dy;
+  const faceLen = Math.hypot(lean, dy);
+  const dX = lean / faceLen, dY = dy / faceLen; // along the face
+  const nX = -dY, nY = dX; // outward normal (away from the divider)
+  const h = 0.025;
+  const cX = back.rearX - back.rollR + 0.02, cY = back.top; // roll axis
+  const qX = back.frontX + nX * h - cX, qY = yb0 + nY * h - cY;
+  const qd = qX * dX + qY * dY;
+  const R = back.rollR + ROLL_SEAM_R - 0.0004;
+  const t = -qd - Math.sqrt(Math.max(0, qd * qd - (qX * qX + qY * qY) + R * R));
+  return { x: back.frontX + nX * h + dX * t, y: yb0 + nY * h + dY * t, t };
+}
+
+export function boothBackDims() {
+  const { seat, back, zInner, zOuter } = BOOTH;
+  const cd = zOuter - zInner;
+  const yb0 = seat.top + 0.01;
+  const lean = Math.tan(THREE.MathUtils.degToRad(back.reclineDeg)) * (back.top - yb0);
+  const faceLen = Math.hypot(lean, back.top - yb0);
+  const seamT = rollSeam().t;
+  // Panel: from 20 mm above the seat seam to 2 mm past the piping's axis (rev 4).
+  return { cd, yb0, lean, faceLen, seamT, panelW: cd - 0.03, panelH: seamT + 0.002 - 0.02, rollLen: cd - 0.01, rollArcHalf: Math.PI * back.rollR };
+}
+
+/** Seed of a bench's channel panel (booth table `ti`, side `s`) — must match Booths.ts. */
+export const channelSeed = (ti: number, s: number) => 11 + Math.round(WINDOW.centersX[ti] * 10) + s;
+/** The booth whose vinyl has crazed (rev 2/3): the second table. */
+export const CRAZED_BOOTH = 1;
+
+/**
+ * Where the crazed booth's pieces sit in the crazing atlas (metres; the canvas is
+ * `VINYL_CRAZE_METRES` square). Head roll unrolled at the bottom, then the two benches'
+ * panels (s = −1, then +1), then one strip per welt cord (18 cords × 12 mm of the bead's
+ * 19 mm circumference — the underside is never seen).
+ */
+export const VINYL_CRAZE_METRES = 1.5;
+export function boothVinylCrazeLayout() {
+  const d = boothBackDims();
+  const panels = [-1, 1].map((s, k) => ({
+    v0: 0.3 + k * 0.48,
+    w: d.panelW,
+    h: d.panelH,
+    valleys: channelBounds(d.panelW, 0.12, channelSeed(CRAZED_BOOTH, s)).slice(1, -1).map((x) => x + d.panelW / 2),
+  }));
+  const cordCount = panels.reduce((a, p) => a + p.valleys.length, 0);
+  return {
+    roll: { v0: 0, len: d.rollLen, arcHalf: d.rollArcHalf },
+    panels,
+    cords: { v0: 0.3 + 2 * 0.48, tracks: cordCount, pitch: 0.012, len: d.panelH },
+  };
+}
+
+export function channelPanel(w: number, h: number, pitch: number, depth: number, seed = 1): ChannelPanel {
+  const bounds = channelBounds(w, pitch, seed);
+  const n = bounds.length - 1;
   const valleys = bounds.slice(1, -1);
   const segX = n * 18, segY = 64;
   const valleyDrop = 0.005; // fabric sits 5 mm under the crown at the cord: a 1–2 mm dip below the cord's underside
@@ -190,10 +309,13 @@ export function channelPanel(w: number, h: number, pitch: number, depth: number,
     // Crown: a rounded pillow (sin^0.9) — the old sin^0.35 was flat across 80 % of the
     // channel and the field read as a plane between the cords.
     const pleat = Math.sin(Math.PI * u) ** 0.9;
-    const env = smooth(0, 0.06, 0.5 - Math.abs(y) / h) * smooth(0, 0.03, 0.5 - Math.abs(x) / w);
+    // Rev 4: the panel's top edge runs UNDER the roll's piped seam at full crown height — the
+    // old 30 mm fall-off to the base plate left a bare flat strip between the channels and
+    // the seam that read as a hard texture boundary. Only the bottom (seat seam) still tapers.
+    const env = (y < 0 ? smooth(0, 0.06, 0.5 + y / h) : 1) * smooth(0, 0.03, 0.5 - Math.abs(x) / w);
     // Gathers where the channel is tucked under the roll seam (top) and the seat seam (bottom).
     const top = h / 2 - y, bot = y + h / 2;
-    const tuck = Math.exp(-((top / 0.018) ** 2)) + 0.7 * Math.exp(-((bot / 0.018) ** 2));
+    const tuck = 0.6 * Math.exp(-((top / 0.018) ** 2)) + 0.7 * Math.exp(-((bot / 0.018) ** 2));
     const pucker = Math.abs(Math.sin(Math.PI * u * 6)) * tuck;
     const z = (depth - valleyDrop + valleyDrop * pleat + pucker * 0.003 * pleat) * env;
     p.setZ(i, z);
