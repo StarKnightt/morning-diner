@@ -160,4 +160,107 @@ export class PlayerSfx {
     breath.stop(ts + 0.3);
     o.addEventListener("ended", () => out.disconnect(), { once: true });
   }
+
+  /**
+   * Vinyl taking the body's weight (Sit.ts, as the cushion settles; `strength` 0.6 on the way
+   * up). A 0.22 s swell of 250–700 Hz noise — the upholstery skin stretching over the foam
+   * — with a faint 90 Hz thump under it as the hips land and a pinched 1.4 kHz crackle in
+   * the tail. ≈ −34 dBFS peak: under the player, quiet.
+   */
+  seatCreak(strength = 1): void {
+    const engine = this.engine;
+    const ctx = engine.ctx;
+    const rng = engine.rng;
+    const t = engine.now + 0.005;
+    const s = Math.max(0.2, Math.min(1, strength));
+    engine.logEvent("sfx.seatCreak", t, 0.3);
+    const out = ctx.createGain();
+    out.gain.value = dbToGain(-26) * (0.5 + 0.5 * s);
+    out.connect(this.bus);
+
+    const dur = rng.range(0.18, 0.26);
+    const skin = engine.noiseSource("pink", 1, t);
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.setValueAtTime(rng.range(240, 320), t);
+    bp.frequency.exponentialRampToValueAtTime(rng.range(550, 750), t + dur);
+    bp.Q.value = 1.4;
+    const sg = ctx.createGain();
+    sg.gain.setValueAtTime(0, t);
+    sg.gain.linearRampToValueAtTime(0.7, t + dur * 0.55);
+    sg.gain.setTargetAtTime(0, t + dur * 0.6, 0.05);
+    skin.connect(bp);
+    bp.connect(sg);
+    sg.connect(out);
+    skin.stop(t + dur + 0.3);
+
+    // Hips landing: one soft low thump (sit only).
+    if (s > 0.7) {
+      const thump = engine.noiseSource("brown", 1, t + dur * 0.5);
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = rng.range(80, 110);
+      lp.Q.value = 1.2;
+      const tg = ctx.createGain();
+      tg.gain.setValueAtTime(0, t + dur * 0.5);
+      tg.gain.linearRampToValueAtTime(1.4, t + dur * 0.5 + 0.008);
+      tg.gain.setTargetAtTime(0, t + dur * 0.5 + 0.01, 0.05);
+      thump.connect(lp);
+      lp.connect(tg);
+      tg.connect(out);
+      thump.stop(t + dur + 0.4);
+    }
+
+    // Tail crackle: the welt cord shifting — a pinched 1.2–1.6 kHz tick.
+    const tc = t + dur * rng.range(0.7, 0.9);
+    const tick = engine.noiseSource("white", 1, tc);
+    const tb = ctx.createBiquadFilter();
+    tb.type = "bandpass";
+    tb.frequency.value = rng.range(1200, 1600);
+    tb.Q.value = 4;
+    const kg = ctx.createGain();
+    kg.gain.setValueAtTime(0, tc);
+    kg.gain.linearRampToValueAtTime(0.12, tc + 0.003);
+    kg.gain.setTargetAtTime(0, tc + 0.004, 0.012);
+    tick.connect(tb);
+    tb.connect(kg);
+    kg.connect(out);
+    tick.stop(tc + 0.15);
+    tick.addEventListener("ended", () => out.disconnect(), { once: true });
+  }
+
+  /**
+   * A counter stool swivelling under the player (Sit.ts, after ~28° of seat turn). A dry
+   * bearing chirp: 0.09–0.14 s of noise through a narrow 1.8–2.8 kHz resonance that drifts
+   * down a fifth, `amount` (turn speed 0..1) setting the level. ≈ −38 dBFS: faint, a texture.
+   */
+  stoolSqueak(amount = 0.5): void {
+    const engine = this.engine;
+    const ctx = engine.ctx;
+    const rng = engine.rng;
+    const t = engine.now + 0.005;
+    const a = Math.max(0.15, Math.min(1, amount));
+    engine.logEvent("sfx.stoolSqueak", t, 0.15);
+    const out = ctx.createGain();
+    out.gain.value = dbToGain(-30) * (0.4 + 0.6 * a);
+    out.connect(this.bus);
+    const dur = rng.range(0.09, 0.14);
+    const src = engine.noiseSource("white", 1, t);
+    const res = ctx.createBiquadFilter();
+    res.type = "bandpass";
+    const f0 = rng.range(1800, 2800);
+    res.frequency.setValueAtTime(f0, t);
+    res.frequency.exponentialRampToValueAtTime(f0 * 0.67, t + dur);
+    res.Q.value = 14;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.5, t + 0.02);
+    g.gain.setValueAtTime(0.5, t + dur - 0.03);
+    g.gain.linearRampToValueAtTime(0, t + dur);
+    src.connect(res);
+    res.connect(g);
+    g.connect(out);
+    src.stop(t + dur + 0.05);
+    src.addEventListener("ended", () => out.disconnect(), { once: true });
+  }
 }
