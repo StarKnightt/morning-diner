@@ -72,7 +72,7 @@ export const DRINK_CAMERA = { x: -1.25, y: 1.62, z: -1.5, yaw: 8, pitch: -28 };
 /** System 9: in the service aisle, 3/4 view down at the cabinet bay so both leaves' swing reads. */
 export const CABINET_CAMERA = { x: -1.35, y: 1.25, z: -0.7, yaw: 22, pitch: -30 };
 /** fix-cabinets: standing in the aisle under the +x run of upper cabinets, looking up at the doors (the user's view). */
-export const UPPER_CABINET_CAMERA = { x: 0.9, y: 1.62, z: -0.75, yaw: -12, pitch: 14 };
+export const UPPER_CABINET_CAMERA = { x: 1.0, y: 1.62, z: -0.15, yaw: -10, pitch: 9 };
 /** fix-cabinets: the under-counter bay from the aisle, low, so the shelf and floor stock read. */
 export const LOWER_CABINET_CAMERA = { x: -1.55, y: 1.05, z: -0.85, yaw: 12, pitch: -22 };
 /** System 9: in the aisle at the -x end looking at the kitchen door; the leaf swings away and back through the frame. */
