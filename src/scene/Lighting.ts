@@ -104,7 +104,7 @@ export const nits = (n: number): number => n * K;
  * +3.4; the zenith (400 nits) +1.2 — a real blue, not a wash; the troffers' 300 lux on the
  * counter (≈ 70 nits) reads at −1.3 EV: visibly ON. `?ev=` and `[` `]` step from here.
  */
-export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 20 } as const;
+export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 15 } as const; // rev 7.1: +0.4 EV (undertable → ≈ 40, patch ≈ 241)
 export const EV100 = Math.log2((CAMERA.fNumber * CAMERA.fNumber) / CAMERA.shutter) - Math.log2(CAMERA.iso / 100);
 /** Metered saturation luminance for that exposure (Lagarde: L_sat = 1.2 · 2^EV) ≈ 2,260 nits at 1/60 (9,560 at rev 3's 1/250); the display white sits CAMERA_WHITE_EV − 2.47 stops above it. */
 export const L_SAT_NITS = 1.2 * Math.pow(2, EV100);
