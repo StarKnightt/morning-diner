@@ -136,8 +136,10 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     // geometry. Folded into the cove-base bucket: the top strip of that map is plain matte
     // black vinyl, which is what a crack floor looks like. +0 draw calls.
     // Rev 3: the dark floor is one ribbon per segment (the crack breaks at a third of the seams
-    // it crosses), its half-width the segment's own (0.4–1.8 mm), sunk 0.2 mm below the lips'
+    // it crosses), its half-width the segment's own (0.3–1.0 mm), sunk 0.2 mm below the lips'
     // inner edges so it reads as the bottom of the gap.
+    // Rev 4: the ribbon was wound clockwise from above and back-face culled — it had never
+    // drawn; the "crack" the critic saw in rev 2/3 was the floor map's feathered strokes.
     for (const seg of segs) {
       if (seg.length < 2) continue;
       const y = 0.0006;
@@ -151,7 +153,7 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
         pos.push(x + ox, y, z + oz, x - ox, y, z - oz);
         nrm.push(0, 1, 0, 0, 1, 0);
         uv.push(i / (seg.length - 1) * 3, 0.96, i / (seg.length - 1) * 3, 0.95);
-        if (i) { const k = i * 2; idx.push(k - 2, k - 1, k, k - 1, k + 1, k); }
+        if (i) { const k = i * 2; idx.push(k - 2, k, k - 1, k - 1, k, k + 1); }
       }
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));

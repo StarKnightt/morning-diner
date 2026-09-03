@@ -328,40 +328,51 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
   for (let tx = 1; tx < tilesX; tx++) for (let y = 0; y < h; y++) { const i = y * w + tx * tilePx; rough[i] += 0.3; rough[i - 1] += 0.3; }
 
   if (wear) {
-    // The crack (rev 3, `floorCrackSegments`): the dark floor and the two lips are geometry in
-    // Shell.ts; the map carries a soft shadow band beside it and a matte break in the wax so the
-    // line survives at distance and in the roughness.
+    // The crack (`floorCrackSegments`): the dark floor and the two lips are geometry in Shell.ts.
+    // Rev 4: the map no longer strokes a shadow band or a pale edge line along it — one
+    // antialiased texel here is 3.75 mm, so rev 3's 0.9–1.4 px strokes were a 5 mm feathered
+    // smear (and the pale one read light-grey on the charcoal tiles). What the map carries now
+    // is what a cracked VCT edge actually shows: CHIPS — the brittle tile has broken off in
+    // 3–9 mm bites along the lip every 20–60 mm, the fresh break paler and matte (through-
+    // colour tile, so it is the same hue a shade lighter on a light tile, a dull grey lift on
+    // a charcoal one) — and a matte break in the wax 4 mm either side of the line.
     const toPx = (wx: number, wz: number): [number, number] => [(wx - wear.originX) / mPerPx, (wz - wear.originZ) / mPerPx];
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    floorCrackSegments(wear).forEach((seg, si) => {
+    const crng = makeRng(wear.seed + 77);
+    const chipPix = ctx.getImageData(0, 0, w, h);
+    floorCrackSegments(wear).forEach((seg) => {
       const path = seg.map(([x, z]) => toPx(x, z));
-      // The proud lip (Shell.ts alternates the side per segment) has a pale worn edge — the wax
-      // scuffed white where feet catch it — and the low side sits in its shadow: a light stroke
-      // offset one texel to the proud side, a dark one to the other, then the grime in the gap.
-      const side = si % 2 === 0 ? -1 : 1;
-      const offs = (o: number) => path.map(([px, py], i) => {
-        const [ax, ay] = path[Math.max(0, i - 1)], [bx, by] = path[Math.min(path.length - 1, i + 1)];
-        const l = Math.hypot(bx - ax, by - ay) || 1;
-        return [px + (-(by - ay) / l) * o * side, py + ((bx - ax) / l) * o * side] as [number, number];
-      });
-      const stroke = (pts: [number, number][], style: string, wdt: number) => {
-        ctx.strokeStyle = style; ctx.lineWidth = wdt; ctx.beginPath();
-        pts.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)));
-        ctx.stroke();
-      };
-      stroke(offs(1.0), "rgba(235,228,215,0.26)", 1.1);
-      stroke(offs(-1.0), "rgba(30,26,22,0.3)", 1.4);
-      stroke(path, "rgba(40,34,28,0.32)", 0.9);
+      let since = 0.02 + crng() * 0.04;
       for (let k = 0; k + 1 < path.length; k++) {
         const [ax, ay] = path[k], [bx, by] = path[k + 1];
+        const segLen = Math.hypot(bx - ax, by - ay) * mPerPx;
+        since -= segLen;
+        if (since <= 0) {
+          since = 0.02 + crng() * 0.04;
+          const side = crng() < 0.5 ? -1 : 1;
+          const l = Math.hypot(bx - ax, by - ay) || 1;
+          const nx = (-(by - ay) / l) * side, ny = ((bx - ax) / l) * side;
+          const cx = ax + nx * (0.6 + crng() * 0.6), cy = ay + ny * (0.6 + crng() * 0.6);
+          const rr = (1.5 + crng() * 3) / (mPerPx * 1000); // 3–9 mm bite, in texels
+          const ix = Math.max(0, Math.min(w - 1, Math.round(cx))), iy = Math.max(0, Math.min(h - 1, Math.round(cy)));
+          const lum = chipPix.data[(iy * w + ix) * 4];
+          const alpha = lum > 120 ? 0.3 : 0.14;
+          ctx.fillStyle = `rgba(232,226,214,${alpha})`;
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, rr, rr * (0.5 + crng() * 0.4), Math.atan2(by - ay, bx - ax), 0, Math.PI * 2);
+          ctx.fill();
+          const R = Math.ceil(rr) + 1;
+          for (let y = iy - R; y <= iy + R; y++) for (let x = ix - R; x <= ix + R; x++) {
+            if (x < 0 || y < 0 || x >= w || y >= h) continue;
+            if (Math.hypot(x - cx, y - cy) < rr) rough[y * w + x] = Math.max(rough[y * w + x], 0.7);
+          }
+        }
         const x0 = Math.max(0, Math.floor(Math.min(ax, bx)) - 2), x1 = Math.min(w - 1, Math.ceil(Math.max(ax, bx)) + 2);
         const y0 = Math.max(0, Math.floor(Math.min(ay, by)) - 2), y1 = Math.min(h - 1, Math.ceil(Math.max(ay, by)) + 2);
         const vx = bx - ax, vy = by - ay, vv = vx * vx + vy * vy || 1;
         for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
           const t = Math.max(0, Math.min(1, ((x + 0.5 - ax) * vx + (y + 0.5 - ay) * vy) / vv));
           const dd = Math.hypot(x + 0.5 - ax - vx * t, y + 0.5 - ay - vy * t);
-          const m = 1 - THREE.MathUtils.smoothstep(dd, 0.5, 1.8);
+          const m = 1 - THREE.MathUtils.smoothstep(dd, 0.4, 1.3);
           if (m > 0) { const i = y * w + x; rough[i] = Math.max(rough[i], rough[i] + (0.62 - rough[i]) * m); }
         }
       }
@@ -381,19 +392,24 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
  * lays on the tile, so both stay registered.
  */
 export function floorCrackSegments(wear: FloorWear): Array<Array<[number, number, number]>> {
-  const { x, z, len, deg } = wear.crack;
+  const { z, len, deg } = wear.crack;
   const rng = makeRng(wear.seed + 31);
   const a0 = THREE.MathUtils.degToRad(deg);
   const tile = wear.metresPerTile;
+  // Rev 4: a crack in tile starts AT a joint (the weak line), so the start x snaps to the
+  // nearest tile seam, 3 mm in from it.
+  const x = wear.originX + Math.round((wear.crack.x - wear.originX) / tile) * tile + Math.cos(a0) * 0.003;
   const cellX = (px: number) => Math.floor((px - wear.originX) / tile), cellZ = (pz: number) => Math.floor((pz - wear.originZ) / tile);
   const segs: Array<Array<[number, number, number]>> = [];
   let cur: Array<[number, number, number]> = [];
   let px = x, pz = z, ang = a0, dist = 0;
   const step = 0.012;
+  // Rev 4: half-width 0.3–1.0 mm (a hairline: 0.6–2 mm across, sub-pixel to ~1 px at the
+  // macro poses) — rev 3's 0.8–3.6 mm read as a mop-drag smudge.
   const hwAt = (t: number) => {
     const taper = Math.min(1, t / 0.06, (len - t) / 0.06);
     const wander = 0.5 + 0.5 * Math.sin(t * 37 + 1.1) * Math.sin(t * 13.3 + 0.4) * 0.8 + (rng() - 0.5) * 0.2;
-    return (0.0004 + 0.0014 * wander) * Math.max(0.2, taper);
+    return (0.0003 + 0.0007 * wander) * Math.max(0.3, taper);
   };
   cur.push([px, pz, hwAt(0)]);
   while (dist < len) {
@@ -408,17 +424,21 @@ export function floorCrackSegments(wear: FloorWear): Array<Array<[number, number
       const t = Math.min(tX, tZ);
       const cx = px + (nx - px) * t, cz = pz + (nz - pz) * t;
       cur.push([cx, cz, hwAt(dist)]);
-      const alongSeam = (0.005 + rng() * 0.02) * (rng() < 0.5 ? 1 : -1);
-      const ox = tX < tZ ? 0 : alongSeam, oz = tX < tZ ? alongSeam : 0;
+      const dir = rng() < 0.5 ? 1 : -1;
       if (rng() < 0.33) {
-        // clean break: end here, restart a few mm over
+        // clean break: end here, restart a few mm over along the seam
+        const jog = (0.004 + rng() * 0.012) * dir;
+        const ox = tX < tZ ? 0 : jog, oz = tX < tZ ? jog : 0;
         segs.push(cur);
         cur = [];
         px = cx + ox + Math.cos(ang) * 0.004; pz = cz + oz + Math.sin(ang) * 0.004;
         cur.push([px, pz, hwAt(dist) * 0.5]);
       } else {
-        // run along the seam (a hairline; the seam itself is the crack here)
-        cur.push([cx + ox, cz + oz, Math.min(0.0006, hwAt(dist))]);
+        // run along the seam (a hairline; the seam itself is the crack here) — 5–25 mm, or
+        // (rev 4, one crossing in three) a long run of 40–120 mm before it leaves the joint
+        const alongSeam = (rng() < 0.35 ? 0.04 + rng() * 0.08 : 0.005 + rng() * 0.02) * dir;
+        const ox = tX < tZ ? 0 : alongSeam, oz = tX < tZ ? alongSeam : 0;
+        cur.push([cx + ox, cz + oz, Math.min(0.0004, hwAt(dist))]);
         px = cx + ox; pz = cz + oz;
       }
       continue;
