@@ -145,7 +145,7 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
           bellyAmount: 0.008,
           wear: 0.35,
           sags: [{ z: -0.3, depth: 0.007 }, { z: 0.3, depth: 0.007 }],
-          burnish: 0.16,
+          burnish: 0.22, // rev 4: 0.16 → 0.22, plus the material's gloss/flatten response (materials.ts mkVinyl)
         });
         cush.translate((lo(seat.front, seatBack) + hi(seat.front, seatBack)) / 2, seat.top - seat.thickness / 2, zMid);
         b.add(cush, pal.vinylRed);

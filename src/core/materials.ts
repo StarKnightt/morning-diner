@@ -212,7 +212,7 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     t.normalMap.repeat.set(4, 4);
     t.roughnessMap.repeat.set(4, 4);
     t.map.repeat.set(4, 4);
-    return new THREE.MeshPhysicalMaterial({
+    const m = new THREE.MeshPhysicalMaterial({
       // Rev 2: the red moved into the map.
       color: 0xffffff,
       map,
@@ -228,6 +228,28 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
       clearcoatRoughness: 0.45,
       vertexColors: true,
     });
+    // System 5 rev 4: the vertex colour's green excess (> 1 where upholstery.ts burnished the
+    // seat nose and polished the cushion edges) also FLATTENS the pebble grain and halves the
+    // roughness there — burnished vinyl is a lighter AND glossier band, not just a paler tint.
+    m.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <normal_fragment_maps>",
+          /* glsl */ `#include <normal_fragment_maps>
+#ifdef USE_COLOR
+	normal = normalize( mix( normal, nonPerturbedNormal, clamp( ( vColor.g - 1.0 ) * 3.0, 0.0, 0.85 ) ) );
+#endif`,
+        )
+        .replace(
+          "#include <roughnessmap_fragment>",
+          /* glsl */ `#include <roughnessmap_fragment>
+#ifdef USE_COLOR
+	roughnessFactor *= clamp( 1.0 - ( vColor.g - 1.0 ) * 1.8, 0.5, 1.0 );
+#endif`,
+        );
+    };
+    m.customProgramCacheKey = () => "vinylBurnish";
+    return m;
   };
   const vinylRed = mkVinyl(vinylGrain.map);
   // Rev 3: the crazed booth samples a non-repeating 2048² atlas (0.68 mm/texel over 1.4 m)

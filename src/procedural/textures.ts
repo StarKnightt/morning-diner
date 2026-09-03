@@ -155,8 +155,8 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
         r = 236; g = 236; b = 234;
         gloss[ty * tilesX + tx] = -0.1;
       } else {
-        // Warm off-white, ±3.5 % between tiles, and a warm/cool split (cream vs. grey-white)
-        const base = 220 * (1 + v * 0.035);
+        // Warm off-white, ±4 % between tiles (rev 4: was ±3.5), and a warm/cool split (cream vs. grey-white)
+        const base = 220 * (1 + v * 0.04);
         r = base * (1 + hue * 0.012); g = base * 0.985; b = base * (0.95 - hue * 0.025);
       }
       ctx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`;
@@ -204,7 +204,7 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
     const laneW = wear.lanes.map((L) => L.k * L.k);
     const laneTot = laneW.reduce((a, b) => a + b, 0);
     const smearN = makeFbm(wear.seed + 7, 64, 2);
-    for (let s = 0; s < 560; s++) {
+    for (let s = 0; s < 420; s++) {
       let wx: number, wz: number;
       if (rng() < 0.85 && wear.lanes.length) {
         let pick = rng() * laneTot, li = 0;
@@ -228,8 +228,10 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
       const kind = rng();
       const lenM = kind < 0.15 ? 0.1 + rng() * 0.18 : 0.02 + rng() * 0.08; // a few long skids
       const ang = rng() * Math.PI * 2;
-      const bend = kind < 0.4 ? (rng() - 0.5) * 0.3 : (rng() - 0.5) * 2.4; // straight drags vs hooks
-      const wMm = 10 + rng() * rng() * 32; // 10–42 mm, mostly narrow (a sole edge is ~12 mm)
+      // Rev 4: bends capped at ±0.35 rad — a sole edge skids in a shallow arc; rev 3's ±1.2 rad
+      // hooks drew the J / 7 / comma family the critic read as handwriting.
+      const bend = (rng() - 0.5) * (kind < 0.4 ? 0.2 : 0.7);
+      const wMm = 6 + rng() * rng() * 20; // 6–26 mm, mostly narrow (a sole edge is ~12 mm)
       const weight = 0.35 + rng() * 0.65;
       const seed2 = rng() * 10;
       // March along the quadratic with a step of ~1 texel; the core density and the width
@@ -261,7 +263,8 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
             // texels and a sum saturates every core to black (rev 3 first pass).
             const perp = ((xx - qx) * -(eyp - py) + (yy - qy) * (exp_ - px)) / (lenPx || 1);
             const streak = smearN(t * lenPx * 0.02 + seed2 * 3, perp * 0.16 + seed2);
-            const prof = (1 - dd * dd) ** 1.5 * (0.5 + 1.0 * streak);
+            // rev 4: a firmer edge ((1 − d²)^0.7, not ^1.5) — the rev 3 profile was a 10 px blur
+            const prof = (1 - dd * dd) ** 0.7 * (0.5 + 1.0 * streak);
             const i = yy * w + xx;
             T[i] = Math.max(T[i], Math.min(1, dens * prof));
           }
@@ -290,9 +293,13 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
       if (wear) {
         const [wx, wz] = toWorld(x, y);
         const lane = sample(gLane, x, y);
+        // Rev 4: the shelter is feathered 0.12 m inside the footprint (the rev 3 in/out step put
+        // a hard-edged glossier parallelogram on the open floor beside the last booth).
         let shelter = 0;
-        for (const [x0, z0, x1, z1] of wear.sheltered)
-          if (wx > x0 && wx < x1 && wz > z0 && wz < z1) shelter = 1;
+        for (const [x0, z0, x1, z1] of wear.sheltered) {
+          const sd = Math.max(x0 - wx, wx - x1, z0 - wz, wz - z1); // signed: < 0 inside
+          shelter = Math.max(shelter, 1 - smoothstep(-0.12, 0.0, sd));
+        }
         const dust = sample(gDust, x, y);
         // Traffic: the wax dulls (roughness up), whites grey off by a clear step (rev 2:
         // 0.5), blacks abrade to a grey haze. Mop residue near the walls: a dust film that
@@ -305,9 +312,11 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
         const gr = 130, gg = 126, gb = 120;
         d[o] = d[o] * (1 - greyMix) + gr * greyMix; d[o + 1] = d[o + 1] * (1 - greyMix) + gg * greyMix; d[o + 2] = d[o + 2] * (1 - greyMix) + gb * greyMix;
       }
-      // Rubber transfer multiplies (see T above): × 0.42 at full density (a smear, not paint).
+      // Rubber transfer multiplies (see T above): × 0.6 at full density on a white tile — a grey
+      // smear, not paint (rev 3's × 0.42 read near-black) — and on a charcoal tile only × 0.94:
+      // black rubber on black VCT is invisible, what shows there is the wax gone dull (roughness).
       const t = T[i];
-      k *= 1 - 0.58 * t;
+      k *= 1 - (black ? 0.06 : 0.4) * t;
       r += t * 0.3;
       d[o] = Math.min(255, d[o] * k); d[o + 1] = Math.min(255, d[o + 1] * k); d[o + 2] = Math.min(255, d[o + 2] * k);
       rough[i] = r;
@@ -499,7 +508,9 @@ export function dinerFloorWear(): FloorWear {
       [BACK_BAR.xMin, BACK_BAR.zFront, BACK_BAR.xMax, BACK_BAR.zFront],
     ],
     sheltered: [
-      [-halfX, BOOTH.zInner + 0.05, DOOR.hingeX - 0.9, zFront],
+      // the booth run, ending with the last booth's divider (rev 4: was DOOR.hingeX − 0.9, which
+      // reached out onto the open floor by the door)
+      [-halfX, BOOTH.zInner + 0.05, Math.min(DOOR.hingeX - 0.9, WINDOW.centersX[WINDOW.centersX.length - 1] + 0.95), zFront],
       [COUNTER.xMin, COUNTER.topFrontZ - COUNTER.overhang - COUNTER.dieDepth, COUNTER.xMax, COUNTER.topFrontZ - COUNTER.overhang],
       [BACK_BAR.xMin, zBack, BACK_BAR.xMax, BACK_BAR.zFront],
     ],
@@ -662,7 +673,10 @@ export function paintedWall(hex: string, size: number, seed: number, strength = 
         // greasy grey-brown grime, darker where denser
         const gr2 = 108 - 40 * a, gg2 = 98 - 40 * a, gb2 = 84 - 38 * a;
         d2[i] = d2[i] * (1 - a) + gr2 * a; d2[i + 1] = d2[i + 1] * (1 - a) + gg2 * a; d2[i + 2] = d2[i + 2] * (1 - a) + gb2 * a;
-        rough[y * size + x] -= a * 0.62; // burnished under the band
+        // burnished under the band — rev 4: plus a narrow glossy core along the band's centre
+        // (skin oil in the paint, roughness down to ≈ 0.3 where people lean most) so the band
+        // reads as a greasy polish, not an airbrushed tint
+        rough[y * size + x] = Math.max(0.28, rough[y * size + x] - a * 0.55 - prof ** 4 * 0.42 * patch * (0.6 + 0.4 * sm));
       }
     }
     ctx.putImageData(img2, 0, y0);
@@ -1440,7 +1454,9 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
     const half = THREE.MathUtils.degToRad(50 + rng() * 15); // arm half-angle (100–130° included)
     const wMax = (big ? 2.4 + rng() * 0.8 : 1.6 + rng() * 0.5) * pxPerMm; // elbow half-width
     const rot = rng() * Math.PI * 2;
-    const outline = rng() < 0.12;
+    // Rev 4: no outline-only boomerangs — the hollow ones read as dark-outlined stickers at
+    // the macro pose (Skylark's outline shapes are a lighter tone on the real sheet anyway).
+    const outline = false;
     const tone = tones[Math.floor(rng() * tones.length)];
     const steps = 40;
     // Two straight arms from the elbow (origin) with a rounded knee: the middle 30 % of
@@ -1510,7 +1526,7 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
     const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 0.7));
     return Array.from({ length: n + 1 }, (_, k) => [x0 + ((x1 - x0) * k) / n, y0 + ((y1 - y0) * k) / n] as [number, number]);
   };
-  for (const [x0, y0, x1, y1, a, dark] of scratches) strokeField(rough, size, linePts(x0, y0, x1, y1), dark ? 0.35 : 0.3 * a, dark ? 1.6 : 1);
+  for (const [x0, y0, x1, y1, a, dark] of scratches) strokeField(rough, size, linePts(x0, y0, x1, y1), dark ? 0.35 : 0.45 * a, dark ? 1.6 : 1.1);
   // Cup rings: coffee residue dries from the outside in — a sharp dense outer edge (the
   // tide line) fading inward over ~3 mm; partial arcs (the cup was lifted before it dried).
   const rings: Array<[number, number, number, number, number]> = [];
@@ -1530,7 +1546,7 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
         let ang = Math.atan2(y - ry, x - rx) - a0;
         ang = ((ang % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
         if (ang > sweep) continue;
-        if (d > -3 * pxPerMm && d < 0.6 * pxPerMm) r += 0.3 * (d > -0.8 * pxPerMm ? 1 : 0.4 * (1 + d / (3 * pxPerMm)));
+        if (d > -3 * pxPerMm && d < 0.6 * pxPerMm) r += 0.42 * (d > -0.8 * pxPerMm ? 1 : 0.4 * (1 + d / (3 * pxPerMm)));
       }
       // dither: ±0.6/255 breaks the 8-bit contours that drew rev 2's fingerprint
       const v = Math.min(255, Math.max(0, r * 255 + (rg() - 0.5) * 1.2));
@@ -1551,14 +1567,14 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
         let ang = Math.atan2(y - ry, x - rx) - a0;
         ang = ((ang % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
         if (ang > sweep) continue;
-        const k = d > -0.8 * pxPerMm ? 0.32 : 0.14 * (1 + d / (3 * pxPerMm));
+        const k = d > -0.8 * pxPerMm ? 0.5 : 0.2 * (1 + d / (3 * pxPerMm)); // rev 4: a ring you can see
         ad[o] = ad[o] * (1 - k) + 118 * k; ad[o + 1] = ad[o + 1] * (1 - k) + 86 * k; ad[o + 2] = ad[o + 2] * (1 - k) + 48 * k;
       }
     }
   ctx.putImageData(aimg, 0, 0);
   for (const [x0, y0, x1, y1, a, dark] of scratches) {
-    ctx.strokeStyle = dark ? "rgba(70,60,50,0.5)" : `rgba(255,255,255,${(0.2 * a).toFixed(3)})`;
-    ctx.lineWidth = dark ? 1.1 : 0.9;
+    ctx.strokeStyle = dark ? "rgba(70,60,50,0.5)" : `rgba(255,255,255,${(0.34 * a).toFixed(3)})`;
+    ctx.lineWidth = dark ? 1.1 : 1.0;
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
   }
   return { map: finish(c, true, 8), roughnessMap: finish(rc, false, 8) };
