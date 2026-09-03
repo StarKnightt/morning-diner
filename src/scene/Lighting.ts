@@ -359,11 +359,16 @@ const LAMBERT_ANGLE = THREE.MathUtils.degToRad(89);
  * first and put the far wall at 325 nits with the floor's shade at sRGB 60, too flat.
  * dawn-station ships 0.35 (`lightInterior.ts`, `ibounce`) for a room with no sun in it.
  * `?ibounce=n` overrides.
+ *
+ * Rev 4: 0.13 (≈ 75 of the 90 nits the balance allows). With the camera open two stops the
+ * room's darkest corners — the floor under the tables, the mat between the mugs — set the
+ * frame medians of `undertable` and `macro-warmer`, and both critics want no interior
+ * median under sRGB 70; the walls move 0.1 EV (106 → 110 far, 126 → 130 near the windows).
  */
 export const ROOM_PROBE_INTENSITY = (() => {
-  if (typeof location === "undefined") return 0.1;
+  if (typeof location === "undefined") return 0.13;
   const v = Number(new URLSearchParams(location.search).get("ibounce"));
-  return Number.isFinite(v) && v > 0 ? v : 0.1;
+  return Number.isFinite(v) && v > 0 ? v : 0.13;
 })();
 
 export interface LightingResult {
@@ -1000,12 +1005,14 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   sunLot.shadow.normalBias = 0.03; // ≈ 1.5 texels of the 2048² map (rev 2: 0.05 lifted every tyre and wheel stop off its shadow)
   // Rev 3: one bilinear tap (installPcss, radius in (−0.5, 0]) — a 1-texel (7 mm) ramp; the
   // sun's real penumbra on the lot is 9.3 mm per metre of caster height, one texel for a
-  // car's sill, two for its roof. Rev 4: four bilinear taps on a 1-texel square (radius −1,
-  // ≈ 2-texel ramp = a roof's 13 mm). A single bilinear ramp is exact along the map's axes
-  // but a diagonal edge crosses it texel by texel: at `lot-shadow` the sedan's outline
-  // stepped 4–5 px every 14 rows (both critics). The 4-tap square averages the four
-  // neighbouring ramps, so the step becomes a slope.
-  sunLot.shadow.radius = -1;
+  // car's sill, two for its roof. Rev 4: four bilinear taps on a square of ±1.06 texels
+  // (radius −1.5, ≈ 3-texel ramp ≈ 20 mm). A single bilinear ramp is exact along the map's
+  // axes but a diagonal edge crosses the depth texels one at a time: on the sedan's shadow
+  // outline at `lot-shadow` (edge slope 1.25 px/row) both critics measured 4–5 px jumps
+  // every ~14 rows; a 7-row-smoothed mid-point trace (stair.mjs) gives rev 3 jumps of
+  // 3.5 / 4.1 / 3.1 px at y 846 / 860 / 874 and, with this kernel, 2.7 / 2.5 / 2.2 —
+  // 1.5 px over the slope, the rest of the outline within 0.8 px rms of a straight line.
+  sunLot.shadow.radius = -1.5;
   scene.add(sunLot, sunLot.target);
 
   // Rev 3: no cone occluder. The spot / directional split is per receiver (installSunSplit):
