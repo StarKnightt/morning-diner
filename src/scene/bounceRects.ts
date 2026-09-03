@@ -196,44 +196,59 @@ export function bounceRectsGlsl(quads: BounceQuad[], k: number, zInside = ROOM.z
   const f = (v: number) => (Math.abs(v) < 1e-6 ? "0.0" : v.toFixed(5));
   const v3 = (v: THREE.Vector3) => `vec3( ${f(v.x)}, ${f(v.y)}, ${f(v.z)} )`;
   if (quads.length === 0) return `vec3 bounceIrradiance( vec3 p, vec3 n ) { return vec3( 0.0 ); }`;
-  const body = quads
-    .map((q) => {
-      // Emitting-side normal: the corners are counter-clockwise seen from the emitting side, so
-      // (v1 − v0) × (v3 − v0) points toward the receivers.
-      const e1 = new THREE.Vector3().subVectors(q.v[1], q.v[0]), e3 = new THREE.Vector3().subVectors(q.v[3], q.v[0]);
-      const e2 = new THREE.Vector3().subVectors(q.v[2], q.v[0]);
-      const N = new THREE.Vector3().crossVectors(e1, e3).normalize();
-      // Area of the (possibly non-parallelogram) quad: the two triangles' cross products.
-      const area = 0.5 * (new THREE.Vector3().crossVectors(e1, e2).length() + new THREE.Vector3().crossVectors(e2, e3).length());
-      const c = q.v[0].clone().add(q.v[1]).add(q.v[2]).add(q.v[3]).multiplyScalar(0.25);
-      const L = q.radiance.clone().multiplyScalar(k * 0.5);
-      // Beyond 3 quad-diagonals the patch is a point: E = L · A · cosθe · cosθr / r² (the contour
-      // integral and the point form agree to 3 % there); in nits × k, so L · 2 · A.
-      const far = 9 * (2 * area);
-      const Lpt = q.radiance.clone().multiplyScalar(k * area);
-      return `
-    { // ${q.name}
-      vec3 dc = ${v3(c)} - p;
+  // perf-boot: the quad constants live in `const` arrays walked by ONE loop body instead of
+  // ~43 unrolled copies of it. Rev 7's 9° sun doubled the quad count (three height bands per
+  // strip, floor + partition + end-wall landings) and the unrolled form made every physical
+  // program's HLSL compile ~10× slower on ANGLE/D3D11 (173 programs: 11 s → 112 s of boot).
+  // The math per quad is unchanged: the same early-outs, point form and Eberly acos.
+  const per = quads.map((q) => {
+    // Emitting-side normal: the corners are counter-clockwise seen from the emitting side, so
+    // (v1 − v0) × (v3 − v0) points toward the receivers.
+    const e1 = new THREE.Vector3().subVectors(q.v[1], q.v[0]), e3 = new THREE.Vector3().subVectors(q.v[3], q.v[0]);
+    const e2 = new THREE.Vector3().subVectors(q.v[2], q.v[0]);
+    const N = new THREE.Vector3().crossVectors(e1, e3).normalize();
+    // Area of the (possibly non-parallelogram) quad: the two triangles' cross products.
+    const area = 0.5 * (new THREE.Vector3().crossVectors(e1, e2).length() + new THREE.Vector3().crossVectors(e2, e3).length());
+    const c = q.v[0].clone().add(q.v[1]).add(q.v[2]).add(q.v[3]).multiplyScalar(0.25);
+    const L = q.radiance.clone().multiplyScalar(k * 0.5);
+    // Beyond 3 quad-diagonals the patch is a point: E = L · A · cosθe · cosθr / r² (the contour
+    // integral and the point form agree to 3 % there); in nits × k, so L · 2 · A.
+    const far = 9 * (2 * area);
+    const Lpt = q.radiance.clone().multiplyScalar(k * area);
+    return { c, N, far, L, Lpt, v: q.v };
+  });
+  const n = quads.length;
+  const arr3 = (name: string, pick: (q: (typeof per)[number]) => THREE.Vector3) =>
+    `  const vec3 ${name}[BOUNCE_N] = vec3[BOUNCE_N]( ${per.map((q) => v3(pick(q))).join(", ")} );`;
+  const arr1 = (name: string, pick: (q: (typeof per)[number]) => number) =>
+    `  const float ${name}[BOUNCE_N] = float[BOUNCE_N]( ${per.map((q) => f(pick(q))).join(", ")} );`;
+  const tables = [
+    arr3("BQ_C", (q) => q.c), arr3("BQ_N", (q) => q.N), arr1("BQ_FAR", (q) => q.far),
+    arr3("BQ_L", (q) => q.L), arr3("BQ_LP", (q) => q.Lpt),
+    arr3("BQ_V0", (q) => q.v[0]), arr3("BQ_V1", (q) => q.v[1]), arr3("BQ_V2", (q) => q.v[2]), arr3("BQ_V3", (q) => q.v[3]),
+  ].join("\n");
+  const body = `
+    for ( int i = 0; i < BOUNCE_N; i ++ ) {
+      vec3 dc = BQ_C[ i ] - p;
       float r2 = dot( dc, dc );
-      float ce = -dot( dc, ${v3(N)} );
+      float ce = -dot( dc, BQ_N[ i ] );
       if ( ce > 0.01 ) {
-        if ( r2 > ${f(far)} ) {
-          acc += ${v3(Lpt)} * ( ce * max( dot( n, dc ), 0.0 ) / ( r2 * r2 ) );
+        if ( r2 > BQ_FAR[ i ] ) {
+          acc += BQ_LP[ i ] * ( ce * max( dot( n, dc ), 0.0 ) / ( r2 * r2 ) );
         } else {
-          vec3 d0 = ${v3(q.v[0])} - p, d1 = ${v3(q.v[1])} - p, d2 = ${v3(q.v[2])} - p, d3 = ${v3(q.v[3])} - p;
+          vec3 d0 = BQ_V0[ i ] - p, d1 = BQ_V1[ i ] - p, d2 = BQ_V2[ i ] - p, d3 = BQ_V3[ i ] - p;
           if ( max( max( dot( n, d0 ), dot( n, d1 ) ), max( dot( n, d2 ), dot( n, d3 ) ) ) > 0.0 ) {
             d0 = normalize( d0 ); d1 = normalize( d1 ); d2 = normalize( d2 ); d3 = normalize( d3 );
             float ff = bounceEdge( d0, d1, n ) + bounceEdge( d1, d2, n ) + bounceEdge( d2, d3, n ) + bounceEdge( d3, d0, n );
-            acc += ${v3(L)} * max( -ff, 0.0 );
+            acc += BQ_L[ i ] * max( -ff, 0.0 );
           }
         }
       }
     }`;
-    })
-    .join("");
   return /* glsl */ `
   // ---- sun-patch first bounce, rectangle form factors (src/scene/bounceRects.ts) ----
-  #define BOUNCE_N ${quads.length}
+  #define BOUNCE_N ${n}
+${tables}
   // acos on [-1, 1], Eberly's polynomial (|err| < 7e-5 rad); the exact one is the cost here.
   float bounceAcos( float x ) {
     float ax = abs( x );

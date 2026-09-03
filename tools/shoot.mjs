@@ -276,6 +276,18 @@ async function main() {
         `  textures ${perf.textures.wallMs} ms wall on ${perf.textures.workers} workers` +
         `  programs=${perf.programs} parallel-compile=${perf.parallelCompile}`,
     );
+    if (perf.extra) {
+      // Diagnostics: programs by shader name, lights by type, GPU memory, link-progress samples
+      // (the full per-program cache keys go to shots/<tag>-perf.json).
+      const x = perf.extra;
+      console.log(`[shoot] programs by name: ${JSON.stringify(x.byName)}`);
+      console.log(`[shoot] lights: ${JSON.stringify(x.lights)}  memory: ${JSON.stringify(x.memory)}`);
+      const s = x.linkSamples;
+      const every = Math.max(1, Math.floor(s.length / 24));
+      console.log(`[shoot] link progress (ms:ready/total): ${s.filter((_, i) => i % every === 0 || i === s.length - 1).map(([ms, r, t]) => `${ms}:${r}/${t}`).join(" ")}`);
+      await fs.mkdir(path.join(ROOT, "shots"), { recursive: true });
+      await fs.writeFile(path.join(ROOT, "shots", `${TAG}-perf.json`), JSON.stringify(perf, null, 1));
+    }
   }
 
   const outDir = path.join(ROOT, "shots");

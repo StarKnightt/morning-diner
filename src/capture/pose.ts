@@ -27,6 +27,14 @@ export interface PerfReport {
   textures: { workers: number; wallMs: number; jobs: Array<{ fn: string; ms: number; where: string }> };
   programs: number;
   parallelCompile: boolean;
+  /** Diagnostics (perf-boot): programs by shader name, lights by type, GPU memory counts, link-progress samples. */
+  extra?: {
+    byName: Record<string, number>;
+    lights: Record<string, number>;
+    memory: { geometries: number; textures: number };
+    linkSamples: Array<[number, number, number]>;
+    cacheKeys: string[];
+  };
 }
 
 declare global {

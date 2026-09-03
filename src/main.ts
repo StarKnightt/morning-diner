@@ -114,12 +114,33 @@ let interactions: Interactions | undefined;
 /** System 8 pipeline; built after `diner.build()` because its dust/haze read the sun's shadow map. */
 let post: PostPipeline | undefined;
 
-const perf = (): PerfReport => ({
-  marks: timeline.list(),
-  textures: bank.stats(),
-  programs: renderer.info.programs?.length ?? 0,
-  parallelCompile: hasParallelCompile(renderer),
-});
+/** Shader-link progress samples: (ms since boot, programs linked, programs issued), one per change. */
+const linkSamples: Array<[number, number, number]> = [];
+const perf = (): PerfReport => {
+  const programs = (renderer.info.programs ?? []) as unknown as Array<{ name: string; cacheKey: string; usedTimes: number }>;
+  const byName: Record<string, number> = {};
+  for (const p of programs) byName[p.name] = (byName[p.name] ?? 0) + 1;
+  const lights: Record<string, number> = {};
+  scene.traverse((o) => {
+    if ((o as THREE.Light).isLight) {
+      const k = `${o.type}${(o as THREE.Light).castShadow ? "+shadow" : ""}`;
+      lights[k] = (lights[k] ?? 0) + 1;
+    }
+  });
+  return {
+    marks: timeline.list(),
+    textures: bank.stats(),
+    programs: programs.length,
+    parallelCompile: hasParallelCompile(renderer),
+    extra: {
+      byName,
+      lights,
+      memory: { ...renderer.info.memory },
+      linkSamples,
+      cacheKeys: programs.map((p) => `${p.name}|${p.usedTimes}|${p.cacheKey}`),
+    },
+  };
+};
 
 async function boot(): Promise<void> {
   await diner.build({
@@ -135,6 +156,8 @@ async function boot(): Promise<void> {
       progress.complete("textures");
     },
     shaders: (ready, total) => {
+      const last = linkSamples[linkSamples.length - 1];
+      if (!last || last[1] !== ready || last[2] !== total) linkSamples.push([Math.round(timeline.elapsedMs), ready, total]);
       // Links run alongside the texture workers; the label follows the textures until they are done.
       progress.set("shaders", ready / Math.max(1, total), bank.pending === 0 ? `Compiling shaders (${ready}/${total})…` : undefined);
     },
@@ -220,6 +243,7 @@ function frame(now: number): void {
   post!.render();
 
   frames++;
+  if (frames <= 2) timeline.mark(`frame-${frames}(p${renderer.info.programs?.length ?? 0})`);
   if (frames === 2) void onFirstFrames();
   if (DEBUG && now - lastStats > 5000) {
     lastStats = now;

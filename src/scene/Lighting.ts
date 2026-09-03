@@ -969,6 +969,11 @@ function assignSunSplit(root: THREE.Object3D, exteriorMaterials: THREE.Material[
   for (const m of ext) {
     if (int.has(m)) { shared++; continue; }
     (m.defines ??= {}).SUN_SKIP_SPOT0 = 1;
+    // perf-boot: the lot never sees an interior sun patch — `bounceIrradiance` returns 0 for
+    // every fragment past the storefront and the rest of the lot sits below the floor quads or
+    // behind the partition / end-wall quads' emitting planes — so the lot-sun programs (≈ 45
+    // of them) compile without the bounce tables at all.
+    m.defines.BOUNCE_NO_RECTS = 1;
   }
   for (const m of int) {
     if (ext.has(m)) continue;
