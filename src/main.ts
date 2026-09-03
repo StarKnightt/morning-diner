@@ -118,6 +118,19 @@ async function boot(): Promise<void> {
     mark: (name) => timeline.mark(name),
   });
 
+  // Capture A/B switches: `?hide=a,b` hides every object whose name contains a token,
+  // `?nocast=a,b` stops those objects casting shadows (ownership tests for floor artefacts).
+  {
+    const tokens = (k: string) => (params.get(k) ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const hide = tokens("hide"), nocast = tokens("nocast");
+    if (hide.length || nocast.length) {
+      scene.traverse((o) => {
+        if (hide.some((t) => o.name.includes(t))) o.visible = false;
+        if (nocast.some((t) => o.name.includes(t))) o.castShadow = false;
+      });
+      diner.invalidateShadows();
+    }
+  }
   player = new FirstPerson(camera, renderer.domElement, diner.colliders);
   installCaptureApi(renderer, scene, camera, player, perf);
   interactions = initInteractions({ renderer, scene, camera, player, diner });

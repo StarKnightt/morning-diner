@@ -155,7 +155,16 @@ export function buildBooths(parent: THREE.Group, pal: Palette): { colliders: Mer
           0.0025,
           true,
         );
-        b.add(plainColor(welt, 1.2), pal.vinylRed);
+        b.add(plainColor(welt, 1.3), pal.vinylRed);
+        // Rev 5: the cord's contact shadow — a dark bead 3 mm under the welt, sunk into the
+        // cushion so only its lower half shows: at `undertable` distance the welt is a 1 px
+        // light line and this is the 1 px dark line under it, which is what a piped edge reads as.
+        const weltShadow = piping(
+          roundedRectPoints(lo(seat.front, seatBack) + 0.0075, zInner + 0.0075, hi(seat.front, seatBack) - 0.0075, zOuter - 0.0075, seat.top - 0.0172, seat.edgeR - 0.0015),
+          0.002,
+          true,
+        );
+        b.add(plainColor(weltShadow, 0.55), pal.vinylRed);
         const boxing = piping(
           roundedRectPoints(lo(seat.front, seatBack) + 0.0015, zInner + 0.0015, hi(seat.front, seatBack) - 0.0015, zOuter - 0.0015, seat.top - 0.026, seat.edgeR - 0.008),
           0.002,

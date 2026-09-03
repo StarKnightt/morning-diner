@@ -545,11 +545,14 @@ export function slatDust(size: number, seed: number): { roughnessMap: THREE.Text
       // Sparse dust streaks along the slat, heaviest at the centre of the up-face; the
       // baked enamel itself is a smooth 0.3 so the curved profile carries a crown highlight.
       const dust = clamp((streak(u, v) - 0.55) * 2.4, 0, 1) * (0.3 + 0.7 * Math.sin(Math.PI * v) ** 0.7);
+      // System 5 rev 5: the settled dust LINE along the trough of the up-face — a continuous
+      // grey film 30–40 % of the slat wide, its weight wandering along the slat, matte.
+      const line = THREE.MathUtils.smoothstep(v, 0.3, 0.45) * (1 - THREE.MathUtils.smoothstep(v, 0.55, 0.7)) * (0.45 + 0.55 * streak(u * 0.35 + 7, 0.5));
       const o = (y * size + x) * 4;
-      const r = clamp(0.3 + dust * 0.3, 0, 1) * 255;
+      const r = clamp(0.3 + dust * 0.3 + line * 0.25, 0, 1) * 255;
       rimg.data[o] = r; rimg.data[o + 1] = r; rimg.data[o + 2] = r; rimg.data[o + 3] = 255;
-      const k = 1 - dust * 0.06;
-      img.data[o] = 224 * k; img.data[o + 1] = 216 * k; img.data[o + 2] = 196 * k; img.data[o + 3] = 255;
+      const k = 1 - dust * 0.06 - line * 0.075;
+      img.data[o] = 224 * k * (1 - line * 0.02); img.data[o + 1] = 216 * k; img.data[o + 2] = 196 * k * (1 + line * 0.03); img.data[o + 3] = 255;
     }
   ctx.putImageData(img, 0, 0); rctx.putImageData(rimg, 0, 0);
   return { map: finish(c, true, 8), roughnessMap: finish(rc, false, 8) };

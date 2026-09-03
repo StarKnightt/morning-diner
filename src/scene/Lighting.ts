@@ -945,25 +945,36 @@ export function buildContactShadows(parent: THREE.Object3D, extra: readonly Cont
   // Falloff of a corner's occlusion with distance from the junction (0 → 1 across the strip).
   const fall = (t: number) => (1 - t) * (1 - t) * (1 - 0.35 * t);
 
-  /** Strip from a line (a → b) outward along `out` for `width`, occlusion `ao` at the line. */
-  const strip = (a: THREE.Vector3, b: THREE.Vector3, out: THREE.Vector3, width: number, ao: number) => {
+  /**
+   * Strip from a line (a → b) outward along `out` for `width`, occlusion `ao` at the line.
+   * `fade` = [at a, at b] in metres: a free end (a panel edge, not a corner) ramps its
+   * occlusion to zero over that length instead of stopping dead — System 5 rev 5: two strips
+   * with hard ends 4 cm apart at the booth dividers printed as stepped lighter rectangles on
+   * the floor (`floor-macro`), and an end-panel strip's cut end as a hard-edged quadrilateral.
+   */
+  const strip = (a: THREE.Vector3, b: THREE.Vector3, out: THREE.Vector3, width: number, ao: number, fade: [number, number] = [0, 0]) => {
+    const L = a.distanceTo(b);
+    const ts = [0, Math.min(0.5, fade[0] / L), Math.max(0.5, 1 - fade[1] / L), 1].filter((t, i, arr) => i === 0 || t > arr[i - 1] + 1e-6);
+    const along = ts.map((t) => ({ p: a.clone().lerp(b, t), k: t < 0.5 ? (fade[0] > 0 ? Math.min(1, (t * L) / fade[0]) : 1) : fade[1] > 0 ? Math.min(1, ((1 - t) * L) / fade[1]) : 1 }));
     const rows: number[][] = [];
     for (let i = 0; i <= STEPS; i++) {
       const t = i / STEPS;
       const o = out.clone().multiplyScalar(width * t);
-      rows.push([push(a.clone().add(o), ao * fall(t)), push(b.clone().add(o), ao * fall(t))]);
+      rows.push(along.map(({ p, k }) => push(p.clone().add(o), ao * fall(t) * k)));
     }
     for (let i = 0; i < STEPS; i++) {
-      const [a0, b0] = rows[i], [a1, b1] = rows[i + 1];
-      idx.push(a0, b0, b1, a0, b1, a1);
+      for (let j = 0; j < along.length - 1; j++) {
+        const a0 = rows[i][j], b0 = rows[i][j + 1], a1 = rows[i + 1][j], b1 = rows[i + 1][j + 1];
+        idx.push(a0, b0, b1, a0, b1, a1);
+      }
     }
   };
   /** Horizontal floor strip along x at z, spreading toward `dz` (±1). */
-  const floorX = (x0: number, x1: number, z: number, dz: number, width: number, ao: number) =>
-    strip(new THREE.Vector3(x0, Y, z), new THREE.Vector3(x1, Y, z), new THREE.Vector3(0, 0, dz), width, ao);
+  const floorX = (x0: number, x1: number, z: number, dz: number, width: number, ao: number, fade?: [number, number]) =>
+    strip(new THREE.Vector3(x0, Y, z), new THREE.Vector3(x1, Y, z), new THREE.Vector3(0, 0, dz), width, ao, fade);
   /** Horizontal floor strip along z at x, spreading toward `dx` (±1). */
-  const floorZ = (z0: number, z1: number, x: number, dx: number, width: number, ao: number) =>
-    strip(new THREE.Vector3(x, Y, z0), new THREE.Vector3(x, Y, z1), new THREE.Vector3(dx, 0, 0), width, ao);
+  const floorZ = (z0: number, z1: number, x: number, dx: number, width: number, ao: number, fade?: [number, number]) =>
+    strip(new THREE.Vector3(x, Y, z0), new THREE.Vector3(x, Y, z1), new THREE.Vector3(dx, 0, 0), width, ao, fade);
   /** Vertical band on a face at z (normal ±z), from y0 spreading `dy` (±1) for `height`. */
   const faceZ = (x0: number, x1: number, y0: number, z: number, nz: number, dy: number, height: number, ao: number) =>
     strip(new THREE.Vector3(x0, y0, z + nz * 0.0012), new THREE.Vector3(x1, y0, z + nz * 0.0012), new THREE.Vector3(0, dy, 0), height, ao);
@@ -1000,15 +1011,24 @@ export function buildContactShadows(parent: THREE.Object3D, extra: readonly Cont
   /* ---- booths ---- */
   const { zInner, zOuter, seat, divider, endPanel, kick } = BOOTH;
   const zEnd0 = zInner - endPanel;
-  for (const cx of WINDOW.centersX) {
+  for (let i = 0; i < WINDOW.centersX.length; i++) {
+    const cx = WINDOW.centersX[i];
     // Seat kicks facing the table (recessed under the cushion): floor line + the kick face itself.
     for (const s of [-1, 1]) {
       const xk = cx + s * (seat.front + 0.04);
       floorZ(zInner, zOuter, xk, -s, 0.16, 0.5);
       faceX(zInner, zOuter, kick, xk, -s, -1, kick, 0.45);
-      // Aisle end panel: floor line in front of it.
-      const xa = cx + s * (seat.front - 0.02), xb = cx + s * divider.x0;
-      floorX(Math.min(xa, xb), Math.max(xa, xb), zEnd0, -1, 0.14, 0.45);
+      // Aisle end panel + divider: one coplanar face at zEnd0, its kick recessed 12 mm
+      // (Booths.ts). One strip per run, from the bay opening's free edge (fading over 60 mm)
+      // to the divider centre shared with the neighbour — or to the end partitions — starting
+      // at the KICK face so the recess floor is occluded too. Rev 4 had an end-panel strip and
+      // a divider strip per side, overlapping 3–4 cm with hard ends: stepped rectangles and a
+      // bright 12 mm seam at the panel foot (`floor-macro`).
+      const xa = cx + s * (seat.front - 0.02);
+      const last = WINDOW.centersX.length - 1;
+      const xFar = s < 0 ? (i === 0 ? -ROOM.halfX : (cx + WINDOW.centersX[i - 1]) / 2) : i === last ? cx + divider.x0 + 0.04 : (cx + WINDOW.centersX[i + 1]) / 2;
+      const fade: [number, number] = s < 0 ? [0, 0.06] : [0.06, 0];
+      floorX(Math.min(xa, xFar), Math.max(xa, xFar), zEnd0 + 0.012, -1, 0.14, 0.45, fade);
     }
     // Under the table: the top above, seats both sides, the wall behind — that floor sees
     // only the 0.72 m opening to the aisle, ≈ 8 % of its hemisphere, and in photographs
@@ -1023,18 +1043,11 @@ export function buildContactShadows(parent: THREE.Object3D, extra: readonly Cont
     disc(cx, zTable, BOOTH.pedestal.bellR * 0.9, BOOTH.pedestal.bellR + 0.1, 0.5);
     floorX(cx - seat.front, cx + seat.front, zOuter, -1, 0.2, 0.45);
   }
-  // Dividers between booths and the end partitions: floor line at the aisle end.
-  for (let i = 0; i < WINDOW.centersX.length - 1; i++) {
-    const xd = (WINDOW.centersX[i] + WINDOW.centersX[i + 1]) / 2;
-    floorX(xd - 0.05, xd + 0.05, zEnd0, -1, 0.14, 0.45);
-  }
+  // Partition toward the door: its face toward the vestibule meets the floor too (the kick is
+  // recessed 5 mm there). The divider and end-partition floor lines are in the per-booth runs above.
   {
-    const cx0 = WINDOW.centersX[0], xd0 = cx0 - divider.x0 - 0.02;
-    floorX(-ROOM.halfX, xd0 + 0.05, zEnd0, -1, 0.14, 0.45);
     const cxN = WINDOW.centersX[WINDOW.centersX.length - 1], xdN = cxN + divider.x0 + 0.02;
-    floorX(xdN - 0.05, xdN + 0.02, zEnd0, -1, 0.14, 0.45);
-    // Partition toward the door: its face toward the vestibule meets the floor too.
-    floorZ(zEnd0, zOuter, xdN + 0.02, 1, 0.14, 0.4);
+    floorZ(zEnd0, zOuter, xdN + 0.02 - 0.005, 1, 0.14, 0.4);
   }
 
   /* ---- counter ---- */

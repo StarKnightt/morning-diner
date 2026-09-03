@@ -136,7 +136,10 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // System 5: the floor canvas is the whole room (40 × 20 tiles ≥ 38.7 × 19.5), so wear is
   // authored in world metres (textures.ts dinerFloorWear); grout relief is a 2 × 2-tile
   // detail normal whose repeat Shell.ts sets alongside the map's.
-  const floorTex = tex.checkerFloor(40, 20, 80, aniso, texModule.dinerFloorWear());
+  const floorWear = texModule.dinerFloorWear();
+  // `?noshelter`: the A/B for the floor's sheltered-roughness rectangles (System 5 rev 5).
+  if (typeof location !== "undefined" && new URLSearchParams(location.search).has("noshelter")) floorWear.sheltered = [];
+  const floorTex = tex.checkerFloor(40, 20, 80, aniso, floorWear);
   // Walls: canvas = 2.4 m (two 1.2 m drywall joints per tile; horizontal joint at 1.2 m),
   // world-anchored UVs (merge.ts worldBoxUv) so seams and the 0.95–1.12 m scuff band run
   // through every pier and spandrel. Stipple relief is a 0.6 m detail normal (repeat 4).
@@ -231,24 +234,47 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     // System 5 rev 4: the vertex colour's green excess (> 1 where upholstery.ts burnished the
     // seat nose and polished the cushion edges) also FLATTENS the pebble grain and halves the
     // roughness there — burnished vinyl is a lighter AND glossier band, not just a paler tint.
+    // Rev 5: the signal is G − R (upholstery.ts lifts G 1.6× over R in the band; plainColor's
+    // uniform tints on welts and cords cancel out, so they no longer pick it up).
     m.onBeforeCompile = (shader) => {
       shader.fragmentShader = shader.fragmentShader
         .replace(
           "#include <normal_fragment_maps>",
           /* glsl */ `#include <normal_fragment_maps>
 #ifdef USE_COLOR
-	normal = normalize( mix( normal, nonPerturbedNormal, clamp( ( vColor.g - 1.0 ) * 3.0, 0.0, 0.85 ) ) );
+	normal = normalize( mix( normal, nonPerturbedNormal, clamp( ( vColor.g - vColor.r ) * 5.0, 0.0, 0.85 ) ) );
 #endif`,
         )
         .replace(
           "#include <roughnessmap_fragment>",
           /* glsl */ `#include <roughnessmap_fragment>
 #ifdef USE_COLOR
-	roughnessFactor *= clamp( 1.0 - ( vColor.g - 1.0 ) * 1.8, 0.5, 1.0 );
+	roughnessFactor *= clamp( 1.0 - ( vColor.g - vColor.r ) * 3.5, 0.3, 1.0 );
+#endif`,
+        )
+        // Rev 5: the band was invisible in shade — a 35 % lift of G on a red whose G is 26/255
+        // is nothing, and a halved roughness has no light to mirror there. Burnished vinyl in
+        // shade is a PINKER, lighter band (the flat surface sheens the room) under a stronger
+        // clearcoat: lift the diffuse toward a pale pink and add 0.5 clearcoat in the band.
+        .replace(
+          "#include <color_fragment>",
+          /* glsl */ `#include <color_fragment>
+#ifdef USE_COLOR
+	{
+		float burnish = clamp( ( vColor.g - vColor.r ) * 5.0, 0.0, 1.0 );
+		diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * 0.65 + vec3( 0.26, 0.09, 0.08 ), burnish * 0.55 );
+	}
+#endif`,
+        )
+        .replace(
+          "material.clearcoat = clearcoat;",
+          /* glsl */ `material.clearcoat = clearcoat;
+#ifdef USE_COLOR
+	material.clearcoat += clamp( ( vColor.g - vColor.r ) * 5.0, 0.0, 1.0 ) * 0.5;
 #endif`,
         );
     };
-    m.customProgramCacheKey = () => "vinylBurnish";
+    m.customProgramCacheKey = () => "vinylBurnish5";
     return m;
   };
   const vinylRed = mkVinyl(vinylGrain.map);
