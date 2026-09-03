@@ -3405,6 +3405,25 @@ the near density (4.43 M → 3.85 M triangles at ready; draw calls unchanged). A
 wedge / cell split for frustum culling was tried and dropped: the cells' spheres are 70–100 m
 and never leave the frustum from inside the room, it only added 40–60 draws per pose.
 
+## Fix — frame 105 ms → 21 ms (`perf-frame`, `shots/perf-frame-*.png`)
+
+The perf-boot `const` tables were a GPU disaster: ANGLE lowers a dynamically indexed GLSL
+`const` array to per-invocation indexable temps (the whole 43 × 9 table copied into registers
+for every fragment), so the scene pass measured 103 ms at `length`, 85 at `kitchen-line`,
+83 at `booth` (1080p, 4060, `tools/post-bench.mjs --settle=5000 --samples=2`). The table is
+now the `uBounce` uniform array (8 vec4 per quad, `bounceRectsUniform`), bound to every lit
+program by the PCSS wrapper next to `sunPcfMap`; same loop, same math. Scene pass after:
+`length` 18.8 / `booth` 15.3 / `lot-wide` 9.1 / `sign-facade` 10.6 / `kitchen-line` 15.1 /
+`world-road` 2.3 ms (+ 1–3.5 ms post). Attribution by toggle at `length` / `kitchen-line`
+(scene ms saved): `?nobounce` 8.0 / 5.3 (the loop is the remaining cost — 43 quads × every
+interior fragment, twice through the transmission pass), `?txscale=0.25` 2.7 / 2.2,
+`?nospot&nolot` 2.7 / 2.0, `?hide=kitchen` 2.4 / 5.3 (3 PointLights + geometry),
+`?hide=world` 1.4 / 0.7 (1.8 M tris, 35 draws), `?nopcss` 1.1 / 0.8, `?hide=rear` 0.1 / −0.5.
+Draw-call merging in Kitchen/Rear/Signage is therefore ≤ 1 ms of the budget and was not done;
+Rear/Kitchen/Signage/World use no `transmission` (the pass renders the 5 window panes + door
+as before). `post-bench.mjs` gained `--settle=ms`, `--samples=n`, the three new poses and a
+`tris=` column.
+
 ## System status
 
 | # | System | Status |
