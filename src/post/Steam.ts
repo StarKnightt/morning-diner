@@ -122,7 +122,7 @@ const vertexShader = /* glsl */ `
   uniform vec4 uFadePlane;
   uniform float uFadeWidth, uHasSun, uSunBoost, uAlpha;
   uniform vec3 uSunRadiance, uAmbient;
-  varying float vU, vTau, vEnv, vSeed;
+  varying float vU, vTau, vEnv, vSeed, vS;
   varying vec3 vRadiance, vWorld;
   ${apertureGlsl(MAX_APERTURES)}
   ${shadowGlsl}
@@ -211,7 +211,7 @@ const vertexShader = /* glsl */ `
     env *= 0.5 + 0.5 * fract(seed.z * 3.7 + seed.w * 1.3);
     // A source on the move (the carried mug) sweeps its own wake apart: parcels left more than a
     // few centimetres behind have been torn up by the motion and are gone.
-    env *= exp(-length(uSrcVel) * age / 0.08);
+    env *= exp(-length(uSrcVel) * age / 0.05);
     // Soft fade toward a world plane (the back wall): nothing slices geometry.
     if (uFadeWidth > 0.0) env *= smoothstep(0.0, uFadeWidth, dot(uFadePlane.xyz, p) + uFadePlane.w);
 
@@ -231,6 +231,7 @@ const vertexShader = /* glsl */ `
     vWorld = p;
 
     vU = side;
+    vS = s;
     vTau = tau;
     vSeed = seed.w * 10.0;
     vEnv = env * uAlpha;
@@ -240,7 +241,7 @@ const vertexShader = /* glsl */ `
 const fragmentShader = /* glsl */ `
   uniform float uOcclusion, uHasSun;
   uniform vec3 uAmbient;
-  varying float vU, vTau, vEnv, vSeed;
+  varying float vU, vTau, vEnv, vSeed, vS;
   varying vec3 vRadiance, vWorld;
   ${apertureGlsl(MAX_APERTURES)}
   ${shadowGlsl}
@@ -257,14 +258,19 @@ const fragmentShader = /* glsl */ `
     float n1 = vnoise(q) * 0.6 + vnoise(q * 2.1 + 3.3) * 0.4;
     float n2 = vnoise(vec2(vU * 0.5 + vSeed + 7.0, vTau * 2.0));
     float n3 = vnoise(vec2(vSeed + 21.0, vTau * 1.3));
-    // Ragged edge: the half-width wobbles ±30 % along the strand, and the core drifts off-centre.
+    // Ragged edge: the half-width wobbles ±30 % along the strand, and the core drifts off-centre
+    // (a little: pushed further it piles against the quad-edge window and draws a straight side).
     float edge = 0.55 + 0.45 * n2;
-    float u = abs(vU - 0.3 * (n3 - 0.5)) / edge;
+    float u = abs(vU - 0.2 * (n3 - 0.5)) / edge;
     // Soft Gaussian across the ribbon, always closed before the quad edge (|vU| = 1) so no row
     // ever shows a hard cut. No radial term anywhere.
-    float across = exp(-u * u * 2.5) * (1.0 - smoothstep(0.55, 0.95, abs(vU)));
+    float across = exp(-u * u * 3.0) * (1.0 - smoothstep(0.5, 0.9, abs(vU)));
+    // Past mid-height the widened sheet is really two or three filaments with clear air between:
+    // an across-strand noise that rides up with the parcel splits it (never at the laminar root).
+    float fil = smoothstep(0.25, 0.75, vnoise(vec2(vU * 2.5 + vSeed * 3.0, vTau * 3.5 + 11.0)));
+    float split = mix(1.0, 0.25 + 0.75 * fil, smoothstep(0.25, 0.8, vS));
     // The strand thins to threads in places; the modulation never cuts a hole (≥ 0.3).
-    float a = across * vEnv * (0.35 + 0.65 * smoothstep(0.15, 0.85, n1)) * (0.6 + 0.8 * n3);
+    float a = across * split * vEnv * (0.35 + 0.65 * smoothstep(0.15, 0.85, n1)) * (0.6 + 0.8 * n3);
     // Sun-beam test per fragment; the slat-averaged compare (three taps over one slat pitch)
     // stands in for the vapour's ~2 cm depth, so a stripe brightens a soft band, not a knife edge.
     float lit = 0.0;
