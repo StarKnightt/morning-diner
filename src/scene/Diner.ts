@@ -294,6 +294,20 @@ export class Diner {
           assign(doorMats, door.texture);
         }
       }
+      // Station probes (System 9 rev 4): a satin plate is a stretched mirror, and from the
+      // metals' probe 3 m away its mirror directions land on the wrong walls (the kitchen
+      // leaf's plates read as taupe paint). Materials that set `userData.probePos` take one
+      // more capture at their own station — the kitchen leaf's plates from the dining side of
+      // the closed door, the kitchen slice's steel from inside the slice — box-projected in
+      // their shaders (Openables.ts `brushedPlatesByVertexAlpha`). Sun on, once, at boot.
+      for (const m of this.sys9.openables.envMetals) {
+        const p = m.userData.probePos as THREE.Vector3 | undefined;
+        if (!p) continue;
+        const station = probe(p.x, p.y, p.z).texture;
+        const slot = m.userData.stationEnv as { value: THREE.Texture | null } | undefined;
+        if (slot) slot.value = station; // the leaf: plates only, the paint keeps the room probe
+        else assign([m], station);
+      }
       standIn.dispose();
       plainFloor.dispose();
       vinyls.forEach((v, i) => v.color.copy(saved[i]));
