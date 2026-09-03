@@ -109,6 +109,8 @@ export interface FloorWear {
   crack: { x: number; z: number; len: number; deg: number };
   /** Rev 5: further cracks, each from its own joint. */
   cracks?: Array<{ x: number; z: number; len: number; deg: number }>;
+  /** Polish: where feet pivot and things are dragged — scuffs cluster here (radius m, weight). */
+  hotspots?: Array<{ x: number; z: number; r: number; k: number }>;
   seed: number;
 }
 
@@ -206,9 +208,25 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
     const laneW = wear.lanes.map((L) => L.k * L.k);
     const laneTot = laneW.reduce((a, b) => a + b, 0);
     const smearN = makeFbm(wear.seed + 7, 64, 2);
-    for (let s = 0; s < 420; s++) {
+    // Polish: three families, placed where they happen. PIVOTS (short tight arcs, a sole
+    // turning) cluster at the hotspots — stool bases, booth ends, the threshold — SCUFFS
+    // (straight-ish skids) ride the lanes, a few long DRAG arcs (a dolly, a dragged stool)
+    // cross the open floor. Width 3–24 mm, length 20–500 mm, each with a heavy end.
+    const hot = wear.hotspots ?? [];
+    const hotTot = hot.reduce((a, h) => a + h.k, 0);
+    for (let s = 0; s < 500; s++) {
       let wx: number, wz: number;
-      if (rng() < 0.85 && wear.lanes.length) {
+      let family: 0 | 1 | 2 = 1; // 0 pivot, 1 scuff, 2 drag
+      const pickF = rng();
+      if (pickF < 0.4 && hotTot > 0) {
+        let pick = rng() * hotTot, hi = 0;
+        while (hi < hot.length - 1 && pick > hot[hi].k) { pick -= hot[hi].k; hi++; }
+        const H = hot[hi];
+        // gaussian-ish about the centre, most within r
+        const rr = H.r * Math.abs(rng() + rng() + rng() - 1.5) * 0.9, th = rng() * Math.PI * 2;
+        wx = H.x + Math.cos(th) * rr; wz = H.z + Math.sin(th) * rr;
+        family = rng() < 0.7 ? 0 : 1;
+      } else if (pickF < 0.9 && wear.lanes.length) {
         let pick = rng() * laneTot, li = 0;
         while (li < laneW.length - 1 && pick > laneW[li]) { pick -= laneW[li]; li++; }
         const L = wear.lanes[li];
@@ -218,23 +236,28 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
         const dx = L.pts[seg + 1][0] - L.pts[seg][0], dz = L.pts[seg + 1][1] - L.pts[seg][1], ln = Math.hypot(dx, dz) || 1;
         wx = L.pts[seg][0] + dx * t - (dz / ln) * across;
         wz = L.pts[seg][1] + dz * t + (dx / ln) * across;
+        family = rng() < 0.08 ? 2 : 1;
       } else {
         wx = wear.originX + rng() * w * mPerPx;
         wz = wear.originZ + rng() * h * mPerPx;
         let shelter = false;
         for (const [x0, z0, x1, z1] of wear.sheltered) if (wx > x0 && wx < x1 && wz > z0 && wz < z1) shelter = true;
         if (shelter && rng() < 0.92) continue;
+        if (rng() < 0.5) continue; // sparse on the open floor
+        family = rng() < 0.15 ? 2 : 1;
       }
       const [px, py] = toPx(wx, wz);
       if (px < 2 || py < 2 || px > w - 2 || py > h - 2) continue;
-      const kind = rng();
-      const lenM = kind < 0.15 ? 0.1 + rng() * 0.18 : 0.02 + rng() * 0.08; // a few long skids
+      // Length, bend, width and weight by family. Pivots: 30–90 mm tight arcs (±0.6–1.3 rad).
+      // Scuffs: 20–140 mm (skewed short), shallow bends ±0.35 rad (rev 4: hooks read as
+      // handwriting). Drags: 250–500 mm arcs, broad and faint.
+      const u1 = rng(), u2 = rng();
+      const lenM = family === 0 ? 0.03 + u1 * 0.06 : family === 2 ? 0.25 + u1 * 0.25 : 0.02 + u1 * u1 * 0.12;
       const ang = rng() * Math.PI * 2;
-      // Rev 4: bends capped at ±0.35 rad — a sole edge skids in a shallow arc; rev 3's ±1.2 rad
-      // hooks drew the J / 7 / comma family the critic read as handwriting.
-      const bend = (rng() - 0.5) * (kind < 0.4 ? 0.2 : 0.7);
-      const wMm = 6 + rng() * rng() * 20; // 6–26 mm, mostly narrow (a sole edge is ~12 mm)
-      const weight = 0.35 + rng() * 0.65;
+      const bend = family === 0 ? (rng() < 0.5 ? -1 : 1) * (0.6 + rng() * 0.7) : family === 2 ? (rng() - 0.5) * 0.9 : (rng() - 0.5) * (u2 < 0.4 ? 0.2 : 0.7);
+      const wMm = family === 2 ? 8 + rng() * 14 : 3 + Math.pow(rng(), 1.6) * 21; // 3–24 mm, skewed narrow
+      const weight = family === 2 ? 0.25 + rng() * 0.3 : 0.3 + rng() * 0.7;
+      const flip = rng() < 0.5; // which end took the weight
       const seed2 = rng() * 10;
       // March along the quadratic with a step of ~1 texel; the core density and the width
       // vary along; gaps where the sole lifted.
@@ -246,13 +269,18 @@ export function checkerFloor(tilesX: number, tilesY: number, tilePx: number, ani
         const t = k / steps;
         const qx = (1 - t) * (1 - t) * px + 2 * (1 - t) * t * cxp + t * t * exp_;
         const qy = (1 - t) * (1 - t) * py + 2 * (1 - t) * t * cyp + t * t * eyp;
-        const along = smearN(t * 0.6 + seed2, seed2 * 0.3); // 0..1 along the mark
-        const gap = smoothstep(0.36, 0.44, along); // 0 where the sole lifted
+        const tt = flip ? 1 - t : t; // 0 at the heavy end
+        // Polish: the lift field is sampled at t × 0.1 (rev 4: × 0.6 — 38 cells along a mark,
+        // which chopped every scuff into an equal dash-chain) and only thins the trailing half.
+        const along = smearN(tt * 0.1 + seed2, seed2 * 0.3);
+        const gap = 1 - smoothstep(0.4, 0.8, tt) * (1 - smoothstep(0.3, 0.42, along));
         if (gap <= 0) continue;
-        const ends = smoothstep(0, 0.12, t) * smoothstep(1, 0.85, t);
-        const widthPx = (wMm / 1000 / mPerPx) * (0.55 + 0.45 * smearN(t * 1.3 + seed2 + 3, 0.7)) * (0.5 + 0.5 * ends);
+        // heavy end: full weight and width at tt = 0, thinning and fading toward the tail
+        const head = 1 + 1.1 * Math.pow(1 - tt, 4);
+        const ends = smoothstep(0, 0.03, tt) * smoothstep(1, 0.5, tt);
+        const widthPx = (wMm / 1000 / mPerPx) * (0.55 + 0.45 * smearN(t * 1.3 + seed2 + 3, 0.7)) * (0.45 + 0.55 * ends) * (0.7 + 0.3 * Math.pow(1 - tt, 2));
         const R = Math.ceil(widthPx / 2 + 1);
-        const dens = weight * gap * ends;
+        const dens = Math.min(1, weight * gap * ends * head);
         for (let dy = -R; dy <= R; dy++)
           for (let dx = -R; dx <= R; dx++) {
             const xx = Math.round(qx) + dx, yy = Math.round(qy) + dy;
@@ -548,6 +576,15 @@ export function dinerFloorWear(): FloorWear {
     crack: { x: COUNTER.xMax + 0.45, z: stoolZ + 0.45, len: 0.85, deg: 112 },
     // Rev 5: a second, shorter one two tiles over toward the door, off the same slab joint.
     cracks: [{ x: COUNTER.xMax + 1.1, z: stoolZ + 0.95, len: 0.42, deg: 74 }],
+    hotspots: [
+      // feet pivot on the aisle side of every stool base (the base itself shelters the floor)
+      ...STOOL.centersX.map((x) => ({ x, z: stoolZ + STOOL.baseR + 0.12, r: 0.3, k: 1 })),
+      // booth ends: people swing out of the seat and turn into the aisle
+      ...WINDOW.centersX.flatMap((cx) => [-1, 1].map((s) => ({ x: cx + s * (BOOTH.seat.front + 0.12), z: BOOTH.zInner - 0.18, r: 0.26, k: 0.8 }))),
+      // the threshold: everyone stops, turns, scrapes
+      { x: doorX - 0.05, z: zFront - 0.45, r: 0.45, k: 2.2 },
+      { x: doorX - 0.6, z: zFront - 0.9, r: 0.35, k: 0.9 },
+    ],
     seed: 1234,
   };
 }
@@ -1559,27 +1596,50 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
   for (const [x0, y0, x1, y1, a, dark] of scratches) strokeField(rough, size, linePts(x0, y0, x1, y1), dark ? 0.35 : 0.45 * a, dark ? 1.6 : 1.1);
   // Cup rings: coffee residue dries from the outside in — a sharp dense outer edge (the
   // tide line) fading inward over ~3 mm; partial arcs (the cup was lifted before it dried).
-  // Rev 5: seven per 1.2 m canvas — a 0.7 m table top samples a third of it, so rev 4's three
+  // Rev 5: seven per 1.2 m canvas (polish: ten) — a 0.7 m table top samples a third of it, so rev 4's three
   // left most tops (the `table` / `macro-table` ones) with no ring at all.
-  const rings: Array<[number, number, number, number, number]> = [];
-  for (let k = 0; k < 7; k++) {
+  // Polish: a dried ring is not a uniform line — it is heaviest where the cup was tilted
+  // (the residue pooled to one side: wider, darker, a longer inward fade), thins to a
+  // hairline opposite, and breaks where the cup was lifted. Two strong rings, the rest faint.
+  type Ring = { rx: number; ry: number; rr: number; a0: number; sweep: number; tilt: number; str: number; bs: number };
+  const rings: Ring[] = [];
+  const ringN = makeFbm(seed + 17, 6, 2);
+  const rrng = makeRng(seed + 23); // the polish parameters draw from their own stream: the rev 5 ring positions stay
+  // two strong, three medium, five faint (polish: ten per canvas so a 0.7 m top in shade
+  // still shows two or three faint ones) — shuffled; the first seven keep rev 5's positions
+  const strs = [1.0, 0.9, 0.6, 0.55, 0.5, 0.4, 0.35, 0.45, 0.4, 0.35];
+  for (let k = strs.length - 1; k > 0; k--) { const j = Math.floor(rrng() * (k + 1)); [strs[k], strs[j]] = [strs[j], strs[k]]; }
+  for (let k = 0; k < strs.length; k++) {
     const rx = size * (0.08 + rng() * 0.84), ry = size * (0.08 + rng() * 0.84), rr = (32 + rng() * 12) * pxPerMm;
     const a0 = rng() * Math.PI * 2, sweep = 3.5 + rng() * 2.6; // 200–350°
-    rings.push([rx, ry, rr, a0, sweep]);
+    rings.push({ rx, ry, rr, a0, sweep, tilt: rrng() * Math.PI * 2, str: strs[k], bs: rrng() * 10 });
   }
+  /** Ring weight 0..1 at a texel: 0 off the ring; the tide line's density with its pooling side. */
+  const ringAt = (x: number, y: number, R: Ring): number => {
+    const d = Math.hypot(x - R.rx, y - R.ry) - R.rr; // + outside
+    if (d < -5.5 * pxPerMm || d > 0.9 * pxPerMm) return 0;
+    const angAbs = Math.atan2(y - R.ry, x - R.rx);
+    let ang = angAbs - R.a0;
+    ang = ((ang % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+    if (ang > R.sweep) return 0;
+    // pooling: 1 on the tilted side, 0.25 opposite
+    const pool = 0.25 + 0.75 * smoothstep(-0.7, 0.9, Math.cos(angAbs - R.tilt));
+    // breaks: 6-cell field around the circumference; the lifted side breaks more
+    const brk = smoothstep(0.32, 0.4, ringN(Math.cos(angAbs) * 1.1 + R.bs, Math.sin(angAbs) * 1.1 + R.bs) + 0.12 * pool);
+    if (brk <= 0) return 0;
+    const lineW = (0.5 + 1.0 * pool) * pxPerMm; // hairline opposite, 1.5 mm on the pooled side
+    const fadeW = (1.5 + 3.5 * pool) * pxPerMm; // the inward tail of dried residue
+    const core = d > -lineW ? 1 : 0.45 * Math.max(0, 1 + (d + lineW) / fadeW);
+    const soft = smoothstep(0.9 * pxPerMm, 0.2 * pxPerMm, d); // outer edge anti-aliased
+    return R.str * brk * (0.4 + 0.6 * pool) * core * soft;
+  };
   const rimg = rctx.createImageData(size, size);
   const rg = makeRng(seed + 11);
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
       const i = y * size + x, o = i * 4;
       let r = rough[i];
-      for (const [rx, ry, rr, a0, sweep] of rings) {
-        const d = Math.hypot(x - rx, y - ry) - rr; // + outside
-        let ang = Math.atan2(y - ry, x - rx) - a0;
-        ang = ((ang % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-        if (ang > sweep) continue;
-        if (d > -3 * pxPerMm && d < 0.6 * pxPerMm) r += 0.42 * (d > -0.8 * pxPerMm ? 1 : 0.4 * (1 + d / (3 * pxPerMm)));
-      }
+      for (const R of rings) r += 0.45 * ringAt(x, y, R);
       // dither: ±0.6/255 breaks the 8-bit contours that drew rev 2's fingerprint
       const v = Math.min(255, Math.max(0, r * 255 + (rg() - 0.5) * 1.2));
       rimg.data[o] = v; rimg.data[o + 1] = v; rimg.data[o + 2] = v; rimg.data[o + 3] = 255;
@@ -1593,14 +1653,10 @@ export function formicaBoomerang(size: number, metres: number, seed: number): Te
       const i = y * size + x, o = i * 4;
       const h = hazeF[i] * 0.06; // milky film: toward grey-white
       ad[o] = ad[o] * (1 - h) + 214 * h; ad[o + 1] = ad[o + 1] * (1 - h) + 210 * h; ad[o + 2] = ad[o + 2] * (1 - h) + 204 * h;
-      for (const [rx, ry, rr, a0, sweep] of rings) {
-        const d = Math.hypot(x - rx, y - ry) - rr;
-        if (d < -3.2 * pxPerMm || d > 0.7 * pxPerMm) continue;
-        let ang = Math.atan2(y - ry, x - rx) - a0;
-        ang = ((ang % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-        if (ang > sweep) continue;
-        const k = d > -0.8 * pxPerMm ? 0.5 : 0.2 * (1 + d / (3 * pxPerMm)); // rev 4: a ring you can see
-        ad[o] = ad[o] * (1 - k) + 118 * k; ad[o + 1] = ad[o + 1] * (1 - k) + 86 * k; ad[o + 2] = ad[o + 2] * (1 - k) + 48 * k;
+      for (const R of rings) {
+        const k = 0.62 * ringAt(x, y, R); // a strong ring's tide line mixes 0.62 toward dried coffee
+        if (k <= 0) continue;
+        ad[o] = ad[o] * (1 - k) + 112 * k; ad[o + 1] = ad[o + 1] * (1 - k) + 80 * k; ad[o + 2] = ad[o + 2] * (1 - k) + 44 * k;
       }
     }
   ctx.putImageData(aimg, 0, 0);
@@ -1934,7 +1990,7 @@ export function kickPlateWear(w: number, h: number, wM: number, hM: number, seed
   const { c, ctx } = canvas(w, h);
   const rng = makeRng(seed);
   const mPerPx = wM / w;
-  const col = makeFbm(seed + 1, 96, 2); // brush streak field, sampled along u only
+  const col = makeFbm(seed + 1, 96, 2); // brush streak field, sampled along v only (runs along the plate)
   const fine = makeFbm(seed + 2, 128, 2);
   const grime = makeFbm(seed + 3, 8, 3);
   const smearN = makeFbm(seed + 7, 64, 2);
@@ -2004,8 +2060,10 @@ export function kickPlateWear(w: number, h: number, wM: number, hM: number, seed
     const mm = v * hM * 1000; // height above the bottom edge
     for (let x = 0; x < w; x++) {
       const u = x / w, i = y * w + x, o = i * 4;
-      // brushing: vertical runs (u-only streak field) + a fine grain
-      const streak = col(u * 8, 0.5) - 0.5, grain = fine(x / w, y / h) - 0.5;
+      // brushing: HORIZONTAL runs along the plate's long axis (polish — a commercial satin
+      // plate is grained lengthwise; rev 3–5 ran it vertically), the streak field sampled
+      // along v only at the same ~0.8 mm run pitch, plus a fine grain
+      const streak = col(0.5, v * 2.0) - 0.5, grain = fine(x / w, y / h) - 0.5;
       // rev 4: 0.30–0.40 in the runs (satin, a stretched mirror), not 0.36–0.54
       let r = 0.27 + streak * 0.1 + grain * 0.02;
       let k = 1 + streak * 0.03 + grain * 0.01;

@@ -718,10 +718,11 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // a flat mauve-brown rectangle), horizontal brushing along the plate.
   const kickPlate = withRough(palette.stainlessCool.clone(), tex.brushedRoughness(512, 0.5, 96));
   // Slightly cool: the warm room env otherwise tints the plate mauve. Anisotropy along the
-  // brushing (vertical grain on a kick plate) smears the reflection into satin streaks.
+  // brushing (polish: lengthwise, along u — a commercial satin plate is grained along its
+  // long axis) smears the reflection into satin streaks.
   kickPlate.color.setRGB(0.74, 0.77, 0.8, THREE.LinearSRGBColorSpace);
   kickPlate.anisotropy = 0.7;
-  kickPlate.anisotropyRotation = Math.PI / 2;
+  kickPlate.anisotropyRotation = 0;
   // Counter backsplash lip (System 4 rev 4): the kick plate's satin finish in the darker
   // `stainless` colour. At 0.34 the lip's dining-side face was a 6 m mirror of the sunlit
   // blinds from the one-point probe — a clipped white streak the critics read as a neon tube.
@@ -750,8 +751,9 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     kickPlateWorn.userData.doorProbe = true;
     // three's `anisotropy` bends the environment lookup toward one direction (a single bent
     // normal), so on a 0.8 m plate it returned one colour — the rev 3 board. The stretched
-    // mirror is done by hand: five environment taps fanned along the brush (world y, the
-    // brush runs vertically) with the lookup roughness lowered across it, and each tap
+    // mirror is done by hand: nine environment taps fanned along the brush (polish: the
+    // brush runs LENGTHWISE — the plate's horizontal tangent, `cross(up, N)` in world space,
+    // so it follows the leaf when the door swings) with the lookup roughness lowered across it, and each tap
     // PARALLAX-CORRECTED against the room box from the door probe's station (a one-point
     // probe otherwise shows the same floor patch across the whole plate — no checker).
     kickPlateWorn.anisotropy = 0;
@@ -788,7 +790,10 @@ vec3 kpBoxDir( vec3 R ) {
             /* glsl */ `{
 	vec3 R = reflect( - geometryViewDir, geometryNormal );
 	R = transformDirectionByInverseViewMatrix( R, viewMatrix );
-	// Nine taps up a Gaussian fan (±spread at 2σ) along the brush; the fan width rides the
+	// The brush runs along the plate: its horizontal tangent in world space.
+	vec3 Nw = transformDirectionByInverseViewMatrix( geometryNormal, viewMatrix );
+	vec3 brush = normalize( cross( vec3( 0.0, 1.0, 0.0 ), Nw ) );
+	// Nine taps along a Gaussian fan (±spread at 2σ) along the brush; the fan width rides the
 	// brush roughness texel by texel, so the streaks break up run by run as brushing does.
 	float spread = KP_SPREAD * material.roughness;
 	float lr = material.roughness * KP_LR;
@@ -797,7 +802,7 @@ vec3 kpBoxDir( vec3 R ) {
 	for ( int k = -4; k <= 4; k ++ ) {
 		float f = float( k ) / 4.0;
 		float wgt = exp( - 2.0 * f * f );
-		vec3 Rk = normalize( R + vec3( 0.0, f * spread, 0.0 ) );
+		vec3 Rk = normalize( R + brush * f * spread );
 		acc += wgt * textureCubeUV( envMap, envMapRotation * kpBoxDir( Rk ), lr ).rgb;
 		wsum += wgt;
 	}
@@ -806,7 +811,7 @@ vec3 kpBoxDir( vec3 R ) {
           ),
         );
     };
-    kickPlateWorn.customProgramCacheKey = () => "kickPlateBoxProbe";
+    kickPlateWorn.customProgramCacheKey = () => "kickPlateBoxProbeH";
   }
   // Pedestal bells at floor contact (rev 2): the LatheGeometry's v runs up the profile, the
   // rim and shoulder are v ≲ 0.2. A 64 × 64 DataTexture (no worker) carries the cast's own
