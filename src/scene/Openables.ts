@@ -87,6 +87,107 @@ function metalByVertexAlpha(m: THREE.MeshStandardMaterial, rough: number, key: s
   m.customProgramCacheKey = () => key;
 }
 
+/** Vertex-alpha flags for `tint`: paint 1, metal brushed along local y (push plates, screws) 0, along local x (kick plates) 0.25. */
+export const BRUSH_Y = 0, BRUSH_X = 0.25;
+
+/**
+ * Rev 4 — the kitchen leaf's plates. Rev 3's plates (metalness 1, roughness 0.35, three's
+ * `anisotropy`, the room probe) measured as flat taupe: the room probe is captured 3 m away
+ * with unprojected directions, so a 0.4 m plate returned one colour, and `anisotropy` bends
+ * the lookup by a single normal — no streaks. This is the System 5 rev 4 kick-plate recipe
+ * (`kickPlateWorn`): the material takes a probe captured AT THE DOOR (`userData.probePos`,
+ * Diner.ts), each environment tap is PARALLAX-CORRECTED against the room box, and the satin
+ * finish is a 9-tap Gaussian fan of taps along the brush direction (world y on the push
+ * plates, the leaf's x on the kick plates — carried by the vertex alpha) with the lookup
+ * roughness lowered across it: a stretched mirror, floor at the bottom, wall and ceiling at
+ * the top, a bright hairline where the round-over turns. Brushing runs 0.8 / 2.5 mm wide
+ * modulate the roughness ±0.06 texel by texel so the streaks break up run by run. Paint
+ * (alpha 1) renders as authored; the whole leaf stays one bucket.
+ */
+function brushedPlatesByVertexAlpha(m: THREE.MeshStandardMaterial, rough: number, key: string, probePos: THREE.Vector3): void {
+  m.userData.probePos = probePos;
+  // The station probe feeds the plates only; the paint keeps `envMap` (the metals' room probe)
+  // so its ambient is the one the rest of the room was balanced against. Diner.ts fills this.
+  const kpEnv: { value: THREE.Texture | null } = { value: null };
+  m.userData.stationEnv = kpEnv;
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uKpEnv = kpEnv;
+    shader.uniforms.uKpProbe = { value: probePos };
+    shader.uniforms.uKpBoxMin = { value: new THREE.Vector3(-ROOM.halfX, 0, ROOM.zBack - ROOM.wallThickness - KITCHEN_DEPTH) };
+    shader.uniforms.uKpBoxMax = { value: new THREE.Vector3(ROOM.halfX, ROOM.height, ROOM.zFront) };
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vKpPos, vKpLocal, vKpBrush;")
+      .replace(
+        "#include <worldpos_vertex>",
+        [
+          "#include <worldpos_vertex>",
+          "vKpPos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;",
+          "vKpLocal = transformed;",
+          "vKpBrush = normalize( ( modelMatrix * vec4( color.a < 0.125 ? vec3( 0.0, 1.0, 0.0 ) : vec3( 1.0, 0.0, 0.0 ), 0.0 ) ).xyz );",
+        ].join("\n"),
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        /* glsl */ `#include <common>
+varying vec3 vKpPos, vKpLocal, vKpBrush;
+uniform vec3 uKpProbe, uKpBoxMin, uKpBoxMax;
+uniform sampler2D uKpEnv;
+float kpHash( float x ) { return fract( sin( x * 127.1 ) * 43758.5453 ); }
+vec3 kpBoxDir( vec3 R ) {
+	vec3 rbmax = ( uKpBoxMax - vKpPos ) / R, rbmin = ( uKpBoxMin - vKpPos ) / R;
+	vec3 rb = mix( rbmin, rbmax, step( vec3( 0.0 ), R ) );
+	float d = max( 0.05, min( min( rb.x, rb.y ), rb.z ) );
+	return normalize( vKpPos + R * d - uKpProbe );
+}`,
+      )
+      .replace(
+        "#include <metalnessmap_fragment>",
+        [
+          "#include <metalnessmap_fragment>",
+          "#ifdef USE_COLOR_ALPHA",
+          "if ( vColor.a < 0.5 ) {",
+          "	metalnessFactor = 1.0;",
+          "	diffuseColor.rgb = vColor.rgb;",
+          "	float across = vColor.a < 0.125 ? vKpLocal.x : vKpLocal.y;",
+          "	float run = 0.6 * kpHash( floor( across * 400.0 ) ) + 0.4 * kpHash( floor( across * 1300.0 + 7.0 ) );",
+          `	roughnessFactor = ${rough.toFixed(3)} + ( run - 0.5 ) * 0.12;`,
+          "}",
+          "diffuseColor.a = 1.0;",
+          "#endif",
+        ].join("\n"),
+      )
+      // (the chunk includes are expanded after onBeforeCompile, so the edited chunk is inlined)
+      .replace(
+        "#include <lights_fragment_maps>",
+        THREE.ShaderChunk.lights_fragment_maps.replace(
+          "radiance += getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );",
+          /* glsl */ `if ( vColor.a < 0.5 ) {
+	vec3 R = reflect( - geometryViewDir, geometryNormal );
+	R = transformDirectionByInverseViewMatrix( R, viewMatrix );
+	// Nine taps up a Gaussian fan (±spread at 2σ) along the brush; the lookup roughness is
+	// lowered across it — the stretched mirror of a satin finish.
+	float spread = 1.6 * material.roughness;
+	float lr = 0.8 * material.roughness;
+	vec3 acc = vec3( 0.0 );
+	float wsum = 0.0;
+	for ( int k = -4; k <= 4; k ++ ) {
+		float f = float( k ) / 4.0;
+		float wgt = exp( - 2.0 * f * f );
+		vec3 Rk = normalize( R + vKpBrush * ( f * spread ) );
+		acc += wgt * textureCubeUV( uKpEnv, envMapRotation * kpBoxDir( Rk ), lr ).rgb;
+		wsum += wgt;
+	}
+	radiance += acc * ( 1.4 * envMapIntensity / wsum ); // the station probe's near-field weight (cf. ROOM_PROBE_INTENSITY)
+} else {
+	radiance += getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );
+}`,
+        ),
+      );
+  };
+  m.customProgramCacheKey = () => key;
+}
+
 /** 4 × 4" wall tiles and 4 × 6" quarry tiles per atlas cell. */
 const WALL_TILE_CELL = 4 * 0.1016;
 const QUARRY_CELL = 4 * 0.1524;
@@ -97,11 +198,11 @@ const QUARRY_CELL = 4 * 0.1524;
  * polished metal in the vertex's colour - so a painted door and its stainless plates, or a
  * laminate door and its chrome pull, are one bucket and one draw call.
  */
-export function tint(g: THREE.BufferGeometry, hex: number, metal = false): THREE.BufferGeometry {
+export function tint(g: THREE.BufferGeometry, hex: number, metal = false, brush = BRUSH_Y): THREE.BufferGeometry {
   const c = new THREE.Color(hex);
   const n = g.attributes.position.count;
   const arr = new Float32Array(n * 4);
-  const a = metal ? 0 : 1;
+  const a = metal ? brush : 1;
   for (let i = 0; i < n; i++) {
     arr[i * 4] = c.r;
     arr[i * 4 + 1] = c.g;
@@ -396,12 +497,13 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
   hinge.position.set(x0 + 0.006, 0, zMid);
   const w = x1 - x0 - 0.012;
   const b = new MergedBuilder();
-  // Physical, for the plates' anisotropy (brushed along u — horizontal on the kick plates and
-  // the push plates' faces); `metalByVertexAlpha` zeroes it on the paint. Roughness 0.35 for
-  // the metal: satin brushed stainless, a smeared reflection of the room from the probe.
-  const leafMat = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.06, anisotropy: 0.75 });
+  // Rev 4: the plates are a box-projected, brush-stretched mirror of a probe captured at the
+  // door (`brushedPlatesByVertexAlpha`; rev 3's `anisotropy` + room probe read as paint).
+  // Roughness 0.27 ± 0.06 in brushing runs; the probe station is 0.35 m into the dining room
+  // at the height between the plates, captured once at boot with the leaf closed.
+  const leafMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.06 });
   leafMat.name = "kitchenLeaf";
-  metalByVertexAlpha(leafMat, 0.35, "kitchen-leaf");
+  brushedPlatesByVertexAlpha(leafMat, 0.3, "kitchen-leaf", new THREE.Vector3(KITCHEN_DOOR.centerX, 1.0, zBack + 0.35));
   const PAINT = 0xf2f1ec, RUBBER = 0x141416, PIVOT = 0x2b2b2d;
   const cx = w / 2;
   const { w: vw, h: vh, centerY: vy } = VISION;
@@ -480,13 +582,14 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
   // Rev 2 passed the stainless colour as a hex of LINEAR values and `tint` read it as sRGB —
   // a 0.30 albedo, the charcoal the critic measured. `getHex()` returns sRGB.
   {
-    const STEEL = pal.stainlessCool.color.getHex();
+    // Rev 4: satin aluminium / 430 stainless F0 (238/240/243 sRGB) — the probe supplies the value.
+    const STEEL = 0xeef0f3;
     const SCREW = new THREE.Color().setRGB(0.5, 0.5, 0.52, THREE.LinearSRGBColorSpace).getHex();
     const proud = 0.0015;
-    const plate = (a: readonly [number, number, number], c: readonly [number, number, number]) => {
+    const plate = (a: readonly [number, number, number], c: readonly [number, number, number], brush: number) => {
       const g = new RoundedBoxGeometry(c[0] - a[0], c[1] - a[1], c[2] - a[2], 2, 0.0007);
       g.translate((a[0] + c[0]) / 2, (a[1] + c[1]) / 2, (a[2] + c[2]) / 2);
-      b.add(tint(g, STEEL, true), leafMat);
+      b.add(tint(g, STEEL, true, brush), leafMat);
     };
     const screw = (x: number, y: number, zFace: number, out: 1 | -1) => {
       const head = new THREE.CylinderGeometry(0.0038, 0.0042, 0.0014, 14);
@@ -500,11 +603,11 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
     };
     for (const [za, zb, out] of [[-th / 2 - proud, -th / 2, -1], [th / 2, th / 2 + proud, 1]] as const) {
       const kx0 = sx0 + 0.02, kx1 = sx1 - 0.02, ky0 = yBot + 0.012, ky1 = ky0 + 0.406;
-      plate([kx0, ky0, za], [kx1, ky1, zb]);
+      plate([kx0, ky0, za], [kx1, ky1, zb], BRUSH_X); // kick plates brushed horizontally
       const zFace = out > 0 ? zb : za;
       for (const fx of [0.025, 0.5, 0.975]) for (const fy of [0.025, 0.975]) screw(kx0 + fx * (kx1 - kx0), ky0 + fy * (ky1 - ky0), zFace, out);
       const px0 = w - 0.06 - 0.1, px1 = w - 0.06, py0 = 1.0, py1 = 1.4;
-      plate([px0, py0, za], [px1, py1, zb]);
+      plate([px0, py0, za], [px1, py1, zb], BRUSH_Y); // push plates brushed vertically
       for (const fx of [0.13, 0.87]) for (const fy of [0.04, 0.96]) screw(px0 + fx * (px1 - px0), py0 + fy * (py1 - py0), zFace, out);
     }
   }
@@ -530,8 +633,12 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
   // table, hood. Pure metal (`pal.stainless`) only mirrors the dining-room probe, which does not
   // see into the kitchen, and read as charcoal with 1 px rims. Own bucket, all of it in the
   // kitchen, so it is culled from the spawn; +1 draw with the door in view.
-  const steel = new THREE.MeshStandardMaterial({ color: 0xdcdedf, metalness: 0.55, roughness: 0.3 });
+  // Rev 4: real stainless (metalness 0.9, roughness 0.28) on its own probe captured inside the
+  // slice (`userData.probePos`, Diner.ts), so the bowls mirror the lit tile and the fixture
+  // instead of reading as matte melamine under the half-metal of rev 3.
+  const steel = new THREE.MeshStandardMaterial({ color: 0xe4e6e8, metalness: 0.9, roughness: 0.28, envMapIntensity: 1.2 });
   steel.name = "kitchenSteel";
+  steel.userData.probePos = new THREE.Vector3(KITCHEN_DOOR.centerX, 1.05, zBack - T - 0.9);
 
   /* ---------------- the kitchen slice ---------------- */
   const zIn = zBack - T, zFar = zIn - KITCHEN_DEPTH;
