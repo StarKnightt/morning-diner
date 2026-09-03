@@ -24,6 +24,7 @@ import { ROOM_PROBE_INTENSITY, buildContactShadows, buildLighting, installShadow
 import { buildProps } from "./Props";
 import { buildRear } from "./Rear";
 import { buildShell } from "./Shell";
+import { buildSignage } from "./Signage";
 import { buildSystem9, type System9 } from "./Sys9";
 import { DOOR, FAN, ROOM } from "./layout";
 
@@ -60,6 +61,8 @@ export class Diner {
   pourMug!: THREE.Mesh;
   pourMugShadow!: THREE.Mesh;
   coffeePot!: THREE.Group;
+  /** Counter stool seat tops, one Group per stool pivoted on its column (swivelled by Sit.ts). */
+  stoolSeats: THREE.Group[] = [];
   /** System 9: the openables' hinges and the presence props (Sys9.ts). */
   sys9!: System9;
   private fanRotor!: THREE.Group;
@@ -91,6 +94,9 @@ export class Diner {
     buildBlinds(this.group, this.palette);
     await hooks.stage("Hanging the blinds", 7 / 8);
     const exterior = buildExterior(this.group, this.palette, sunDirection(), this.bank);
+    // Exterior signage (Signage.ts): pylon, channel letters, door panels — added inside the
+    // `exterior` group so it takes the lot probe, the lot sun and the lotCaster flag with it.
+    buildSignage(this.group, this.palette);
     // fix-rear: the enclosed kitchen box, its rear / side dressing and the rooftop (Rear.ts).
     // Interior sun split like the shell's outer skins; its materials take the lot probe below.
     const tRear = performance.now();
@@ -104,6 +110,7 @@ export class Diner {
     this.pourMug = props.pourMug;
     this.pourMugShadow = props.pourMugShadow;
     this.coffeePot = props.coffeePot;
+    this.stoolSeats = counter.stoolSeats;
     this.fanRotor = ceiling.fanRotor;
     this.colliders.push(...shell.colliders, ...booths.colliders, ...counter.colliders);
 
