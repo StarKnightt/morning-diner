@@ -97,7 +97,14 @@ export const nits = (n: number): number => n * K;
  * 250: order kept, nothing readable lost). The shoulder that makes that possible is
  * CAMERA_WHITE_EV below.
  */
-export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 60 } as const;
+/**
+ * Rev 7 (evening): 1/25 at f/5.6 ISO 100 — 1.26 stops more open than the morning's 1/60,
+ * middle grey ≈ 169 nits (L_sat 940). The 14 klux window patch on an alabaster wall
+ * (2,200 nits) sits +3.7 EV → 243 unclipped; the horizon sky by the sun (1,800 nits)
+ * +3.4; the zenith (400 nits) +1.2 — a real blue, not a wash; the troffers' 300 lux on the
+ * counter (≈ 70 nits) reads at −1.3 EV: visibly ON. `?ev=` and `[` `]` step from here.
+ */
+export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 25 } as const;
 export const EV100 = Math.log2((CAMERA.fNumber * CAMERA.fNumber) / CAMERA.shutter) - Math.log2(CAMERA.iso / 100);
 /** Metered saturation luminance for that exposure (Lagarde: L_sat = 1.2 · 2^EV) ≈ 2,260 nits at 1/60 (9,560 at rev 3's 1/250); the display white sits CAMERA_WHITE_EV − 2.47 stops above it. */
 export const L_SAT_NITS = 1.2 * Math.pow(2, EV100);
@@ -249,7 +256,10 @@ export const SHADOW_MAP_TYPE: THREE.ShadowMapType = THREE.BasicShadowMap;
  * read it from here so the window relationship stays consistent.
  */
 export function sunDirection(): THREE.Vector3 {
-  const el = THREE.MathUtils.degToRad(35);
+  // Rev 7 (evening preset): 6:45 PM, sun 9° up, 38° off the window normal toward the door
+  // end — the diner now faces WEST, so the same glass takes the low sun (Flagstaff, late
+  // July: sunset azimuth ≈ 298°, the facade normal ≈ 260°). Shadows run 6.3× height.
+  const el = THREE.MathUtils.degToRad(9);
   const az = THREE.MathUtils.degToRad(38);
   return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
 }
@@ -259,10 +269,21 @@ export function sunDirection(): THREE.Vector3 {
  * occluder → receiver. The PCSS filter disk is a RADIUS, so it takes half of that.
  */
 const SUN_ANGULAR_DIAMETER = THREE.MathUtils.degToRad(0.53);
-/** 5,400 K in a D65 pipeline: white-yellow, not golden (REFERENCE §2 "hot morning"). */
-const SUN_COLOR = new THREE.Color().setRGB(255 / 255, 235 / 255, 220 / 255, THREE.SRGBColorSpace);
-/** Direct normal illuminance, clear dry air at 2,000 m, sun 35° up (REFERENCE §2: 90–95 klux). */
-const SUN_LUX = 90_000;
+/**
+ * Rev 7 (evening): the sun 9° up has crossed ≈ 6 air masses — ≈ 3,200 K after extinction
+ * (sedona-sunset's spectral solver lands (1.0, 0.72, 0.45) linear for a 9° sun in clear
+ * high-desert air; the morning preset was (1.0, 0.83, 0.71) ≈ 5,400 K). Normalised to unit
+ * LUMINANCE so SUN_LUX below is the photometric value.
+ */
+export const SUN_COLOR = new THREE.Color(1.0, 0.72, 0.45);
+SUN_COLOR.multiplyScalar(1 / (0.2126 * SUN_COLOR.r + 0.7152 * SUN_COLOR.g + 0.0722 * SUN_COLOR.b));
+/**
+ * Direct normal illuminance. Rev 7: 18 klux — a 9° sun through 6 air masses at 2,000 m
+ * (Kasten–Young: τ ≈ 0.3·6 → ×0.17 of the 105 klux extraterrestrial ≈ 18 klux; the morning
+ * preset's 35° sun had 90 klux). On the window glass (n·s 0.78): 14 klux; on the lot
+ * ground (s.y 0.156): 2.8 klux — shadows are sky-lit blue, the sunlit ground only ≈ 2 EV up.
+ */
+export const SUN_LUX = 18_000;
 /** Spot apex distance from the building centre. Ray directions across the room vary by ±2.3°. */
 const SPOT_DIST = 150;
 
@@ -294,7 +315,14 @@ export const FLUORESCENT = new THREE.Color().setRGB(236 / 255, 255 / 255, 238 / 
  * with the two lamp-pair bars at 2.2× — 7,200 nits, +4.1 EV over grey, above the bloom
  * threshold (post/settings.ts, 2.0 exposed = +3.5 EV) so the bars glow as a lit lens does.
  */
-export const TROFFER_LUMENS = 5_800;
+export const TROFFER_LUMENS = 8_700;
+/**
+ * Rev 7 (evening preset): 8,700 lm maintained — three-lamp F32T8 2×4 with new lamps behind a
+ * clean lens (3 × 2,850 × 0.85 × 0.88 × 0.68 × 1.5 for the lens-brightness the user asked
+ * for: "the lights are so dim"). Six fixtures → 52 klm over 68 m² ≈ 460 lux on the working
+ * plane, ≈ 110 nits on the laminate: against a 6:45 PM window (14 klux on the glass, 3 klux
+ * of sky through it) the troffers are now the room's fill and print as pools on the tiles.
+ */
 /** Lens: 1.11 × 0.51 m opening (two 0.6 m cells less the door frame). */
 export const TROFFER_LENS_AREA = (CEILING.tile * 2 - 0.09) * (CEILING.tile - 0.09);
 /**
@@ -327,8 +355,16 @@ export const TROFFER_LENS_NITS = TROFFER_LUMENS / (Math.PI * TROFFER_LENS_AREA);
  * 20° elevation (2,107, 3,843, 7,433) nits — through the door glass (×0.84, Fresnel twice +
  * the pane's tint) the sky prints sRGB (151, 185, 219) against the critics' (150, 185, 235).
  */
-const SKY_HORIZON_NITS = 4_500;
-const SKY_ZENITH_RATIO = 0.5;
+/**
+ * Rev 7 (evening preset, 6:45 PM, sun 9° up). Golden-hour sky, from sedona-sunset's solved
+ * dome (`atmos.js` single-scatter at 8° elevation, `sky.js` gradient): horizon by the sun
+ * 1,600 nits (peach → pale yellow in the 5–25° band above it, whitened orange inside the
+ * 20° aureole), horizon opposite the sun 0.55× and blue-grey, zenith 0.25× (400 nits) in a
+ * saturated blue. Cosine-weighted hemisphere ≈ 3.2 klux diffuse — the sunlit lot (2.8 klux
+ * direct on the ground) is barely 1 EV over its own shadows, which are blue: evening.
+ */
+const SKY_HORIZON_NITS = 1_600;
+const SKY_ZENITH_RATIO = 0.25;
 /**
  * Chroma at unit luminance. Horizon (0.34, 0.58, 1.0) / Y, B/R 2.9; zenith (0.22, 0.45, 1.0)
  * / Y, B/R 4.5; blended in √h so the 5–25° band the windows see sits near B/R 3.5. That is
@@ -338,11 +374,19 @@ const SKY_ZENITH_RATIO = 0.5;
  * shoulder then squeezed to (205, 225, 245). Rev 2's authored horizon (0.78, 0.86, 0.97)
  * read R ≈ G ≈ B outright.
  */
-const SKY_HORIZON_CHROMA = new THREE.Color(0.34, 0.58, 1.0);
-const SKY_ZENITH_CHROMA = new THREE.Color(0.22, 0.45, 1.0);
+/** Rev 7: warm horizon (peach, toward the sun) — also the haze tint of the ridge rings. */
+const SKY_HORIZON_CHROMA = new THREE.Color(1.0, 0.72, 0.5);
+/** Rev 7: horizon opposite the sun — pale blue-grey (the Belt of Venus sits just above it). */
+const SKY_HORIZON_COOL_CHROMA = new THREE.Color(0.74, 0.8, 1.0);
+/** Rev 7: pale yellow band 5–25° above the sun. */
+const SKY_ABOVE_SUN_CHROMA = new THREE.Color(1.0, 0.86, 0.6);
+/** Rev 7: orange aureole (forward scatter, 20° around the sun). */
+const SKY_AUREOLE_CHROMA = new THREE.Color(1.0, 0.66, 0.38);
+/** Rev 7: deep saturated blue at the zenith. */
+const SKY_ZENITH_CHROMA = new THREE.Color(0.24, 0.4, 1.0);
 export const luminance = (c: THREE.Color): number => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
-SKY_HORIZON_CHROMA.multiplyScalar(1 / luminance(SKY_HORIZON_CHROMA));
-SKY_ZENITH_CHROMA.multiplyScalar(1 / luminance(SKY_ZENITH_CHROMA));
+for (const c of [SKY_HORIZON_CHROMA, SKY_HORIZON_COOL_CHROMA, SKY_ABOVE_SUN_CHROMA, SKY_AUREOLE_CHROMA, SKY_ZENITH_CHROMA]) c.multiplyScalar(1 / luminance(c));
+const glslVec3 = (c: THREE.Color): string => `vec3(${c.r.toFixed(4)}, ${c.g.toFixed(4)}, ${c.b.toFixed(4)})`;
 const SKY_SCALE = nits(SKY_HORIZON_NITS);
 /**
  * First bounce of the sun patches (System 4 rev 6, step 5): see scene/bounceRects.ts. Rev 2–5
@@ -860,7 +904,7 @@ function installBounceRects(): void {
     return;
   }
   const sun = sunDirection();
-  const quads = bounceQuads({ sunLux: SUN_LUX, sun, glass: GLASS_T, slatOpen: slatBeamOpen(sun) });
+  const quads = bounceQuads({ sunLux: SUN_LUX, sun, glass: GLASS_T, slatOpen: slatBeamOpen(sun), sunColor: new THREE.Vector3(SUN_COLOR.r, SUN_COLOR.g, SUN_COLOR.b) });
   THREE.ShaderChunk.lights_pars_begin = pars + bounceRectsGlsl(quads, K);
   THREE.ShaderChunk.lights_fragment_begin = chunk.replace(anchor, `${anchor}
     #ifndef BOUNCE_NO_RECTS
@@ -961,7 +1005,7 @@ function assignSunSplit(root: THREE.Object3D, exteriorMaterials: THREE.Material[
  */
 export function installLotGroundFill(mat: THREE.Material): void {
   const dir = new THREE.Vector3(0, -0.6, 0.8).normalize();
-  const fill = new THREE.Color().setRGB(255 / 255, 230 / 255, 195 / 255, THREE.SRGBColorSpace).multiplyScalar(nits(4000));
+  const fill = new THREE.Color().setRGB(255 / 255, 230 / 255, 195 / 255, THREE.SRGBColorSpace).multiplyScalar(nits(600)); // rev 7: sunlit sand 2.8 klux → ×0.15
   // Rev 6.1 (facade critics): seen from the LOT the same undersides are the whole blind. Their
   // real illuminance there is the sunlit face of the slat below (n·s 0.25 → 22 klux on an
   // alabaster slat = 5,300 nits, filling ≈ half the underside's hemisphere 22 mm away: ≈ 8,300
@@ -973,7 +1017,7 @@ export function installLotGroundFill(mat: THREE.Material): void {
   // the extra 11,000 lux fades in with the CAMERA's z across the window wall — a view-dependent
   // term, stated as such in BUILD.md; the player crossing the door sees the blinds' undersides
   // brighten over 0.6 m of walk while looking at the door, not the blinds.
-  const fillOut = new THREE.Color().setRGB(255 / 255, 236 / 255, 210 / 255, THREE.SRGBColorSpace).multiplyScalar(nits(16000));
+  const fillOut = new THREE.Color().setRGB(255 / 255, 236 / 255, 210 / 255, THREE.SRGBColorSpace).multiplyScalar(nits(2400)); // rev 7: ×0.15 (the 9° sun now lights the undersides directly, n·s 0.19)
   const zBlend = new THREE.Vector2(ROOM.zFront - 0.2, ROOM.zFront + 0.4);
   const prev = mat.onBeforeCompile;
   mat.onBeforeCompile = function (shader, renderer) {
@@ -1230,23 +1274,32 @@ export function scaleSky(sky: THREE.Mesh, scale: number): void {
     }
     const body = /* glsl */ `float h = clamp(d.y, 0.0, 1.0);
         float c = clamp(dot(d, sunDir), 0.0, 1.0);
-        // Luminance relative to the horizon: linear in sin(elevation), times the aureole.
-        float circ = 0.5 * pow(c, 4.0) + 0.6 * pow(c, 32.0) + 1.5 * pow(c, 400.0);
-        float lum = mix(1.0, ${SKY_ZENITH_RATIO.toFixed(3)}, h) * (1.0 + circ);
-        // Chroma (unit luminance): pale horizon blue → deep zenith blue; whitened by the
-        // aureole (forward scatter) and by the dust band in the lowest 2°.
-        vec3 chroma = mix(horizon, zenith, pow(h, 0.5));
-        chroma = mix(chroma, vec3(1.03, 1.0, 0.95), clamp(circ * 0.8, 0.0, 0.85));
-        chroma = mix(chroma, vec3(1.037, 0.996, 0.934), smoothstep(0.035, 0.0, h) * 0.5);
+        // Azimuth relative to the sun: a = 1 toward it, 0 opposite.
+        vec2 dh = normalize(d.xz + vec2(1e-5, 0.0));
+        float a = 0.5 + 0.5 * dot(dh, normalize(sunDir.xz));
+        // Rev 7 (evening): horizon luminance falls to 0.55× opposite the sun; the elevation
+        // falloff is steeper than the morning's (pow 0.7) — the low sun's light stays in the
+        // long horizontal paths; the aureole is wider (forward scatter through 6 air masses).
+        float circ = 0.5 * pow(c, 4.0) + 0.8 * pow(c, 32.0) + 1.5 * pow(c, 400.0);
+        float horizLum = mix(0.55, 1.0, smoothstep(0.0, 1.0, a));
+        float lum = mix(horizLum, ${SKY_ZENITH_RATIO.toFixed(3)}, pow(h, 0.7)) * (1.0 + circ);
+        // Chroma (unit luminance): peach horizon toward the sun, blue-grey opposite → deep
+        // blue zenith; a pale-yellow band 5–25° above the sun; the aureole goes orange.
+        vec3 hor = mix(${glslVec3(SKY_HORIZON_COOL_CHROMA)}, horizon, smoothstep(0.0, 1.0, a));
+        vec3 chroma = mix(hor, zenith, pow(h, 0.45));
+        float band = smoothstep(0.0, 0.12, h) * smoothstep(0.45, 0.15, h) * a * a;
+        chroma = mix(chroma, ${glslVec3(SKY_ABOVE_SUN_CHROMA)}, band * 0.65);
+        chroma = mix(chroma, ${glslVec3(SKY_AUREOLE_CHROMA)}, clamp(circ * 0.8, 0.0, 0.9));
+        chroma = mix(chroma, vec3(1.02, 0.9, 0.78), smoothstep(0.035, 0.0, h) * 0.4);
         vec3 col = chroma * lum;
         float disc = smoothstep(0.999975, 0.999992, c) * 40.0;
-        col += sunColor * disc;
-        if (d.y < 0.0) col = mix(horizon, ground, clamp(-d.y * 6.0, 0.0, 1.0));
+        col += ${glslVec3(SKY_AUREOLE_CHROMA)} * disc;
+        if (d.y < 0.0) col = mix(horizon * horizLum, ground, clamp(-d.y * 6.0, 0.0, 1.0));
         gl_FragColor = vec4(col * skyScale, 1.0);`;
     shader.fragmentShader = src.slice(0, i0) + body + src.slice(i1 + "gl_FragColor = vec4(col, 1.0);".length);
     shader.fragmentShader = shader.fragmentShader.replace("varying vec3 vDir;", "varying vec3 vDir;\nuniform float skyScale;");
   };
-  mat.customProgramCacheKey = () => "sky-physical-r3";
+  mat.customProgramCacheKey = () => "sky-physical-r7";
   mat.needsUpdate = true;
 }
 
