@@ -3300,18 +3300,12 @@ the clear pane, tassel / pull cords in place. Draw calls 267 at the pose, down a
 Idle frame time p50 6.1 ms before / after (probe; the machine was shared with three other
 harnesses, so the p90 spikes during travel — 200 ms — are not attributable).
 
-**KNOWN DEFECT (unresolved at the deadline — first thing to fix).** In the raised and mid states
-the moved geometry does not draw: `fix-blinds-mid` renders like `fix-blinds-up` (no rail
-mid-window, no upper slats, no headrail stack), although the CPU state is right — probe:
-`blind-slats-1` position y-range 1.668–2.535 at drop 0.5 (upper half hanging), rail group at
-+0.756 m, no NaNs, `frustumCulled` off and `updateMatrixWorld` forced made no difference, draw
-calls identical, `?post=0` identical. The analytic term, prompt, input, SFX, seek API and shadow
-bookkeeping all behave; the visual result is "the blind vanishes / reappears" instead of
-stacking. Suspects not yet checked: an `updateRanges` / attribute upload path in three r185 for a
-non-indexed 140 k-vertex geometry; a depth interaction with the glazing leaf once the rail group
-leaves its rest transform; something in `Diner` that snapshots the scene at boot. Reproduce with
-`node tools/shoot.mjs --tag=fix --poses=blinds-mid --no-build --port=…` or the `__interactPose`
-calls above.
+**Resolved "vanishing blind" (was a capture artefact, not a draw bug).** Diagnosed with a
+wireframe `scene.overrideMaterial` pass and a MeshBasicMaterial swap on the rig meshes: the rig
+draws fine; the `blinds-mid` still looked like `up` because `BlindInteraction.seek()` set `t`
+and the clock kept running, so by screenshot time the blind had finished raising, and the stacked
+bundle (~3 cm under the headrail) reads as "clear glass" from the booth. `seek()` now freezes the
+timeline (`frozen`); the next toggle/reset releases it. In-game F was never affected.
 
 ## System status
 
