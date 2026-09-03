@@ -186,9 +186,14 @@ const vertexShader = /* glsl */ `
     vec3 vdir = uSrcVel / max(vl, 1e-4);
     vec3 perpA = normalize(cross(vdir, abs(vdir.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)) + vec3(1e-5));
     vec3 perpB = cross(vdir, perpA);
-    float lag = 0.55 + 0.45 * fract(seed.w * 5.3 + seed.x * 2.1);
+    float lag = 0.4 + 0.6 * fract(seed.w * 5.3 + seed.x * 2.1);
     float d = vl * age * lag;
-    vec3 wake = -vdir * d + (perpA * sin(tau * 9.0 + seed.x * 6.2831853) + perpB * cos(tau * 7.0 + seed.y * 6.2831853)) * d * 0.35;
+    // Each strand's trail also leaves at its own fixed angle off the motion (±25°), so the trails
+    // fan rather than run parallel; the oscillating part bends each one along its length.
+    float fan = seed.x * 6.2831853 + seed.y * 2.0;
+    vec3 wake = -vdir * d
+      + (perpA * (0.45 * sin(fan) + 0.35 * sin(tau * 9.0 + seed.x * 6.2831853))
+       + perpB * (0.45 * cos(fan) + 0.35 * cos(tau * 7.0 + seed.y * 6.2831853))) * d;
     vec3 p = src + wake;
     p.y += h;
     p.xz += (air + rel) * age + bend + mea;
