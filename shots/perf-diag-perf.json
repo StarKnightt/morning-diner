@@ -1,0 +1,1408 @@
+{
+ "marks": [
+  {
+   "name": "renderer",
+   "ms": 658,
+   "dt": 658
+  },
+  {
+   "name": "palette",
+   "ms": 668,
+   "dt": 11
+  },
+  {
+   "name": "geometry",
+   "ms": 2559,
+   "dt": 1891
+  },
+  {
+   "name": "environment",
+   "ms": 2560,
+   "dt": 1
+  },
+  {
+   "name": "stand-in",
+   "ms": 3151,
+   "dt": 591
+  },
+  {
+   "name": "compile-issued",
+   "ms": 3953,
+   "dt": 802
+  },
+  {
+   "name": "textures",
+   "ms": 21754,
+   "dt": 17802
+  },
+  {
+   "name": "shaders",
+   "ms": 116154,
+   "dt": 94400
+  },
+  {
+   "name": "probes",
+   "ms": 117160,
+   "dt": 1006
+  },
+  {
+   "name": "post",
+   "ms": 117167,
+   "dt": 6
+  },
+  {
+   "name": "frame-1(p194)",
+   "ms": 126087,
+   "dt": 8920
+  },
+  {
+   "name": "frame-2(p194)",
+   "ms": 126094,
+   "dt": 7
+  },
+  {
+   "name": "first-frames",
+   "ms": 126094,
+   "dt": 0
+  }
+ ],
+ "textures": {
+  "workers": 8,
+  "jobs": [
+   {
+    "fn": "checkerFloor",
+    "start": 713,
+    "ms": 5930,
+    "where": "worker"
+   },
+   {
+    "fn": "paintedWall",
+    "start": 713,
+    "ms": 6808,
+    "where": "worker"
+   },
+   {
+    "fn": "paintedWall",
+    "start": 12133,
+    "ms": 9614,
+    "where": "worker"
+   },
+   {
+    "fn": "paintedWall",
+    "start": 12309,
+    "ms": 3474,
+    "where": "worker"
+   },
+   {
+    "fn": "wallStipple",
+    "start": 713,
+    "ms": 631,
+    "where": "worker"
+   },
+   {
+    "fn": "wallStipple",
+    "start": 713,
+    "ms": 631,
+    "where": "worker"
+   },
+   {
+    "fn": "acousticTile",
+    "start": 713,
+    "ms": 683,
+    "where": "worker"
+   },
+   {
+    "fn": "acousticTile",
+    "start": 4493,
+    "ms": 11971,
+    "where": "worker"
+   },
+   {
+    "fn": "concrete",
+    "start": 4849,
+    "ms": 798,
+    "where": "worker"
+   },
+   {
+    "fn": "vinylSurface",
+    "start": 714,
+    "ms": 627,
+    "where": "worker"
+   },
+   {
+    "fn": "vinylCrazeAtlas",
+    "start": 714,
+    "ms": 1617,
+    "where": "worker"
+   },
+   {
+    "fn": "formicaBoomerang",
+    "start": 714,
+    "ms": 18166,
+    "where": "worker"
+   },
+   {
+    "fn": "formicaSpeckle",
+    "start": 5666,
+    "ms": 480,
+    "where": "worker"
+   },
+   {
+    "fn": "woodVeneer",
+    "start": 3205,
+    "ms": 4217,
+    "where": "worker"
+   },
+   {
+    "fn": "woodVeneer",
+    "start": 3206,
+    "ms": 1282,
+    "where": "worker"
+   },
+   {
+    "fn": "woodVeneer",
+    "start": 3206,
+    "ms": 4568,
+    "where": "worker"
+   },
+   {
+    "fn": "brushedRoughness",
+    "start": 10058,
+    "ms": 594,
+    "where": "worker"
+   },
+   {
+    "fn": "brushedRoughness",
+    "start": 10063,
+    "ms": 122,
+    "where": "worker"
+   },
+   {
+    "fn": "brushedRoughness",
+    "start": 10204,
+    "ms": 201,
+    "where": "worker"
+   },
+   {
+    "fn": "prismLens",
+    "start": 12056,
+    "ms": 13,
+    "where": "worker"
+   },
+   {
+    "fn": "doorDecals",
+    "start": 2612,
+    "ms": 342,
+    "where": "worker"
+   },
+   {
+    "fn": "speckleRoughness",
+    "start": 12069,
+    "ms": 4,
+    "where": "worker"
+   },
+   {
+    "fn": "glassDust",
+    "start": 6057,
+    "ms": 2267,
+    "where": "worker"
+   },
+   {
+    "fn": "glassDust",
+    "start": 6190,
+    "ms": 2468,
+    "where": "worker"
+   },
+   {
+    "fn": "handprintAlpha",
+    "start": 7268,
+    "ms": 3404,
+    "where": "worker"
+   },
+   {
+    "fn": "slatDust",
+    "start": 11929,
+    "ms": 1483,
+    "where": "worker"
+   },
+   {
+    "fn": "trofferLens",
+    "start": 7429,
+    "ms": 472,
+    "where": "worker"
+   },
+   {
+    "fn": "brushedRoughness",
+    "start": 10433,
+    "ms": 59,
+    "where": "worker"
+   },
+   {
+    "fn": "scuffRoughness",
+    "start": 10497,
+    "ms": 232,
+    "where": "worker"
+   },
+   {
+    "fn": "handWear",
+    "start": 10702,
+    "ms": 340,
+    "where": "worker"
+   },
+   {
+    "fn": "brushedRoughness",
+    "start": 10703,
+    "ms": 1220,
+    "where": "worker"
+   },
+   {
+    "fn": "kickPlateWear",
+    "start": 7778,
+    "ms": 3629,
+    "where": "worker"
+   },
+   {
+    "fn": "fingerprints",
+    "start": 10733,
+    "ms": 310,
+    "where": "worker"
+   },
+   {
+    "fn": "carafeScratches",
+    "start": 11048,
+    "ms": 356,
+    "where": "worker"
+   },
+   {
+    "fn": "laminateWear",
+    "start": 2612,
+    "ms": 3440,
+    "where": "worker"
+   },
+   {
+    "fn": "teePaint",
+    "start": 2612,
+    "ms": 451,
+    "where": "worker"
+   },
+   {
+    "fn": "baseboardScuff",
+    "start": 7906,
+    "ms": 1507,
+    "where": "worker"
+   },
+   {
+    "fn": "tideLineAlpha",
+    "start": 11049,
+    "ms": 156,
+    "where": "worker"
+   },
+   {
+    "fn": "presenceAtlas",
+    "start": 7924,
+    "ms": 5484,
+    "where": "worker"
+   },
+   {
+    "fn": "lotSurface",
+    "start": 2612,
+    "ms": 2040,
+    "where": "worker"
+   },
+   {
+    "fn": "asphaltDetail",
+    "start": 11210,
+    "ms": 252,
+    "where": "worker"
+   },
+   {
+    "fn": "precast",
+    "start": 8531,
+    "ms": 4257,
+    "where": "worker"
+   },
+   {
+    "fn": "blockWall",
+    "start": 4689,
+    "ms": 160,
+    "where": "worker"
+   },
+   {
+    "fn": "desertDirt",
+    "start": 11408,
+    "ms": 1373,
+    "where": "worker"
+   },
+   {
+    "fn": "tyreTread",
+    "start": 8723,
+    "ms": 220,
+    "where": "worker"
+   },
+   {
+    "fn": "contactShadowAlpha",
+    "start": 12081,
+    "ms": 23,
+    "where": "worker"
+   },
+   {
+    "fn": "desertDirt",
+    "start": 8943,
+    "ms": 1090,
+    "where": "worker"
+   },
+   {
+    "fn": "contactShadowAlpha",
+    "start": 12132,
+    "ms": 0,
+    "where": "worker"
+   },
+   {
+    "fn": "blockWall",
+    "start": 9417,
+    "ms": 609,
+    "where": "worker"
+   },
+   {
+    "fn": "desertDirt",
+    "start": 11408,
+    "ms": 883,
+    "where": "worker"
+   },
+   {
+    "fn": "kickPlateWear",
+    "start": 11468,
+    "ms": 584,
+    "where": "worker"
+   }
+  ],
+  "wallMs": 21095
+ },
+ "programs": 194,
+ "parallelCompile": true,
+ "extra": {
+  "byName": {
+   "": 136,
+   "glass": 4,
+   "glass-reflect-in": 2,
+   "glass-reflect-out": 2,
+   "bcMat": 2,
+   "bcDisplay": 2,
+   "glassDoor": 4,
+   "kitchenLeaf": 2,
+   "kitchenScuffs": 2,
+   "kitchenVisionGlass": 2,
+   "cabinetDoors": 2,
+   "presence": 2,
+   "presenceDecal": 2,
+   "kitchenSteel": 2,
+   "kitchenPaper": 2,
+   "kitchenTile": 2,
+   "kitchenGrease": 2,
+   "kitchenPaint": 2,
+   "kitchenCeiling": 2,
+   "slat": 2,
+   "car-glass": 2,
+   "lotlight-glass": 2,
+   "bulbLit": 2,
+   "signFace": 2,
+   "letterReturns": 2,
+   "letterFace": 2,
+   "ghostSign": 2,
+   "cageMesh": 2
+  },
+  "lights": {
+   "SpotLight": 8,
+   "PointLight": 3,
+   "SpotLight+shadow": 1,
+   "DirectionalLight+shadow": 1
+  },
+  "memory": {
+   "geometries": 359,
+   "textures": 145
+  },
+  "linkSamples": [
+   [
+    3963,
+    2,
+    173
+   ],
+   [
+    10726,
+    3,
+    173
+   ],
+   [
+    11194,
+    4,
+    173
+   ],
+   [
+    11623,
+    5,
+    173
+   ],
+   [
+    12513,
+    6,
+    173
+   ],
+   [
+    12629,
+    7,
+    173
+   ],
+   [
+    12884,
+    8,
+    173
+   ],
+   [
+    13725,
+    9,
+    173
+   ],
+   [
+    13968,
+    10,
+    173
+   ],
+   [
+    14000,
+    11,
+    173
+   ],
+   [
+    14097,
+    13,
+    173
+   ],
+   [
+    18970,
+    14,
+    173
+   ],
+   [
+    19709,
+    16,
+    173
+   ],
+   [
+    21140,
+    18,
+    173
+   ],
+   [
+    21172,
+    19,
+    173
+   ],
+   [
+    21749,
+    20,
+    173
+   ],
+   [
+    23241,
+    21,
+    173
+   ],
+   [
+    23415,
+    22,
+    173
+   ],
+   [
+    24294,
+    25,
+    173
+   ],
+   [
+    24704,
+    26,
+    173
+   ],
+   [
+    24866,
+    27,
+    173
+   ],
+   [
+    28587,
+    29,
+    173
+   ],
+   [
+    28614,
+    30,
+    173
+   ],
+   [
+    29655,
+    31,
+    173
+   ],
+   [
+    30055,
+    32,
+    173
+   ],
+   [
+    30316,
+    33,
+    173
+   ],
+   [
+    30710,
+    35,
+    173
+   ],
+   [
+    31487,
+    36,
+    173
+   ],
+   [
+    31803,
+    38,
+    173
+   ],
+   [
+    33118,
+    39,
+    173
+   ],
+   [
+    33610,
+    40,
+    173
+   ],
+   [
+    35364,
+    41,
+    173
+   ],
+   [
+    38825,
+    42,
+    173
+   ],
+   [
+    38946,
+    43,
+    173
+   ],
+   [
+    39093,
+    44,
+    173
+   ],
+   [
+    39916,
+    45,
+    173
+   ],
+   [
+    40069,
+    46,
+    173
+   ],
+   [
+    40675,
+    47,
+    173
+   ],
+   [
+    40699,
+    48,
+    173
+   ],
+   [
+    40732,
+    49,
+    173
+   ],
+   [
+    40808,
+    50,
+    173
+   ],
+   [
+    42030,
+    51,
+    173
+   ],
+   [
+    42050,
+    52,
+    173
+   ],
+   [
+    42402,
+    53,
+    173
+   ],
+   [
+    43912,
+    54,
+    173
+   ],
+   [
+    43934,
+    55,
+    173
+   ],
+   [
+    46795,
+    56,
+    173
+   ],
+   [
+    46955,
+    57,
+    173
+   ],
+   [
+    47000,
+    58,
+    173
+   ],
+   [
+    47056,
+    59,
+    173
+   ],
+   [
+    47535,
+    60,
+    173
+   ],
+   [
+    47873,
+    61,
+    173
+   ],
+   [
+    48579,
+    62,
+    173
+   ],
+   [
+    48923,
+    63,
+    173
+   ],
+   [
+    48944,
+    64,
+    173
+   ],
+   [
+    49077,
+    65,
+    173
+   ],
+   [
+    49298,
+    66,
+    173
+   ],
+   [
+    49335,
+    67,
+    173
+   ],
+   [
+    50375,
+    68,
+    173
+   ],
+   [
+    51308,
+    69,
+    173
+   ],
+   [
+    53096,
+    70,
+    173
+   ],
+   [
+    53760,
+    71,
+    173
+   ],
+   [
+    55099,
+    72,
+    173
+   ],
+   [
+    55347,
+    75,
+    173
+   ],
+   [
+    55394,
+    76,
+    173
+   ],
+   [
+    56064,
+    77,
+    173
+   ],
+   [
+    56855,
+    78,
+    173
+   ],
+   [
+    57240,
+    79,
+    173
+   ],
+   [
+    57479,
+    80,
+    173
+   ],
+   [
+    58229,
+    81,
+    173
+   ],
+   [
+    58729,
+    82,
+    173
+   ],
+   [
+    58841,
+    83,
+    173
+   ],
+   [
+    60931,
+    84,
+    173
+   ],
+   [
+    61037,
+    85,
+    173
+   ],
+   [
+    62146,
+    86,
+    173
+   ],
+   [
+    64516,
+    87,
+    173
+   ],
+   [
+    64582,
+    88,
+    173
+   ],
+   [
+    65757,
+    89,
+    173
+   ],
+   [
+    65820,
+    90,
+    173
+   ],
+   [
+    65904,
+    91,
+    173
+   ],
+   [
+    66052,
+    92,
+    173
+   ],
+   [
+    66915,
+    93,
+    173
+   ],
+   [
+    67650,
+    94,
+    173
+   ],
+   [
+    69250,
+    95,
+    173
+   ],
+   [
+    69479,
+    96,
+    173
+   ],
+   [
+    71152,
+    97,
+    173
+   ],
+   [
+    72473,
+    98,
+    173
+   ],
+   [
+    72668,
+    99,
+    173
+   ],
+   [
+    74662,
+    100,
+    173
+   ],
+   [
+    74863,
+    101,
+    173
+   ],
+   [
+    75030,
+    102,
+    173
+   ],
+   [
+    75180,
+    104,
+    173
+   ],
+   [
+    76843,
+    105,
+    173
+   ],
+   [
+    77114,
+    106,
+    173
+   ],
+   [
+    78815,
+    107,
+    173
+   ],
+   [
+    79177,
+    108,
+    173
+   ],
+   [
+    79203,
+    110,
+    173
+   ],
+   [
+    81022,
+    111,
+    173
+   ],
+   [
+    81699,
+    112,
+    173
+   ],
+   [
+    82474,
+    113,
+    173
+   ],
+   [
+    82497,
+    114,
+    173
+   ],
+   [
+    82539,
+    115,
+    173
+   ],
+   [
+    82848,
+    116,
+    173
+   ],
+   [
+    83740,
+    117,
+    173
+   ],
+   [
+    84703,
+    119,
+    173
+   ],
+   [
+    84725,
+    120,
+    173
+   ],
+   [
+    85497,
+    121,
+    173
+   ],
+   [
+    86539,
+    122,
+    173
+   ],
+   [
+    86788,
+    123,
+    173
+   ],
+   [
+    87794,
+    124,
+    173
+   ],
+   [
+    89988,
+    125,
+    173
+   ],
+   [
+    90072,
+    126,
+    173
+   ],
+   [
+    91449,
+    127,
+    173
+   ],
+   [
+    92701,
+    128,
+    173
+   ],
+   [
+    93026,
+    129,
+    173
+   ],
+   [
+    93902,
+    130,
+    173
+   ],
+   [
+    94751,
+    131,
+    173
+   ],
+   [
+    94937,
+    132,
+    173
+   ],
+   [
+    95201,
+    133,
+    173
+   ],
+   [
+    95243,
+    134,
+    173
+   ],
+   [
+    95592,
+    135,
+    173
+   ],
+   [
+    95935,
+    136,
+    173
+   ],
+   [
+    95957,
+    137,
+    173
+   ],
+   [
+    98059,
+    138,
+    173
+   ],
+   [
+    98106,
+    139,
+    173
+   ],
+   [
+    98659,
+    140,
+    173
+   ],
+   [
+    99692,
+    141,
+    173
+   ],
+   [
+    99735,
+    142,
+    173
+   ],
+   [
+    99755,
+    143,
+    173
+   ],
+   [
+    101613,
+    144,
+    173
+   ],
+   [
+    101925,
+    145,
+    173
+   ],
+   [
+    102177,
+    147,
+    173
+   ],
+   [
+    102586,
+    148,
+    173
+   ],
+   [
+    102838,
+    149,
+    173
+   ],
+   [
+    103547,
+    150,
+    173
+   ],
+   [
+    103859,
+    151,
+    173
+   ],
+   [
+    104343,
+    152,
+    173
+   ],
+   [
+    105698,
+    153,
+    173
+   ],
+   [
+    106639,
+    154,
+    173
+   ],
+   [
+    107905,
+    155,
+    173
+   ],
+   [
+    108324,
+    156,
+    173
+   ],
+   [
+    108346,
+    157,
+    173
+   ],
+   [
+    108368,
+    159,
+    173
+   ],
+   [
+    109933,
+    160,
+    173
+   ],
+   [
+    110709,
+    161,
+    173
+   ],
+   [
+    110753,
+    162,
+    173
+   ],
+   [
+    111150,
+    163,
+    173
+   ],
+   [
+    111592,
+    164,
+    173
+   ],
+   [
+    111704,
+    165,
+    173
+   ],
+   [
+    112636,
+    166,
+    173
+   ],
+   [
+    113538,
+    167,
+    173
+   ],
+   [
+    113935,
+    168,
+    173
+   ],
+   [
+    114625,
+    169,
+    173
+   ],
+   [
+    114875,
+    170,
+    173
+   ],
+   [
+    115439,
+    171,
+    173
+   ],
+   [
+    116113,
+    172,
+    173
+   ],
+   [
+    116154,
+    173,
+    173
+   ]
+  ],
+  "cacheKeys": [
+   "|1|depth,highp,srgb-linear,false,,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,3200,8388608,8530944,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|depth,highp,srgb-linear,false,,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,3200,8389120,8532992,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|depth,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,3200,8388611,8532992,srgb,onBeforeCompile(){}+sunpcf",
+   "glass|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8393731,srgb,bgfres:glass",
+   "glass|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8389635,srgb,bgfres:glass",
+   "glass-reflect-in|2|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8393731,srgb,onBeforeCompile(){}+sunpcf",
+   "glass-reflect-out|2|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8389136,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|4|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|80|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,uv,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388688,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|4|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|12|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|8|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8454160,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388752,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|4|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,false,uv,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8389840,8520707,srgb,vinylBurnish5",
+   "|5|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388688,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv1,false,false,false,false,uv,false,false,false,uv,false,uv1,false,false,false,false,false,false,false,false,uv1,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8393936,8520707,srgb,vinylBurnish5",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8389840,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,uv,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388752,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8454160,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8553475,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388752,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "bcMat|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,uv,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "bcDisplay|3|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388691,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|basic,SUN_SKIP_DIR0,1,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388608,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,uv,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388688,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8520707,srgb,kickPlateBoxProbeH",
+   "glassDoor|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8393731,srgb,bgfres:glassDoor",
+   "glassDoor|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8389635,srgb,bgfres:glassDoor",
+   "|1|basic,SUN_SKIP_DIR0,1,highp,srgb-linear,false,,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388608,8393731,srgb,glassSmudgeFresnel",
+   "|1|basic,SUN_SKIP_DIR0,1,highp,srgb-linear,false,,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388608,8389635,srgb,glassSmudgeFresnel",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388753,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388625,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|basic,SUN_SKIP_DIR0,1,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,1024,8394243,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|basic,SUN_SKIP_DIR0,1,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,1024,8390147,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8553475,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388752,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8389136,8522755,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenLeaf|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8391696,8520707,srgb,kitchen-leaf",
+   "kitchenScuffs|1|basic,SUN_SKIP_DIR0,1,highp,srgb-linear,false,,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388608,8390147,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenVisionGlass|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388752,8391683,srgb,pane-glass",
+   "cabinetDoors|2|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8391760,8520707,srgb,cabinet-doors",
+   "presence|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388688,8522755,srgb,onBeforeCompile(){}+sunpcf",
+   "presenceDecal|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8391760,8391683,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenSteel|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8454161,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenPaper|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388625,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenTile|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,uv,false,uv,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388688,8522755,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenGrease|3|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenPaint|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,uv,false,uv,false,uv,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388688,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenCeiling|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,uv,false,uv,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388688,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "slat|1|physical,STANDARD,,SLAT_NO_ANALYTIC,1,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8389648,8522755,srgb,lotfill61",
+   "|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388688,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388688,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|basic,SUN_SKIP_SPOT0,1,highp,srgb-linear,false,,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388608,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "car-glass|2|physical,STANDARD,,PHYSICAL,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388752,8391683,srgb,pane-glass",
+   "|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388627,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|basic,SUN_SKIP_SPOT0,1,highp,srgb-linear,false,,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388609,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8391696,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8391696,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|3|basic,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,0,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|27|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|5|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8389648,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|3|basic,SUN_SKIP_SPOT0,1,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,1024,8522753,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|3,4,SUN_SKIP_SPOT0,1,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388608,8524801,srgb,sky-physical-r7",
+   "|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|3|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "lotlight-glass|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|physical,STANDARD,,PHYSICAL,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388752,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|basic,SUN_SKIP_SPOT0,1,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388608,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8389648,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|physical,STANDARD,,PHYSICAL,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388752,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "bulbLit|2|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388625,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "signFace|2|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "letterReturns|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8389136,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "letterFace|2|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8389136,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,uv,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8389712,8520707,srgb,world-ground",
+   "|7|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8389651,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8389651,8522755,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|basic,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,0,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|4|basic,SUN_SKIP_SPOT0,1,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,1024,8522755,srgb,onBeforeCompile(){}+sunpcf",
+   "|4|basic,SUN_SKIP_DIR0,1,highp,srgb-linear,false,,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388608,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "ghostSign|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,uv,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "cageMesh|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388624,8393731,srgb,onBeforeCompile(){}+sunpcf",
+   "|5|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388688,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "glass|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8393731,srgb,bgfres:glass",
+   "glass|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8389635,srgb,bgfres:glass",
+   "glass-reflect-in|2|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8393731,srgb,onBeforeCompile(){}+sunpcf",
+   "glass-reflect-out|2|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8389136,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|4|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|80|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,uv,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388688,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|4|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|12|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|8|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8454160,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388752,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|4|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,false,uv,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8389840,8520707,srgb,vinylBurnish5",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv1,false,false,false,false,uv,false,false,false,uv,false,uv1,false,false,false,false,false,false,false,false,uv1,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8393936,8520707,srgb,vinylBurnish5",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8389840,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,uv,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388752,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8454160,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8553475,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388752,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "bcMat|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,uv,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "bcDisplay|3|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388691,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|basic,SUN_SKIP_DIR0,1,highp,srgb,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388608,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,uv,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388688,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8520707,srgb,kickPlateBoxProbeH",
+   "glassDoor|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8393731,srgb,bgfres:glassDoor",
+   "glassDoor|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8389635,srgb,bgfres:glassDoor",
+   "|1|basic,SUN_SKIP_DIR0,1,highp,srgb,false,,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388608,8393731,srgb,glassSmudgeFresnel",
+   "|1|basic,SUN_SKIP_DIR0,1,highp,srgb,false,,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388608,8389635,srgb,glassSmudgeFresnel",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388753,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388625,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|basic,SUN_SKIP_DIR0,1,highp,srgb,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,1024,8394243,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|basic,SUN_SKIP_DIR0,1,highp,srgb,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,1024,8390147,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8553475,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388752,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8389136,8522755,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenLeaf|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8391696,8520707,srgb,kitchen-leaf",
+   "kitchenScuffs|1|basic,SUN_SKIP_DIR0,1,highp,srgb,false,,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388608,8390147,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenVisionGlass|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388752,8391683,srgb,pane-glass",
+   "cabinetDoors|2|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8391760,8520707,srgb,cabinet-doors",
+   "presence|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388688,8522755,srgb,onBeforeCompile(){}+sunpcf",
+   "presenceDecal|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8391760,8391683,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenSteel|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8454161,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenPaper|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388625,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenTile|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,uv,false,uv,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388688,8522755,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenGrease|3|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenPaint|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,uv,false,uv,false,uv,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388688,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "kitchenCeiling|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,uv,false,uv,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388688,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "slat|1|physical,STANDARD,,SLAT_NO_ANALYTIC,1,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8389648,8522755,srgb,lotfill61",
+   "|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,uv,false,false,false,false,uv,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388688,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388688,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|basic,SUN_SKIP_SPOT0,1,highp,srgb,false,,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388608,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "car-glass|2|physical,STANDARD,,PHYSICAL,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388752,8391683,srgb,pane-glass",
+   "|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388627,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|basic,SUN_SKIP_SPOT0,1,highp,srgb,false,,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388609,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8391696,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8391696,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|3|basic,highp,srgb,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,0,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|27|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|5|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8389648,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|3|basic,SUN_SKIP_SPOT0,1,highp,srgb,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,1024,8522753,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|3,4,SUN_SKIP_SPOT0,1,highp,srgb,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388608,8524801,srgb,sky-physical-r7",
+   "|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|3|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "lotlight-glass|1|physical,STANDARD,,PHYSICAL,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|physical,STANDARD,,PHYSICAL,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388752,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|basic,SUN_SKIP_SPOT0,1,highp,srgb,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388608,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8389648,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|physical,STANDARD,,PHYSICAL,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388752,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "bulbLit|2|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388625,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "signFace|2|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "letterReturns|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8389136,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "letterFace|2|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8389136,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,uv,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8389712,8520707,srgb,world-ground",
+   "|7|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8389651,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|2|physical,STANDARD,,SUN_SKIP_SPOT0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8389651,8522755,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|basic,highp,srgb,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,0,8520707,srgb,onBeforeCompile(){}+sunpcf",
+   "|4|basic,SUN_SKIP_SPOT0,1,highp,srgb,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,1024,8522755,srgb,onBeforeCompile(){}+sunpcf",
+   "|4|basic,SUN_SKIP_DIR0,1,highp,srgb,false,,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,0,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388608,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "ghostSign|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,uv,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8389635,srgb,onBeforeCompile(){}+sunpcf",
+   "cageMesh|1|physical,STANDARD,,SUN_SKIP_DIR0,1,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388624,8393731,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|depth,highp,srgb-linear,false,,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,3200,8388608,8532992,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|depth,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,3200,8388609,8532992,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|depth,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,3200,8388608,8532992,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|depth,highp,srgb-linear,false,,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,3200,8389120,8530944,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388752,8520707,srgb,coffee-ripple",
+   "|1|physical,STANDARD,,PHYSICAL,,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388752,8522755,srgb,coffee-flatcap",
+   "|1|physical,STANDARD,,PHYSICAL,,highp,srgb,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,5,0,0,0,8388752,8520707,srgb,coffee-stream",
+   "|2|5,6,highp,srgb,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,0,8391681,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|7,8,highp,srgb,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,0,8389633,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388752,8520707,srgb,coffee-ripple",
+   "|1|physical,STANDARD,,PHYSICAL,,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388752,8522755,srgb,coffee-flatcap",
+   "|1|physical,STANDARD,,PHYSICAL,,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,8388752,8520707,srgb,coffee-stream",
+   "|2|5,6,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,0,8391681,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|7,8,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,0,0,0,0,8389633,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|physical,STANDARD,,PHYSICAL,,highp,srgb-linear,306,2048,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,1,3,9,0,0,0,1,0,1,0,0,0,0,1,0,0,8388752,8522755,srgb,coffee-flatcap",
+   "|1|9,10,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8519680,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|9,11,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8519680,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|9,12,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8519680,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|9,13,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8519680,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|9,14,highp,srgb-linear,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8519680,srgb,onBeforeCompile(){}+sunpcf",
+   "|1|9,15,GRAIN,,highp,srgb,false,,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8519680,srgb,onBeforeCompile(){}+sunpcf"
+  ]
+ }
+}

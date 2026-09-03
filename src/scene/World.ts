@@ -353,30 +353,24 @@ function buildScatter(parent: THREE.Group, field: Field, ground: Ground, rng: ()
       }
   };
 
-  // perf-boot: each species is split into SECTORS wedge-shaped InstancedMeshes around the grid
-  // centre, each with its own bounding sphere and frustum culling on. From inside the building
-  // the camera looks along the room and out one wall of windows, so most wedges are behind it:
-  // the whole scatter was drawn from every interior pose before (frustumCulled = false).
-  const SECTORS = 8;
-  // Scatter radius cap (was 154 m): past 120 m a shrub is a few pixels inside the fog ramp
-  // (40 → 200 m) and the ridge rings take over the horizon.
+  // perf-boot: scatter radius cap (was 154 m). Past 120 m a shrub is a few pixels deep inside the
+  // fog ramp (40 -> 200 m) and the ridge rings own the horizon; the cap drops ~29 % of every
+  // species' instances (~0.3 M triangles from every pose, the whole scatter draws unculled).
+  // (An 8-wedge / 4x4-cell split per species with frustum culling was tried: the cells' bounding
+  // spheres are 70-100 m and never leave the frustum from inside the room; it only added draws.)
   const R_MAX = 120;
   for (const sp of species) {
     const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 1, metalness: 0, side: sp.doubleSide ? THREE.DoubleSide : THREE.FrontSide });
-    const per = Math.ceil(sp.count / SECTORS) + 8;
-    const meshes: THREE.InstancedMesh[] = [];
-    for (let k = 0; k < SECTORS; k++) meshes.push(new THREE.InstancedMesh(sp.geo, mat, per));
-    const filled = new Array<number>(SECTORS).fill(0);
+    // 71 % of the instances fell inside 120 m before, so the near-field density is unchanged.
+    const target = Math.round(sp.count * 0.71);
+    const mesh = new THREE.InstancedMesh(sp.geo, mat, target);
     let placed = 0, tries = 0;
-    while (placed < sp.count && tries < sp.count * 12) {
+    while (placed < target && tries < target * 12) {
       tries++;
       const r = (sp.minR ?? 4) + Math.pow(rng(), 0.75) * 150, a = rng() * Math.PI * 2;
       if (r > R_MAX) continue;
       const x = GRID_CX + Math.sin(a) * r, z = GRID_CZ + Math.cos(a) * r;
       if (Math.abs(x) > 205 || Math.abs(z) > 205 || !allowed(x, z)) continue;
-      const sector = Math.min(SECTORS - 1, Math.floor((a / (Math.PI * 2)) * SECTORS));
-      const mesh = meshes[sector];
-      if (filled[sector] >= per) continue;
       const o = field.open(x, z), d = drainage(x, z), e = lotEdge(x, z);
       const w = sp.weight(o, d, e, r) * (0.35 + 0.65 * sstep(0.35, 0.7, cluster(x, z)));
       if (rng() > w) continue;
@@ -391,25 +385,20 @@ function buildScatter(parent: THREE.Group, field: Field, ground: Ground, rng: ()
       }
       p.set(x, field.height(x, z) - 0.02 * s.y, z);
       m.compose(p, q, s);
-      mesh.setMatrixAt(filled[sector], m);
+      mesh.setMatrixAt(placed, m);
       sp.tint(c);
-      mesh.setColorAt(filled[sector], c);
+      mesh.setColorAt(placed, c);
       if (sp.shadow > 0 && r < 120) occlude(x, z, sp.shadow * Math.max(s.x, s.z));
-      filled[sector]++;
       placed++;
     }
-    meshes.forEach((mesh, k) => {
-      mesh.count = filled[k];
-      if (filled[k] === 0) { mesh.dispose(); return; }
-      mesh.instanceMatrix.needsUpdate = true;
-      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      mesh.name = `world-${sp.name}-${k}`;
-      mesh.computeBoundingSphere();
-      mesh.frustumCulled = true;
-      mesh.castShadow = sp.cast;
-      mesh.receiveShadow = true;
-      parent.add(mesh);
-    });
+    mesh.count = placed;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.name = `world-${sp.name}`;
+    mesh.frustumCulled = false;
+    mesh.castShadow = sp.cast;
+    mesh.receiveShadow = true;
+    parent.add(mesh);
   }
   (ground.mesh.geometry.attributes.color as THREE.BufferAttribute).needsUpdate = true;
 }

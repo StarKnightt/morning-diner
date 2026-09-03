@@ -3386,6 +3386,25 @@ the pickup and is unaffected. The `sys4-lot-shadow` / `ext-facade` frames came f
 harness (no pose in the repo) — `fix-car-after-shadow.png` is the equivalent 3/4 view at the new
 stall.
 
+## Fix — boot 171 s → 24 s (`perf-boot`, `shots/perf-{before,after}-*.png`, `shots/*-perf.json`)
+
+Offender: sys4 rev 7 (evening preset, sun at 9°). `bounceRects.ts` traces every window band to
+the floor / partition / end wall in three height bands, so the quad list went from ~20 to 43 —
+and `bounceRectsGlsl` unrolled every quad as a literal block with nested branches into EVERY
+physical fragment shader. ANGLE/D3D11's HLSL compile of those programs went ~10× slower
+(173 programs: 11 s → 112 s of the boot; `?nobounce` proved it in one run) and the 21 programs
+issued after the post pipeline blocked the first frame for 9 s. Fix: the quad constants are
+`const` tables walked by one loop body (same early-outs, point form and Eberly acos — frames
+are pixel-identical bar the fan and grain), and the ~45 lot-sun programs (`SUN_SKIP_SPOT0`)
+define `BOUNCE_NO_RECTS` (the lot never sees an interior patch). Boot uncontended: 173.5 s →
+23.9 s; shaders 143 s → 16 s (now finishing under the texture workers, which are ~19 s wall
+while other builders run). `__perf().extra` now reports programs by shader name, lights by
+type, GPU memory counts and link-progress samples; `shoot.mjs` prints them and writes
+`shots/<tag>-perf.json`. World.ts: scatter radius capped at 120 m with counts scaled to keep
+the near density (4.43 M → 3.85 M triangles at ready; draw calls unchanged). A per-species
+wedge / cell split for frustum culling was tried and dropped: the cells' spheres are 70–100 m
+and never leave the frustum from inside the room, it only added 40–60 draws per pose.
+
 ## System status
 
 | # | System | Status |
