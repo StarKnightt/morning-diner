@@ -6,11 +6,12 @@
  * Everything static — the cabinet carcass, its shelf and contents, the kitchen slice — goes
  * into the shared `statics` builder and is appended to the scene's existing material buckets
  * (core/mergeInto.ts), so it costs no draw calls; the tile and the filter-box label are in
- * the System 9 atlas material (`cloth`, Presence.ts). Own meshes: per cabinet door a laminate
- * slab + a chrome bucket (wire pull, two Euro hinge cups and arms); for the kitchen leaf a
- * vertex-coloured mesh (paint, rubber lite moulding, pivots, scuffs), a stainless mesh (kick
- * plates, push plates) and the vision-panel glass (palette `glass`, transmissive — it shows
- * the kitchen). Eight own meshes.
+ * the System 9 atlas material (`cloth`, Presence.ts). Own meshes: ONE mesh for both cabinet
+ * doors (laminate slabs baked through their hinges on the CPU; wire pulls and Euro hinge cups
+ * are chrome by vertex alpha), ONE vertex-coloured kitchen leaf (paint, rubber lite moulding,
+ * pivots, scuffs; kick plates and push plates as stainless by vertex alpha) and the vision
+ * panel's blended pane (`makePaneGlass` — not transmissive, so the opaque list is drawn once).
+ * Three own meshes.
  *
  * Kitchen slice (rev 2 — rev 1's dim vestibule read as a black void with an orange stripe):
  * a 2.7 m deep room in white 4" wall tile to 1.5 m over a red quarry floor, a stainless prep
