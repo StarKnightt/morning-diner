@@ -17,6 +17,7 @@ import { makeRng, makeFbm, makeValueNoise } from "../core/rng";
 import type { TextureBank } from "../core/textureBank";
 import * as extModule from "../procedural/exterior";
 import { ROOM } from "./layout";
+import { buildLotLight, makeLotLightMats } from "./LotLight";
 
 const T = ROOM.wallThickness;
 export const LOT = {
@@ -1581,46 +1582,11 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
     }
   }
 
-  /* ---------------- light standards on poured piers ---------------- */
-  const galv = new THREE.MeshStandardMaterial({ color: 0x8b8e90, roughness: 0.45, metalness: 0.7 });
-  const steel = new THREE.MeshStandardMaterial({ color: 0x4a4c4e, roughness: 0.55, metalness: 0.8 });
+  /* ---------------- light standards on poured piers (LotLight.ts) ---------------- */
   const grout = skyFill(new THREE.MeshStandardMaterial({ color: 0xbdb9b0, roughness: 0.9, metalness: 0 }), 0.22);
-  envMaterials.push(galv, steel);
-  for (const px of [-6.7, 5.4]) {
-    const pz = LOT.kerbZ + LOT.stallDepth + 0.6;
-    // Round poured pier Ø 0.6 m, 0.75 m above grade, 15 mm chamfer, rust-streaked base plate,
-    // four anchor bolts with nuts on a grout collar; the pole shaft sits on the plate.
-    const pierTop = yLot + 0.75;
-    const pier = new THREE.CylinderGeometry(0.285, 0.3, 0.735, 28);
-    pier.translate(px, yLot + 0.735 / 2, pz);
-    b.add(pier, pierMat);
-    const chamfer = new THREE.CylinderGeometry(0.27, 0.285, 0.015, 28);
-    chamfer.translate(px, pierTop - 0.0075, pz);
-    b.add(chamfer, pierMat);
-    b.box(grout, [px - 0.2, pierTop, pz - 0.2], [px + 0.2, pierTop + 0.03, pz + 0.2]); // grout collar
-    b.rbox(steel, [px - 0.19, pierTop + 0.03, pz - 0.19], [px + 0.19, pierTop + 0.055, pz + 0.19], 0.006, 2); // base plate
-    for (const [ax, az] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-      const bx = px + ax * 0.15, bz = pz + az * 0.15;
-      const bolt = new THREE.CylinderGeometry(0.011, 0.011, 0.07, 8);
-      bolt.translate(bx, pierTop + 0.055 + 0.035, bz);
-      b.add(bolt, galv);
-      const nut = new THREE.CylinderGeometry(0.02, 0.02, 0.018, 6);
-      nut.translate(bx, pierTop + 0.055 + 0.009, bz);
-      b.add(nut, galv);
-    }
-    const pole = new THREE.CylinderGeometry(0.06, 0.1, 7.35, 12);
-    pole.translate(px, pierTop + 0.055 + 7.35 / 2, pz);
-    b.add(pole, galv);
-    const flange = new THREE.CylinderGeometry(0.1, 0.13, 0.04, 12);
-    flange.translate(px, pierTop + 0.055 + 0.02, pz);
-    b.add(flange, galv);
-    const arm = new THREE.CylinderGeometry(0.035, 0.05, 1.9, 8);
-    arm.rotateX(Math.PI / 2 - 0.25);
-    arm.translate(px, yLot + 8.0, pz - 0.85);
-    b.add(arm, galv);
-    b.rbox(pal.darkMetal, [px - 0.14, yLot + 8.05, pz - 2.2], [px + 0.14, yLot + 8.25, pz - 1.45], 0.03, 3);
-    b.box(new THREE.MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.4 }), [px - 0.1, yLot + 8.03, pz - 2.1], [px + 0.1, yLot + 8.05, pz - 1.55]);
-  }
+  const lotLight = makeLotLightMats(pierMat, grout);
+  envMaterials.push(...lotLight.env);
+  for (const px of [-6.7, 5.4]) buildLotLight(b, lotLight, px, LOT.kerbZ + LOT.stallDepth + 0.6, yLot);
 
   /* ---------------- vehicles ---------------- */
   // Glass: a dielectric (metalness 0) so the sky reflection is white Fresnel over the cabin.

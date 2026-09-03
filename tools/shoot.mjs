@@ -99,6 +99,10 @@ const POSES = {
   "dbg-wheelstop": { x: 1.7, y: 0.75, z: 5.2, yaw: 248, pitch: -24 },
   // Standing on the lot in the empty stall between the two cars: CMU wall, scrub edge, road, ranges.
   "dbg-wall-road": { x: 1.35, y: 1.87, z: 6.5, yaw: 180, pitch: -1 },
+  // fix-pole — the lot light standard at x 5.4: the user's look-up at the head from ~3 m on the
+  // drive aisle (mast left, arm sweeping right), and the whole standard from 15 m.
+  "fix-pole-lookup": { x: 8.6, y: 1.62, z: 10.2, yaw: 86, pitch: 60 },
+  "fix-pole-lot": { x: 18.4, y: 1.62, z: 18.9, yaw: 60, pitch: 10 },
   // System 7 — interactions. These call window.__interactPose(name) (src/interactions/debug.ts),
   // which resets every interaction, seeks the named one to a fixed time, freezes the animation
   // clocks and places the camera itself (the seated pose IS the camera).
