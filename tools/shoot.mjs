@@ -68,6 +68,9 @@ const POSES = {
   // fix-backcounter — standing in the service aisle at the door end looking along the work side
   // of the counter (the user's frame), and 0.75 m from the reach-in / plate shelves.
   along: { x: 1.3, z: -1.1, yaw: 95, pitch: -24 },
+  // fix-dining-light — the user's frame: standing in the service aisle behind the counter,
+  // looking across the room at the window wall (troffers, fan and booths in one frame).
+  "behind-counter": { x: -0.6, y: 1.6, z: -1.3, yaw: 150, pitch: 3 },
   close: { x: -2.75, y: 1.2, z: -1.8, yaw: 150, pitch: -18 },
   // System 3 — windows, blinds, exterior. yaw 180 looks straight out through the window wall (+z).
   // Seated at the third booth, eye-line through the slats.
@@ -108,6 +111,8 @@ const POSES = {
   "dbg-wall-road": { x: 1.35, y: 1.87, z: 6.5, yaw: 180, pitch: -1 },
   // World layer (World.ts): the user's "from the lot looking out" frame plus three more.
   "world-lot-out": { x: 0.6, y: 1.62, z: 9.0, yaw: 180, pitch: -3 },
+  // fix-dining-light: from the lot, facing the 7° sun (38° off the facade normal toward +x): disc, aureole, long shadows.
+  "sun-lot": { x: 0.6, y: 1.62, z: 9.0, yaw: 218, pitch: 4 },
   "world-road": { x: -2.5, y: 1.62, z: 27.0, yaw: 100, pitch: -4 },
   "world-facade-wide": { x: 9.0, y: 1.62, z: 29.0, yaw: 14, pitch: -3 },
   "world-door-view": { x: 4.9, y: 1.62, z: 4.2, yaw: 172, pitch: -4 },

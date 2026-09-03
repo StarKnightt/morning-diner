@@ -58,7 +58,10 @@ configureRenderer(renderer);
   // Exposure dial (rev 7): `?ev=<stops>` (default 0) or the last value the player set with
   // `[` / `]` (±0.25 EV, persisted in localStorage `morning-diner.ev`, shown as a toast).
   const baseExposure = renderer.toneMappingExposure;
-  const EV_KEY = "morning-diner.ev";
+  // fix-dining-light: the key is versioned with the preset — a `]`-stepped +EV that the player
+  // left in localStorage under rev 7 (the live frames were ≈ +1.5 EV over the shipped exposure)
+  // must not carry over onto a re-metered rig. Bump the suffix whenever CAMERA changes.
+  const EV_KEY = "morning-diner.ev.fdl";
   let ev = params.has("ev") ? Number(params.get("ev")) : Number(localStorage.getItem(EV_KEY) ?? 0);
   if (!Number.isFinite(ev)) ev = 0;
   const applyEv = () => { renderer.toneMappingExposure = baseExposure * Math.pow(2, ev); };

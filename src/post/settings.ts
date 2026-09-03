@@ -167,7 +167,11 @@ export function defaultSettings(): PostSettings {
       twinkle: 0.55,
       brightFraction: 0.18,
     },
-    haze: { enabled: true, strength: 0.012, g: 0.55, steps: 24, halfRes: true },
+    // fix-dining-light: 0.004 (was 0.012) — with the sun at 11 klux (×0.6) the in-scatter is
+    // ≈ 0.2× rev 7's: at 7° every window's beam crosses the whole room to the partition, so the
+    // march integrates 6–9 m of lit air behind the counter and 0.012 lifted the entire frame to
+    // cream (the user's "fog bank"). A golden veil in the stripes, the walls behind it legible.
+    haze: { enabled: true, strength: 0.004, g: 0.55, steps: 24, halfRes: true },
     shimmer: { enabled: true, amplitude: 1.2, frequency: 11, speed: 0.9, scroll: 0.45, minDepth: 8, heightFade: 2.2 },
     // Offset: the source is the front lip of the decanter mouth (the funnel floor sits 6 cm above the
     // mouth, so the vapour spills out of the front gap); the emitter's forward draught carries the
