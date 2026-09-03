@@ -76,6 +76,9 @@ export interface DinerSfx {
   footfall(strength?: number): void;
   /** System 9: drinking from the mug (liquid draw + swallow, at the listener). */
   sip(): void;
+  /** Seats: vinyl taking / releasing the weight (`strength` 0..1) and a stool's swivel bearing (`amount` 0..1). */
+  seatCreak(strength?: number): void;
+  stoolSqueak(amount?: number): void;
   /** System 9 openables: cabinet magnetic catch (release / close) and its soft stop, at the door. */
   cabinetCatch(at: Vec3, phase: "release" | "close"): void;
   cabinetStop(at: Vec3): void;
@@ -156,6 +159,8 @@ class DinerAudioImpl implements DinerAudio {
       },
       footfall: (s) => this.playerSfx?.footfall(s),
       sip: () => this.playerSfx?.sip(),
+      seatCreak: (s) => this.playerSfx?.seatCreak(s),
+      stoolSqueak: (a) => this.playerSfx?.stoolSqueak(a),
       cabinetCatch: (at, phase) => this.openablesSfx?.cabinetCatch(at, phase),
       cabinetStop: (at) => this.openablesSfx?.cabinetStop(at),
       kitchenDoorPush: (at) => this.openablesSfx?.kitchenDoorPush(at),
