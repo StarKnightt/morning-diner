@@ -557,6 +557,7 @@ function buildHorizon(parent: THREE.Group, field: Field, horizon: THREE.Color, r
   // Distant man-made marks and a ranch tree line, all hazed by the scene fog.
   const parts: Part[] = [];
   const dark: [number, number, number] = [0.3, 0.29, 0.28];
+  void rng;
   {
     // Water tower at ~140 m: four legs, tank, cone roof.
     const x = -88, z = 128, y = field.height(x, z);
@@ -570,21 +571,7 @@ function buildHorizon(parent: THREE.Group, field: Field, horizon: THREE.Color, r
     const mast = new THREE.CylinderGeometry(0.15, 0.4, 42, 5); mast.translate(x, y + 21, z); parts.push({ g: mast, c: [0.55, 0.53, 0.52] });
     const beacon = new THREE.SphereGeometry(0.5, 6, 4); beacon.translate(x, y + 42.4, z); parts.push({ g: beacon, c: [0.45, 0.12, 0.1] });
   }
-  {
-    // Ranch: a tree line (cottonwoods along a wash) and a low barn at ~125 m.
-    const treeN = makeValueNoise(4460, 32);
-    for (let i = 0; i < 16; i++) {
-      const x = 22 + i * 3.3 + (rng() - 0.5) * 2, z = 124 + (treeN(i / 3, 0.2) - 0.5) * 8, y = field.height(x, z);
-      const r = 2.4 + rng() * 2.2;
-      const crown = jitter(new THREE.IcosahedronGeometry(r, 1), rng, 0.2, 0.85); crown.translate(x, y + r * 0.9 + 1.5, z);
-      const k = 0.7 + rng() * 0.3;
-      parts.push({ g: crown, c: [0.22 * k, 0.28 * k, 0.16 * k] });
-      const trunk = new THREE.CylinderGeometry(0.2, 0.3, 2.5, 5); trunk.translate(x, y + 1.25, z); parts.push({ g: trunk, c: [0.3, 0.26, 0.22] });
-    }
-    const bx = 48, bz = 121, by = field.height(bx, bz);
-    const barn = new THREE.BoxGeometry(12, 4, 7); barn.translate(bx, by + 2, bz); parts.push({ g: barn, c: [0.5, 0.36, 0.3] });
-    const barnRoof = new THREE.CylinderGeometry(4.2, 4.2, 12.4, 3, 1); barnRoof.rotateZ(Math.PI / 2); barnRoof.rotateX(Math.PI / 6); barnRoof.scale(1, 0.55, 1); barnRoof.translate(bx, by + 4.6, bz); parts.push({ g: barnRoof, c: [0.55, 0.53, 0.5] });
-  }
+  // (A ranch tree line at 125 m was tried: fog-lifted dark crowns read as pale crystals in front of the darker near ridge — dropped.)
   const mesh = new THREE.Mesh(mergeParts(parts), new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.95, metalness: 0 }));
   mesh.name = "world-far-marks";
   mesh.frustumCulled = false;
