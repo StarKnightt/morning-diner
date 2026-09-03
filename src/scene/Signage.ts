@@ -180,7 +180,7 @@ function readerBoard(rng: () => number): THREE.CanvasTexture {
     ctx.strokeStyle = "rgba(0,0,0,0.12)";
     ctx.lineWidth = 3;
     for (const y of [h * 0.24, h * 0.76]) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
-    const size = 220;
+    const size = fitFont(ctx, READER_TEXT, SANS, 220, w * 0.86);
     ctx.font = `bold ${size}px ${SANS}`;
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
@@ -317,11 +317,11 @@ function airConditioned(rng: () => number): THREE.CanvasTexture {
     ctx.fillStyle = "#1c3f8a";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    const size = fitFont(ctx, "Air Conditioned", SCRIPT, 200, w * 0.8, "normal");
-    ctx.font = `normal ${size}px ${SCRIPT}`;
-    ctx.fillText("Air Conditioned", w / 2, h * 0.5);
-    ctx.font = `bold 34px ${SANS}`;
-    ctx.fillText("FOR YOUR COMFORT", w / 2, h * 0.84);
+    const size = fitFont(ctx, "Air Conditioned", SCRIPT, 250, w * 0.9, "bold");
+    ctx.font = `bold ${size}px ${SCRIPT}`;
+    ctx.fillText("Air Conditioned", w / 2, h * 0.46);
+    ctx.font = `bold 40px ${SANS}`;
+    ctx.fillText("FOR YOUR COMFORT", w / 2, h * 0.85);
     chipEdges(ctx, w, h, rng, 14, 12);
     rustStreaks(ctx, w, 30, h * 0.4, rng, 5, 0.25);
   });
@@ -520,11 +520,12 @@ export function buildSignage(diner: THREE.Group, pal: Palette): SignageResult {
       bulbTips = tips;
     }
 
-    // Arrow strip in the sign's plane: from under the cabinet's +x end, sloping 26° down
-    // toward local −x — which, with the pylon's yaw, points at the entrance gap and the lot.
+    // Arrow cabinet in the sign's plane, under the reader board: 340 mm deep so the pole runs
+    // through it, sloping 26° down toward local −x — which, with the pylon's yaw, points at
+    // the entrance gap and the lot.
     {
-      const L = 1.7, ah = 0.2, ad = 0.1;
-      const arrow = new THREE.Matrix4().makeRotationZ(0.45).setPosition(cw / 2 - 0.25, cy0 - 0.03, 0);
+      const L = 1.7, ah = 0.22, ad = 0.34;
+      const arrow = new THREE.Matrix4().makeRotationZ(0.45).setPosition(cw / 2 - 0.2, ry0 - 0.08, 0);
       // strip body (cream), red chevron head
       const body = new THREE.BoxGeometry(L, ah, ad);
       body.translate(-L / 2, -ah / 2, 0);
@@ -639,9 +640,9 @@ export function buildSignage(diner: THREE.Group, pal: Palette): SignageResult {
     const dx = DOOR.centerX, ay = 2.78;
     b.rbox(steelDark, [dx - 0.015, ay - 0.015, zFace - 0.01], [dx + 0.015, ay + 0.015, zFace + 0.42], 0.004, 1); // arm
     b.rbox(steelDark, [dx - 0.05, ay - 0.06, zFace], [dx + 0.05, ay + 0.06, zFace + 0.012], 0.003, 1); // wall plate
-    const pw = 0.6, ph = 0.22, pz = zFace + 0.36;
+    const pw = 0.72, ph = 0.27, pz = zFace + 0.36;
     const py1 = ay - 0.07, py0 = py1 - ph;
-    for (const x of [dx - 0.24, dx + 0.24]) {
+    for (const x of [dx - 0.3, dx + 0.3]) {
       const g = new THREE.CylinderGeometry(0.004, 0.004, 0.07, 6);
       g.translate(x, ay - 0.035, pz);
       b.add(g, steelDark);

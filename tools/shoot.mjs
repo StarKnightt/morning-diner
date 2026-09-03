@@ -101,7 +101,7 @@ const POSES = {
   "dbg-wall-road": { x: 1.35, y: 1.87, z: 6.5, yaw: 180, pitch: -1 },
   // Signage (Signage.ts) — from the lot, 8–12 m: the pylon at the entrance gap, the parapet
   // letters over the facade, the door's enamel panels. Shoot with --tag=sign.
-  "sign-pylon": { x: 8.6, y: 1.62, z: 10.0, yaw: 143, pitch: 12 },
+  "sign-pylon": { x: 10.0, y: 1.62, z: 9.0, yaw: 140, pitch: 12 },
   "sign-facade": { x: 1.6, y: 1.62, z: 13.0, yaw: 0, pitch: 6 },
   "sign-door": { x: 5.6, y: 1.62, z: 11.5, yaw: 0, pitch: 2 },
   // System 7 — interactions. These call window.__interactPose(name) (src/interactions/debug.ts),
