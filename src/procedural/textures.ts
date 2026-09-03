@@ -1835,7 +1835,8 @@ export function kickPlateWear(w: number, h: number, wM: number, hM: number, seed
       const u = x / w, i = y * w + x, o = i * 4;
       // brushing: vertical runs (u-only streak field) + a fine grain
       const streak = col(u * 8, 0.5) - 0.5, grain = fine(x / w, y / h) - 0.5;
-      let r = 0.4 + streak * 0.14 + grain * 0.04;
+      // rev 4: 0.30–0.40 in the runs (satin, a stretched mirror), not 0.36–0.54
+      let r = 0.27 + streak * 0.1 + grain * 0.02;
       let k = 1 + streak * 0.03 + grain * 0.01;
       // mop-splash film over the bottom 15 mm, ragged top edge, and the dulled/scratched
       // bottom band (40 mm, heaviest at the edge)
@@ -1847,9 +1848,9 @@ export function kickPlateWear(w: number, h: number, wM: number, hM: number, seed
       const t = T[i];
       k *= 1 - 0.5 * t;
       r += t * 0.35;
-      // tint: cool satin aluminium (sRGB ≈ 224/228/232), a hair warmer where handled
-      d[o] = Math.min(255, 224 * k); d[o + 1] = Math.min(255, 228 * k); d[o + 2] = Math.min(255, 232 * k); d[o + 3] = 255;
-      rough[i] = Math.min(0.9, Math.max(0.3, r));
+      // F0 of oxidised aluminium: neutral cool grey (sRGB ≈ 238/240/243; linear ≈ 0.85/0.87/0.89)
+      d[o] = Math.min(255, 238 * k); d[o + 1] = Math.min(255, 240 * k); d[o + 2] = Math.min(255, 243 * k); d[o + 3] = 255;
+      rough[i] = Math.min(0.9, Math.max(0.22, r));
     }
   }
   ctx.putImageData(img, 0, 0);

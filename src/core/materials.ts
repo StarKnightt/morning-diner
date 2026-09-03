@@ -6,7 +6,7 @@
 import * as THREE from "three";
 import * as texModule from "../procedural/textures";
 import * as extModule from "../procedural/exterior";
-import { DOOR, WINDOW } from "../scene/layout";
+import { DOOR, ROOM, WINDOW } from "../scene/layout";
 import { VINYL_CRAZE_METRES, boothVinylCrazeLayout } from "./upholstery";
 import { FLUORESCENT, TROFFER_LENS_NITS, luminance, nits } from "../scene/Lighting";
 import type { TextureBank } from "./textureBank";
@@ -647,6 +647,12 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // film; textures.ts kickPlateWear) on the RoundedBox face UVs; the push-bar roses keep the
   // plain satin above. Roughness floor 0.3 (no sub-texel roughness → no specular sparkle
   // from the map). +1 draw call.
+  // Rev 4: satin aluminium is a stretched anisotropic MIRROR — the rev 3 plate (roughness
+  // 0.36–0.54, anisotropy 0.7, the room probe) read as brown-painted board because the one
+  // room probe, taken 7 m away, shows the kitchen partition where the plate should show
+  // the floor in front of the door. It now takes its own probe (Diner.ts `doorProbe`, at the
+  // plate, so the checker and the bright doorway are what it mirrors), roughness 0.3–0.4 in
+  // vertical brush runs (the map), anisotropy 0.8 along them, a neutral cool-grey F0.
   const kickPlateWorn = kickPlate.clone();
   {
     const kw = tex.kickPlateWear(1024, 256, DOOR.width - 2 * DOOR.jamb - 2 * DOOR.reveal - 2 * 0.123, 0.203, 97, 0.15 /* u runs from the latch (+x) end on the −z face */);
@@ -656,6 +662,67 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     kickPlateWorn.roughnessMap = kw.roughnessMap;
     kickPlateWorn.color.setRGB(1, 1, 1);
     kickPlateWorn.roughness = 1;
+    kickPlateWorn.envMapIntensity = 1.3;
+    kickPlateWorn.userData.doorProbe = true;
+    // three's `anisotropy` bends the environment lookup toward one direction (a single bent
+    // normal), so on a 0.8 m plate it returned one colour — the rev 3 board. The stretched
+    // mirror is done by hand: five environment taps fanned along the brush (world y, the
+    // brush runs vertically) with the lookup roughness lowered across it, and each tap
+    // PARALLAX-CORRECTED against the room box from the door probe's station (a one-point
+    // probe otherwise shows the same floor patch across the whole plate — no checker).
+    kickPlateWorn.anisotropy = 0;
+    const probePos = new THREE.Vector3(DOOR.hingeX + DOOR.width / 2, 0.35, ROOM.zFront - 0.22);
+    kickPlateWorn.userData.doorProbePos = probePos;
+    // `?kpmirror`: a polished plate, to read the probe and the projection.
+    const kpMirror = typeof location !== "undefined" && new URLSearchParams(location.search).has("kpmirror");
+    kickPlateWorn.onBeforeCompile = (shader) => {
+      shader.defines = { ...shader.defines, KP_SPREAD: kpMirror ? "0.0" : "0.6", KP_LR: kpMirror ? "0.05" : "0.6" };
+      shader.uniforms.uKpProbe = { value: probePos };
+      shader.uniforms.uKpBoxMin = { value: new THREE.Vector3(-ROOM.halfX, 0, ROOM.zBack) };
+      shader.uniforms.uKpBoxMax = { value: new THREE.Vector3(ROOM.halfX, ROOM.height, ROOM.zFront) };
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying vec3 vKpPos;")
+        .replace("#include <worldpos_vertex>", "#include <worldpos_vertex>\nvKpPos = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;");
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <common>",
+          /* glsl */ `#include <common>
+varying vec3 vKpPos;
+uniform vec3 uKpProbe, uKpBoxMin, uKpBoxMax;
+vec3 kpBoxDir( vec3 R ) {
+	vec3 rbmax = ( uKpBoxMax - vKpPos ) / R, rbmin = ( uKpBoxMin - vKpPos ) / R;
+	vec3 rb = mix( rbmin, rbmax, step( vec3( 0.0 ), R ) );
+	float d = min( min( rb.x, rb.y ), rb.z );
+	return normalize( vKpPos + R * d - uKpProbe );
+}`,
+        )
+        // (the chunk includes are expanded after onBeforeCompile, so the edited chunk is inlined)
+        .replace(
+          "#include <lights_fragment_maps>",
+          THREE.ShaderChunk.lights_fragment_maps.replace(
+            "radiance += getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );",
+            /* glsl */ `{
+	vec3 R = reflect( - geometryViewDir, geometryNormal );
+	R = transformDirectionByInverseViewMatrix( R, viewMatrix );
+	// Nine taps up a Gaussian fan (±spread at 2σ) along the brush; the fan width rides the
+	// brush roughness texel by texel, so the streaks break up run by run as brushing does.
+	float spread = KP_SPREAD * material.roughness;
+	float lr = material.roughness * KP_LR;
+	vec3 acc = vec3( 0.0 );
+	float wsum = 0.0;
+	for ( int k = -4; k <= 4; k ++ ) {
+		float f = float( k ) / 4.0;
+		float wgt = exp( - 2.0 * f * f );
+		vec3 Rk = normalize( R + vec3( 0.0, f * spread, 0.0 ) );
+		acc += wgt * textureCubeUV( envMap, envMapRotation * kpBoxDir( Rk ), lr ).rgb;
+		wsum += wgt;
+	}
+	radiance += acc * ( envMapIntensity / wsum );
+}`,
+          ),
+        );
+    };
+    kickPlateWorn.customProgramCacheKey = () => "kickPlateBoxProbe";
   }
   // Pedestal bells at floor contact (rev 2): the LatheGeometry's v runs up the profile, the
   // rim and shoulder are v ≲ 0.2. A 64 × 64 DataTexture (no worker) carries the cast's own
