@@ -298,6 +298,33 @@ debug poses to `shoot.mjs` (they were a throwaway harness in rev 2/3): `dbg-pick
 stop bar) and `dbg-wall-road` (standing in the empty stall between the two cars — the pickup's roof filled the frame from its rev 3 spot once the truck moved forward — looking over the wall and through its gap: ruts, scrub edge, road, ranges). They
 stand outside the building — never player-reachable — and are shot with `--tag=sys3`.
 
+## Parallel builds — worktrees
+
+Every builder works on its own branch in its own `git worktree`. **All worktrees
+MUST be created under `C:\Code\morning-diner-wt\<name>`, never as siblings of
+the repo in `C:\Code`:**
+
+```
+git worktree add ../morning-diner-wt/sys4-rev6 -b sys4-rev6
+```
+
+`C:\Code\morning-diner-wt\` lives outside the repo and is the only place a
+worktree may go. Pick a `<name>` that matches the branch. Run the capture
+harness from inside the worktree with its own `--port` (see "Running the
+capture").
+
+**Every builder must remove its own tree when done** — after the branch is
+merged (or abandoned), from the main checkout:
+
+```
+git worktree remove ../morning-diner-wt/sys4-rev6     # --force only for ignored build output (dist/, node_modules/, shots/, tmp/)
+git worktree prune
+```
+
+Leave the branch alone (branches are kept for history); only the working
+directory goes. Stale trees left behind fill `C:\Code`, hold ports, and cost a
+`node_modules` each — do not leave them.
+
 ## Lessons recorded
 
 - `RoomEnvironment` is bright. At `environmentIntensity 0.25` it out-lit a
