@@ -68,6 +68,9 @@ const POSES = {
   // fix-backcounter — standing in the service aisle at the door end looking along the work side
   // of the counter (the user's frame), and 0.75 m from the reach-in / plate shelves.
   along: { x: 1.3, z: -1.1, yaw: 95, pitch: -24 },
+  // fix-dining-light — the user's frame: standing in the service aisle behind the counter,
+  // looking across the room at the window wall (troffers, fan and booths in one frame).
+  "behind-counter": { x: -0.6, y: 1.6, z: -1.3, yaw: 150, pitch: 3 },
   close: { x: -2.75, y: 1.2, z: -1.8, yaw: 150, pitch: -18 },
   // System 3 — windows, blinds, exterior. yaw 180 looks straight out through the window wall (+z).
   // Seated at the third booth, eye-line through the slats.

@@ -104,7 +104,14 @@ export const nits = (n: number): number => n * K;
  * +3.4; the zenith (400 nits) +1.2 — a real blue, not a wash; the troffers' 300 lux on the
  * counter (≈ 70 nits) reads at −1.3 EV: visibly ON. `?ev=` and `[` `]` step from here.
  */
-export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 15 } as const; // rev 7.1: +0.4 EV (undertable → ≈ 40, patch ≈ 241)
+/**
+ * fix-dining-light: 1/25 (grey ≈ 169 nits, −0.75 EV from rev 7.1's 1/15). The user's live
+ * frames read as an overexposed hazy noon: the sunlit lot at +2.9 EV (sand ≈ 232 sRGB), the
+ * room's sun haze lifting every wall to cream. One exposure holds both sides: the troffers
+ * (now 14 klm, warm-white) put the counter laminate at middle grey, the sunlit sand lands at
+ * +1 EV (display ≈ 0.42), the sun patch on a cream wall at +2 EV (≈ 211, rolled, not white).
+ */
+export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 25 } as const;
 export const EV100 = Math.log2((CAMERA.fNumber * CAMERA.fNumber) / CAMERA.shutter) - Math.log2(CAMERA.iso / 100);
 /** Metered saturation luminance for that exposure (Lagarde: L_sat = 1.2 · 2^EV) ≈ 2,260 nits at 1/60 (9,560 at rev 3's 1/250); the display white sits CAMERA_WHITE_EV − 2.47 stops above it. */
 export const L_SAT_NITS = 1.2 * Math.pow(2, EV100);
@@ -259,7 +266,9 @@ export function sunDirection(): THREE.Vector3 {
   // Rev 7 (evening preset): 6:45 PM, sun 9° up, 38° off the window normal toward the door
   // end — the diner now faces WEST, so the same glass takes the low sun (Flagstaff, late
   // July: sunset azimuth ≈ 298°, the facade normal ≈ 260°). Shadows run 6.3× height.
-  const el = THREE.MathUtils.degToRad(9);
+  // fix-dining-light: 7° — twenty minutes later; shadows run 8.1× height, the beam through the
+  // glass crosses the room to the partition and back bar (the floor sees almost none of it).
+  const el = THREE.MathUtils.degToRad(7);
   const az = THREE.MathUtils.degToRad(38);
   return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
 }
@@ -275,7 +284,7 @@ const SUN_ANGULAR_DIAMETER = THREE.MathUtils.degToRad(0.53);
  * high-desert air; the morning preset was (1.0, 0.83, 0.71) ≈ 5,400 K). Normalised to unit
  * LUMINANCE so SUN_LUX below is the photometric value.
  */
-export const SUN_COLOR = new THREE.Color(1.0, 0.72, 0.45);
+export const SUN_COLOR = new THREE.Color(1.0, 0.66, 0.36); // fix-dining-light: 7° sun, ≈ 2,900 K (was (1.0, 0.72, 0.45) at 9°)
 SUN_COLOR.multiplyScalar(1 / (0.2126 * SUN_COLOR.r + 0.7152 * SUN_COLOR.g + 0.0722 * SUN_COLOR.b));
 /**
  * Direct normal illuminance. Rev 7: 18 klux — a 9° sun through 6 air masses at 2,000 m
@@ -283,7 +292,13 @@ SUN_COLOR.multiplyScalar(1 / (0.2126 * SUN_COLOR.r + 0.7152 * SUN_COLOR.g + 0.07
  * preset's 35° sun had 90 klux). On the window glass (n·s 0.78): 14 klux; on the lot
  * ground (s.y 0.156): 2.8 klux — shadows are sky-lit blue, the sunlit ground only ≈ 2 EV up.
  */
-export const SUN_LUX = 18_000;
+/**
+ * fix-dining-light: 11 klux — the 7° sun crosses ≈ 8 air masses (Kasten–Young AM 7.9 at 7°;
+ * τ ≈ 0.28 · 7.9 → ×0.11 of 105 klux ≈ 11.5 klux). On the glass 8.6 klux, on the ground 1.3
+ * klux. Inside: a cream wall in the beam 830 nits (+2.3 EV over grey, ≈ 215 sRGB), the
+ * laminate under a troffer 210 (grey) — the sun is the warm accent, the fixtures the room.
+ */
+export const SUN_LUX = 11_000;
 /** Spot apex distance from the building centre. Ray directions across the room vary by ±2.3°. */
 const SPOT_DIST = 150;
 
@@ -294,7 +309,13 @@ const SPOT_DIST = 150;
  * after rev 2's warm (255, 237, 198) tint read as "cream". sRGB (236, 255, 238). Exported
  * for the lens emissive (materials.ts), so lamp and lens share one colour.
  */
-export const FLUORESCENT = new THREE.Color().setRGB(236 / 255, 255 / 255, 238 / 255, THREE.SRGBColorSpace);
+/**
+ * fix-dining-light: warm-white 3500 K tri-phosphor (F32T8/835) as a daylight-balanced camera
+ * records it — cream, R > G > B, sRGB (255, 238, 205). Rev 3's halophosphate cool-white
+ * (236, 255, 238) printed the lenses as blue-grey rectangles beside the 2,900 K sun and read
+ * as "switched off" (the user, twice). Kitchen.ts keeps its cooler 5000 K tube.
+ */
+export const FLUORESCENT = new THREE.Color().setRGB(255 / 255, 238 / 255, 205 / 255, THREE.SRGBColorSpace);
 /**
  * Luminaire output of a four-lamp F32T8 2×4: 4 × 2,850 lm initial lamp lumens = 11,400,
  * × 0.68 luminaire efficiency through a K12 lens × 0.88 ballast factor × 0.85 lamp
@@ -315,7 +336,14 @@ export const FLUORESCENT = new THREE.Color().setRGB(236 / 255, 255 / 255, 238 / 
  * with the two lamp-pair bars at 2.2× — 7,200 nits, +4.1 EV over grey, above the bloom
  * threshold (post/settings.ts, 2.0 exposed = +3.5 EV) so the bars glow as a lit lens does.
  */
-export const TROFFER_LUMENS = 8_700;
+/**
+ * fix-dining-light: 14,000 lm — four-lamp F32T8 2×4, new lamps (4 × 3,100 initial, ballast
+ * factor 1.18 high-output, K12 lens 0.68 → ≈ 10 klm; the rest is the user's call "increase the
+ * lighting from the above lamps"). Under a fixture at 2 m: (14,000/π)/4 ≈ 1,100 lux → 210 nits on
+ * the cream laminate = middle grey at 1/25. Six fixtures → 84 klm / 68 m² ≈ 740 lux working plane.
+ * Lens mean 7,900 nits, +5.5 EV: white, as a lit lens is in any exposure that holds the room.
+ */
+export const TROFFER_LUMENS = 14_000;
 /**
  * Rev 7 (evening preset): 8,700 lm maintained — three-lamp F32T8 2×4 with new lamps behind a
  * clean lens (3 × 2,850 × 0.85 × 0.88 × 0.68 × 1.5 for the lens-brightness the user asked
@@ -363,8 +391,17 @@ export const TROFFER_LENS_NITS = TROFFER_LUMENS / (Math.PI * TROFFER_LENS_AREA);
  * saturated blue. Cosine-weighted hemisphere ≈ 3.2 klux diffuse — the sunlit lot (2.8 klux
  * direct on the ground) is barely 1 EV over its own shadows, which are blue: evening.
  */
-const SKY_HORIZON_NITS = 1_200;
-const SKY_ZENITH_RATIO = 0.25;
+/**
+ * fix-dining-light: 1,400 nits by the sun (+3.0 EV at 1/25: peach-orange, on the knee, the disc
+ * and aureole above it); zenith 0.16× = 224 nits (+0.4 EV, a deep saturated blue instead of the
+ * lilac wash the 0.25× / 1/15 pair printed); opposite horizon 0.45×. The elevation falloff is
+ * steeper (pow 0.55) and a dense band at the horizon line sits 0.6× under the sky just above
+ * it (aerial perspective darkens and warms the distance, `scaleSky`), so the cosine-weighted
+ * diffuse drops to ≈ 1.6 klux: sunlit sand 1.3 + 1.6 klux → 370 nits (+1.1 EV), its shadows
+ * 200 nits (−0.2 EV, blue). Zenith 224 nits is what the room's windows show above the ridges.
+ */
+const SKY_HORIZON_NITS = 1_000; // a1 tried 1,400: the horizon by the sun at +3.6 EV printed pale peach (245, 232, 211), not orange
+const SKY_ZENITH_RATIO = 0.22; // 220 nits
 /**
  * Chroma at unit luminance. Horizon (0.34, 0.58, 1.0) / Y, B/R 2.9; zenith (0.22, 0.45, 1.0)
  * / Y, B/R 4.5; blended in √h so the 5–25° band the windows see sits near B/R 3.5. That is
@@ -375,7 +412,7 @@ const SKY_ZENITH_RATIO = 0.25;
  * read R ≈ G ≈ B outright.
  */
 /** Rev 7: warm horizon (peach, toward the sun) — also the haze tint of the ridge rings. */
-const SKY_HORIZON_CHROMA = new THREE.Color(1.0, 0.6, 0.34);
+const SKY_HORIZON_CHROMA = new THREE.Color(1.0, 0.5, 0.22); // fix-dining-light: orange-gold (rev 7 peach (1, .6, .34) went cream on the knee)
 /** Rev 7: horizon opposite the sun — pale blue-grey (the Belt of Venus sits just above it). */
 const SKY_HORIZON_COOL_CHROMA = new THREE.Color(0.74, 0.8, 1.0);
 /** Rev 7: pale yellow band 5–25° above the sun. */
@@ -1038,7 +1075,7 @@ function assignSunSplit(root: THREE.Object3D, exteriorMaterials: THREE.Material[
  */
 export function installLotGroundFill(mat: THREE.Material): void {
   const dir = new THREE.Vector3(0, -0.6, 0.8).normalize();
-  const fill = new THREE.Color().setRGB(255 / 255, 230 / 255, 195 / 255, THREE.SRGBColorSpace).multiplyScalar(nits(600)); // rev 7: sunlit sand 2.8 klux → ×0.15
+  const fill = new THREE.Color().setRGB(255 / 255, 230 / 255, 195 / 255, THREE.SRGBColorSpace).multiplyScalar(nits(350)); // rev 7: sunlit sand 2.8 klux → ×0.15; fix-dining-light: ×0.6 with the 11 klux sun
   // Rev 6.1 (facade critics): seen from the LOT the same undersides are the whole blind. Their
   // real illuminance there is the sunlit face of the slat below (n·s 0.25 → 22 klux on an
   // alabaster slat = 5,300 nits, filling ≈ half the underside's hemisphere 22 mm away: ≈ 8,300
@@ -1050,7 +1087,7 @@ export function installLotGroundFill(mat: THREE.Material): void {
   // the extra 11,000 lux fades in with the CAMERA's z across the window wall — a view-dependent
   // term, stated as such in BUILD.md; the player crossing the door sees the blinds' undersides
   // brighten over 0.6 m of walk while looking at the door, not the blinds.
-  const fillOut = new THREE.Color().setRGB(255 / 255, 236 / 255, 210 / 255, THREE.SRGBColorSpace).multiplyScalar(nits(2400)); // rev 7: ×0.15 (the 9° sun now lights the undersides directly, n·s 0.19)
+  const fillOut = new THREE.Color().setRGB(255 / 255, 236 / 255, 210 / 255, THREE.SRGBColorSpace).multiplyScalar(nits(1400)); // rev 7: ×0.15 (the 9° sun now lights the undersides directly, n·s 0.19); fix-dining-light ×0.6
   const zBlend = new THREE.Vector2(ROOM.zFront - 0.2, ROOM.zFront + 0.4);
   const prev = mat.onBeforeCompile;
   mat.onBeforeCompile = function (shader, renderer) {
@@ -1069,7 +1106,7 @@ export function installLotGroundFill(mat: THREE.Material): void {
 		reflectedLight.indirectDiffuse += BRDF_Lambert( diffuseColor.rgb ) * lotE;
 	}`);
   };
-  (mat as THREE.Material & { customProgramCacheKey: () => string }).customProgramCacheKey = () => "lotfill61";
+  (mat as THREE.Material & { customProgramCacheKey: () => string }).customProgramCacheKey = () => "lotfill-fdl";
 }
 
 export function installShadowMasks(renderer: THREE.WebGLRenderer, root: THREE.Object3D, lights: LightingResult, exteriorMaterials: THREE.Material[] = []): void {
@@ -1210,7 +1247,10 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   // indoors, and the near stalls get its hard shadows from the cars and poles.
 
   /* ---------------- sky dome → physical nits ---------------- */
-  const horizon = SKY_HORIZON_CHROMA.clone().multiplyScalar(SKY_SCALE);
+  // Fog / background colour (Diner.ts): the horizon BAND — 0.6× the sky's horizon luminance,
+  // warmed like the band in scaleSky — so the far ground and ridges fog toward the dense warm
+  // haze at the horizon line, not toward the brighter sky above it (fix-dining-light).
+  const horizon = SKY_HORIZON_CHROMA.clone().lerp(new THREE.Color(1.0, 0.7, 0.48), 0.5).multiplyScalar(SKY_SCALE * 0.45); // 0.6 (band) × ≈ 0.75 (mean horizLum over azimuth)
   const sky = scene.getObjectByName("sky") as THREE.Mesh | undefined;
   if (sky) scaleSky(sky, SKY_SCALE);
   scaleHorizonRings(scene);
@@ -1314,8 +1354,11 @@ export function scaleSky(sky: THREE.Mesh, scale: number): void {
         // falloff is steeper than the morning's (pow 0.7) — the low sun's light stays in the
         // long horizontal paths; the aureole is wider (forward scatter through 6 air masses).
         float circ = 0.5 * pow(c, 4.0) + 0.8 * pow(c, 32.0) + 1.5 * pow(c, 400.0);
-        float horizLum = mix(0.55, 1.0, smoothstep(0.0, 1.0, a));
-        float lum = mix(horizLum, ${SKY_ZENITH_RATIO.toFixed(3)}, pow(h, 0.7)) * (1.0 + circ);
+        float horizLum = mix(0.45, 1.0, smoothstep(0.0, 1.0, a));
+        float lum = mix(horizLum, ${SKY_ZENITH_RATIO.toFixed(3)}, pow(h, 0.55)) * (1.0 + circ);
+        // fix-dining-light: the dense aerosol band at the horizon line is DARKER than the sky
+        // 3–5° above it (the long path is in the earth's shadow first) — 0.6× at the line.
+        lum *= mix(0.6, 1.0, smoothstep(0.0, 0.07, h));
         // Chroma (unit luminance): peach horizon toward the sun, blue-grey opposite → deep
         // blue zenith; a pale-yellow band 5–25° above the sun; the aureole goes orange.
         vec3 hor = mix(${glslVec3(SKY_HORIZON_COOL_CHROMA)}, horizon, smoothstep(0.0, 1.0, a));
@@ -1323,7 +1366,7 @@ export function scaleSky(sky: THREE.Mesh, scale: number): void {
         float band = smoothstep(0.0, 0.12, h) * smoothstep(0.45, 0.15, h) * a * a;
         chroma = mix(chroma, ${glslVec3(SKY_ABOVE_SUN_CHROMA)}, band * 0.65);
         chroma = mix(chroma, ${glslVec3(SKY_AUREOLE_CHROMA)}, clamp(circ * 0.8, 0.0, 0.9));
-        chroma = mix(chroma, vec3(1.02, 0.9, 0.78), smoothstep(0.035, 0.0, h) * 0.4);
+        chroma = mix(chroma, vec3(1.0, 0.7, 0.48), smoothstep(0.05, 0.0, h) * 0.5); // fix-dining-light: the band warms, not whitens
         vec3 col = chroma * lum;
         float disc = smoothstep(0.999975, 0.999992, c) * 40.0;
         col += ${glslVec3(SKY_AUREOLE_CHROMA)} * disc;
@@ -1332,7 +1375,7 @@ export function scaleSky(sky: THREE.Mesh, scale: number): void {
     shader.fragmentShader = src.slice(0, i0) + body + src.slice(i1 + "gl_FragColor = vec4(col, 1.0);".length);
     shader.fragmentShader = shader.fragmentShader.replace("varying vec3 vDir;", "varying vec3 vDir;\nuniform float skyScale;");
   };
-  mat.customProgramCacheKey = () => "sky-physical-r7";
+  mat.customProgramCacheKey = () => "sky-physical-fdl";
   mat.needsUpdate = true;
 }
 
@@ -1359,7 +1402,10 @@ function scaleHorizonRings(scene: THREE.Scene): void {
   // ranges are due east, BACKLIT: the faces we see are their shaded west slopes, rock 0.3 under
   // 15 klux of sky ≈ 1,400 nits plus haze, so every ring must sit under the sky and the nearer
   // (less hazed) ring lowest: near 0.55× (−0.85 EV), mid 0.7× (−0.5), far 0.75× (−0.4).
-  const ringScale: Record<string, number> = { horizon: 0.55, "horizon-mid": 0.7, "horizon-far": 0.75 };
+  // fix-dining-light: the ranges sit under the horizon BAND (0.6× the sky, scaleSky) — near
+  // 0.36× of the horizon (−1.5 EV under the sky above the band), mid 0.45×, far 0.52×; the
+  // user's frame had all three within a stop of the sky, "bleached, not hazed".
+  const ringScale: Record<string, number> = { horizon: 0.36, "horizon-mid": 0.45, "horizon-far": 0.52 };
   for (const name of ["horizon", "horizon-mid", "horizon-far"]) {
     const mesh = scene.getObjectByName(name) as THREE.Mesh | undefined;
     if (!mesh) continue;
