@@ -103,6 +103,11 @@ const POSES = {
   "dbg-wheelstop": { x: 1.7, y: 0.75, z: 5.2, yaw: 248, pitch: -24 },
   // Standing on the lot in the empty stall between the two cars: CMU wall, scrub edge, road, ranges.
   "dbg-wall-road": { x: 1.35, y: 1.87, z: 6.5, yaw: 180, pitch: -1 },
+  // World layer (World.ts): the user's "from the lot looking out" frame plus three more.
+  "world-lot-out": { x: 0.6, y: 1.62, z: 9.0, yaw: 180, pitch: -3 },
+  "world-road": { x: -2.5, y: 1.62, z: 27.0, yaw: 100, pitch: -4 },
+  "world-facade-wide": { x: 9.0, y: 1.62, z: 29.0, yaw: 14, pitch: -3 },
+  "world-door-view": { x: 4.9, y: 1.62, z: 4.2, yaw: 172, pitch: -4 },
   // fix-pole — the lot light standard at x 5.4: the user's look-up at the head from ~3 m on the
   // drive aisle (mast left, arm sweeping right), and the whole standard from 15 m.
   "fix-pole-lookup": { x: 8.0, y: 1.62, z: 10.1, yaw: 84, pitch: 64 },
