@@ -49,6 +49,13 @@ src/
                           sedan (extruded profiles, wheels, chrome, dark glass, contact-shadow
                           decals), desert dirt with instanced scrub, fBm mesa/ridge ring, shader
                           sky dome (horizon → zenith gradient + sun glare on the REFERENCE bearing)
+    Signage.ts            exterior signage, name in `DINER_NAME`: roadside pylon at the entrance gap
+                          (lit 2.4 × 1.5 acrylic cabinet ≈ 2,000 nits, reader board, sheet-metal star,
+                          arrow cabinet with instanced bulbs ≈ 10,000 nits + dead ones, rust-streaked
+                          pole, footing), parapet channel letters (11 alpha-tested return slices +
+                          lit face + neon-stroke layer on a raceway), AIR CONDITIONED + WELCOME enamel
+                          panels at the door. Main-thread canvas text; lives inside the `exterior`
+                          group (lot probe / lot sun / lotCaster). Poses `sign-{pylon,facade,door}`
     Lighting.ts           System 4: the physical light rig (see "System 4" below). `K` scene scale,
                           `CAMERA`/`EV100`/`EXPOSURE`, `configureRenderer()` (AgX, exposure, sRGB,
                           BasicShadowMap + `installPcss`), `sunDirection()` (az 38° / el 35°),
