@@ -72,8 +72,10 @@ const POSES = {
   // System 3 — windows, blinds, exterior. yaw 180 looks straight out through the window wall (+z).
   // Seated at the third booth, eye-line through the slats.
   window: { x: -1.1, y: 1.15, z: 2.35, yaw: 180, pitch: 0 },
-  // Standing a metre inside the door, looking out through the door glass at the sedan.
-  "door-glass": { x: 4.9, z: 2.15, yaw: 181, pitch: -11 },
+  // Standing a metre inside the door, looking out through the door glass at the sedan
+  // (fix-sign-car: the sedan moved from stall 6 to stall 7, one stall to +x; the pose turns
+  // 12° that way so the car stays in the pane instead of leaving empty asphalt in frame).
+  "door-glass": { x: 4.9, z: 2.15, yaw: 193, pitch: -11 },
   // 30 cm from the second window's slats, on the centre ladder.
   "blind-macro": { x: -2.78, y: 1.45, z: 2.97, yaw: 168, pitch: -6 },
   // From the aisle through the third window: pickup, stall row, wall, desert, mesa, sky.
@@ -96,12 +98,13 @@ const POSES = {
   "dbg-pickup-front34": { x: 3.8, y: 1.6, z: 4.4, yaw: 111, pitch: -8 },
   "dbg-pickup-side": { x: -7.2, y: 1.6, z: 8.5, yaw: 270, pitch: -6 },
   "dbg-pickup-rear34": { x: 3.3, y: 1.6, z: 15, yaw: 35, pitch: -6 },
-  "dbg-sedan-front34": { x: -1.0, y: 1.6, z: 4.4, yaw: 249, pitch: -8 },
-  "dbg-sedan-rear34": { x: -0.5, y: 1.6, z: 15, yaw: 325, pitch: -6 },
+  // Sedan poses follow the car: fix-sign-car moved it from stall 6 (x 3.97) to stall 7 (x 6.90), +2.93 in x.
+  "dbg-sedan-front34": { x: 1.93, y: 1.6, z: 4.4, yaw: 249, pitch: -8 },
+  "dbg-sedan-rear34": { x: 2.43, y: 1.6, z: 15, yaw: 325, pitch: -6 },
   // Macro: 1.2 m from the sedan's front-left wheel; the stop bar in front of the sedan with its nose overhang.
-  "dbg-wheel": { x: 2.2, y: 0.8, z: 6.95, yaw: 290, pitch: -34 },
-  "dbg-wheelstop": { x: 1.7, y: 0.75, z: 5.2, yaw: 248, pitch: -24 },
-  // Standing on the lot in the empty stall between the two cars: CMU wall, scrub edge, road, ranges.
+  "dbg-wheel": { x: 5.13, y: 0.8, z: 6.95, yaw: 290, pitch: -34 },
+  "dbg-wheelstop": { x: 4.63, y: 0.75, z: 5.2, yaw: 248, pitch: -24 },
+  // Standing on the lot in the empty stall between the two cars (stall 5; stall 6 is empty too since fix-sign-car): CMU wall, scrub edge, road, ranges.
   "dbg-wall-road": { x: 1.35, y: 1.87, z: 6.5, yaw: 180, pitch: -1 },
   // World layer (World.ts): the user's "from the lot looking out" frame plus three more.
   "world-lot-out": { x: 0.6, y: 1.62, z: 9.0, yaw: 180, pitch: -3 },

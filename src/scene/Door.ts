@@ -183,12 +183,26 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   // (Inside is also the only place decals can be: three.js's transmission buffer holds
   // opaque objects only, so a transparent decal on the far side of transmissive glass
   // never shows.)
-  const decals: THREE.BufferGeometry[] = [];
+  //
+  // Draw order against the glazing (fix-sign-car, after System 4 rev 6). Every quad sits
+  // 1.5–2.5 mm on the ROOM side of the pane, and the pane's transmission leaf writes depth
+  // (Glazing.ts: the haze march reads it). So the room-facing quads are in FRONT of the pane
+  // for a viewer in the room and draw after it (renderOrder 12 — decal over glass, as before),
+  // but the street-facing OPEN face is BEHIND the pane for a viewer on the lot: drawn after the
+  // pane it fails the depth test everywhere the pane has written, and only survived at a
+  // distance because the decal material's polygonOffset slope term (−1 × dz/dpixel) happens to
+  // exceed 1.5 mm when a pixel spans a few mm of glass — which is why the sign "vanished" as
+  // the camera closed in. The physically right order for something seen THROUGH glass is
+  // decal first, pane over it, so the OPEN quad is its own mesh at renderOrder 9 (< the pane's
+  // 10) and the pane's alpha/Fresnel and the lot reflection leaf composite over it exactly as
+  // over the room behind it. Nothing else changes: same material, same quads, same offsets.
+  const roomDecals: THREE.BufferGeometry[] = [];
+  const streetDecals: THREE.BufferGeometry[] = [];
   const stick = (w: number, h: number, x: number, y: number, region: readonly [number, number, number, number], mirrored: boolean, z = -0.0015, faceStreet = false) => {
     const g = atlasQuad(w, h, region, mirrored);
     if (!faceStreet) g.rotateY(Math.PI); // face −z (the room)
     g.translate(x, y, z);
-    decals.push(g);
+    (faceStreet ? streetDecals : roomDecals).push(g);
   };
   const glassMidX = leafW / 2;
   stick(0.3, 0.2, glassMidX + 0.05, gy1 - 0.16, DECAL.open, false, -0.0015, true);
@@ -196,10 +210,14 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   stick(0.12, 0.05, glassMidX, barY + 0.095, DECAL.push, false);
   stick(0.2, 0.26, gx1 - 0.15, 1.45, DECAL.hours, true);
   stick(0.085, 0.055, gx1 - 0.09, 1.12, DECAL.cards, true);
-  const decalMesh = new THREE.Mesh(mergeGeometries(decals, false)!, pal.decal);
-  decalMesh.renderOrder = 12;
+  const decalMesh = new THREE.Mesh(mergeGeometries(roomDecals, false)!, pal.decal);
+  decalMesh.renderOrder = 12; // in front of the pane from the room: over the glass
   decalMesh.name = "door-decals";
   hinge.add(decalMesh);
+  const streetMesh = new THREE.Mesh(mergeGeometries(streetDecals, false)!, pal.decal);
+  streetMesh.renderOrder = 9; // behind the pane from the lot: under the glass, seen through it
+  streetMesh.name = "door-decals-street";
+  hinge.add(streetMesh);
 
   parent.add(hinge);
   return hinge;

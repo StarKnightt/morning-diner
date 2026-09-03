@@ -3323,6 +3323,66 @@ and the clock kept running, so by screenshot time the blind had finished raising
 bundle (~3 cm under the headrail) reads as "clear glass" from the booth. `seek()` now freezes the
 timeline (`frozen`); the next toggle/reset releases it. In-game F was never affected.
 
+## Fix — OPEN sign vanishing up close; sedan across the door (`fix-sign-car`, `shots/fix-sign-*.png`, `shots/fix-car-*.png`)
+
+**A. The OPEN face of the door's flip card was visible from the lot at a few metres and gone
+up close** (`fix-sign-before-{far,near}.png`; straight-on it is missing even at 3 m — the
+user's oblique frame was the lucky case).
+
+*Root cause.* Not a sort-order flip: three sorts the transparent list by `renderOrder` before
+distance, and the door's leaves and quads all carry explicit orders (dumped live: pane 10
+`depthWrite` on; reflection leaves 10.5 off; smudge 11 off; decals 12 off, `polygonOffset
+−1/−2`). The problem is depth. Since System 4 rev 6 the pane's transmission leaf writes depth
+(Glazing.ts — the haze march reads the pane plane), and every signage quad sits 1.5–2.5 mm on
+the ROOM side of the pane. From the room the quads are in front of the pane, draw after it
+(12 > 10) and pass — CLOSED / HOURS / PUSH / cards were never affected. The street-facing OPEN
+quad is the same 1.5 mm *behind* the pane for a viewer on the lot, so drawn after it, it fails
+the depth test everywhere the pane has written. It only ever showed where the decal material's
+`polygonOffset` slope term (−1 × the depth change per pixel) exceeded 1.5 mm — an oblique view at
+a few metres, where one pixel spans several mm of glass — and disappeared as the camera closed
+in and a pixel shrank to a fraction of a millimetre. Proof: `fix-sign-before-near-pane-nodepthwrite.png`
+is the same 0.7 m frame with only the pane's `depthWrite` switched off at runtime — the sign is
+there.
+
+*Fix* (Door.ts, ordering only — no material, geometry, lighting, Fresnel/alpha or exposure
+change): the OPEN quad is its own mesh (`door-decals-street`, same atlas material) at
+`renderOrder 9`, i.e. drawn *before* the pane, which is the physically right order for a card
+seen *through* glass — the pane's `(1 − F)(1 − a0)` alpha and the lot-facing reflection leaf
+then composite over it exactly as over the room behind it. The room-facing quads stay at 12.
+The pane keeps `depthWrite` (the haze march needs it). Verified from the lot at 3 / 1.5 / 0.7 m
+(`fix-sign-after-{far,mid,near}.png`, `-far-oblique`) and from the room at 3 / 1.5 / 0.7 m
+(`fix-sign-after-inside.png` = 0.7 m; the two farther frames were shot and checked, not kept):
+block-mean diffs vs before are confined to the lot seen through the pane where the sedan moved
+(B); the CLOSED/HOURS band is unchanged. Not changed, noted: the HOURS and card quads face the
+room only (they were placed under the transmission-era rule that a decal behind the glass could
+not show), so from the lot the door still shows no hours; the greasy smudge decal (11, 1 mm
+inside) is likewise depth-culled from the lot. Both would be the same one-line ordering change
+if wanted.
+
+**B. The maroon sedan sat in stall 6 (x ≈ 3.97), its flank at 4.87 across the door's line**
+(door centre 4.95, leaf 4.5–5.4; `fix-car-before-{door,top}.png`). The lot had no player
+colliders at all — the pickup and sedan were walk-through — so "blocked" was the body clipping
+through the paint.
+
+*Fix* (Exterior.ts, Diner.ts): the sedan is in stall 7 (`SEDAN_STALL`, x 6.90 = stall centre
++ 0.15, toed +2° so the tail drifts away from the door), nose over a wheel stop as before. Stall
+7 is an odd stall the seeded draw leaves without a bar; it now keeps one, built from its own
+`makeRng(3309)` so the lot's main sequence (every other stop, the scrub edge, the ruts) is
+untouched. Each car registers one world AABB of its footprint through the same placement matrix
+(`buildCar` → `ExteriorResult.colliders` → `Diner.colliders`), so the collider is the mesh's by
+construction: live dump sedan x 6.00–7.97, z 5.60–10.61; pickup −2.13 to −0.20. Walk-through via
+`__player.keys` from x = 4.55 / 4.95 / 5.35 at the threshold (z 3.9): 5.0 m straight out with zero
+lateral deflection; walking +x toward the flank stops at x 5.72 = 6.00 − the 0.28 m player
+radius. Clear width between the two cars is 6.2 m; the door-centred 2 m path has 5 cm to spare
+on the sedan side. Shadows are baked once at boot after placement — the re-shot frames show the
+sedan's shadow on stall 7/8 asphalt (`fix-car-after-{door,top,shadow}.png`). Poses: the sedan
+poses in `tools/shoot.mjs` moved with the car (+2.93 in x: `dbg-sedan-front34/rear34`,
+`dbg-wheel`, `dbg-wheelstop`), `door-glass` turns 12° toward +x (yaw 193) so the car stays in the
+pane, `dbg-wall-road` (stall 5) is unchanged; their `sys3-*` frames are re-shot. `lot-wide` looks at
+the pickup and is unaffected. The `sys4-lot-shadow` / `ext-facade` frames came from a throwaway
+harness (no pose in the repo) — `fix-car-after-shadow.png` is the equivalent 3/4 view at the new
+stall.
+
 ## System status
 
 | # | System | Status |

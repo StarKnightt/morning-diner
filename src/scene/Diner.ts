@@ -123,7 +123,7 @@ export class Diner {
     this.coffeePot = props.coffeePot;
     this.stoolSeats = counter.stoolSeats;
     this.fanRotor = ceiling.fanRotor;
-    this.colliders.push(...shell.colliders, ...booths.colliders, ...counter.colliders, ...backCounter.colliders);
+    this.colliders.push(...shell.colliders, ...booths.colliders, ...counter.colliders, ...backCounter.colliders, ...exterior.colliders);
 
     scene.add(this.group);
     const lights = buildLighting(scene);
