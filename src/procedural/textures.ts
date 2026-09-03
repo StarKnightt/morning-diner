@@ -508,7 +508,11 @@ export function dinerFloorWear(): FloorWear {
   const staffZ = (BACK_BAR.zFront + (COUNTER.topFrontZ - COUNTER.overhang - COUNTER.dieDepth)) / 2; // ≈ −1.25
   return {
     originX: -halfX,
-    originZ: zBack, // canvas row 0 = texture v 1 = the kitchen-side edge (flipY; Shell.ts puts v 0 at zFront)
+    // Canvas row 0 = texture v 1 (flipY). Shell.ts puts v 0 at zFront and v 1 at zBack, then
+    // scales v by d / 6 m (20 tiles), so row 0 is 6.0 m behind the window wall — 0.15 m beyond
+    // zBack. Rev 5: it was `zBack`, which put every world-authored mark (lanes, shelter, the
+    // crack's joints and chips) 150 mm off in z — the chips sat a lip-width away from the ribbon.
+    originZ: zFront - 20 * 0.3,
     metresPerTile: 0.3,
     lanes: [
       // Aisle: worn z ≈ 0.85–1.65, leaving an unworn strip against the booth plinths and under
@@ -1403,9 +1407,9 @@ export function vinylCrazeAtlas(size: number, metres: number, layout: VinylCraze
       // physics map: clearcoat 1 → 0.15 and specular 1 → 0.45 across the crazed field
       const pv = 255 * (1 - 0.85 * dens[i]), pa = 255 * (1 - 0.55 * dens[i]);
       pimg.data[o] = pv; pimg.data[o + 1] = pv; pimg.data[o + 2] = pv; pimg.data[o + 3] = pa;
-      // pucker wrinkles under the roll seam: ±14 % flank shading
+      // pucker wrinkles under the roll seam: ±22 % flank shading
       const wk = Math.max(-1, Math.min(1, wr[i]));
-      if (wk !== 0) { const wm = 1 + 0.14 * wk; r *= wm; g *= wm; b *= wm; }
+      if (wk !== 0) { const wm = 1 + 0.22 * wk; r *= wm; g *= wm; b *= wm; }
       // stitch: holes near-black, thread a lighter red (matching thread, catches light)
       const st = stitch[i];
       if (st < 0) { r *= 0.35; g *= 0.35; b *= 0.35; }

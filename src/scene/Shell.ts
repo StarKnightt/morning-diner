@@ -9,6 +9,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { DECAL, atlasQuad } from "../core/shapes";
+import { makeRng } from "../core/rng";
 import { dinerFloorWear, floorCrackSegments } from "../procedural/textures";
 import { DOOR, KITCHEN_DOOR, PASS_THROUGH, REGISTER, ROOM, WINDOW } from "./layout";
 
@@ -161,6 +162,56 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
       g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
       g.setIndex(idx);
       b.add(g, pal.baseboardWorn);
+    }
+    // Rev 5: the CHIPS are geometry too. A 3–6 mm bite out of a VCT lip is one texel of the
+    // 3.75 mm floor map (it never resolved in two revs of trying); here each is a ragged
+    // 5–8-gon of pale matte almond (`pal.cord`: a fresh through-colour break is the tile's own
+    // body a shade lighter and dead matte) laid 0.4 mm over the lip, 2–3 clustered at every
+    // segment end (the joint, where the tile broke) and one every 60–120 mm along the run.
+    {
+      const crng = makeRng(wear.seed + 79);
+      // two buckets: almond bites on the cream tiles, a dull grey lift on the charcoal ones
+      // (the map's canvas row y runs with world z from `originZ`; (tx + ty) even = charcoal)
+      const buckets = [{ pos: [] as number[], nrm: [] as number[], idx: [] as number[] }, { pos: [] as number[], nrm: [] as number[], idx: [] as number[] }];
+      const onBlack = (x: number, z: number) => (Math.floor((x - wear.originX) / wear.metresPerTile) + Math.floor((z - wear.originZ) / wear.metresPerTile)) % 2 === 0;
+      const chip = (x: number, z: number, r: number, ang: number) => {
+        const { pos, nrm, idx } = buckets[onBlack(x, z) ? 1 : 0];
+        const n = 5 + Math.floor(crng() * 4), base = pos.length / 3;
+        pos.push(x, 0.0004, z); nrm.push(0, 1, 0);
+        for (let j = 0; j < n; j++) {
+          const a = ang + (j / n) * Math.PI * 2;
+          const rj = r * (0.5 + crng() * 0.7) * (1 + 0.6 * Math.abs(Math.cos(a - ang)));
+          pos.push(x + Math.cos(a) * rj, 0.0004, z + Math.sin(a) * rj); nrm.push(0, 1, 0);
+        }
+        for (let j = 1; j <= n; j++) idx.push(base, base + (j % n) + 1, base + j); // CCW from above
+      };
+      for (const seg of segs) {
+        if (seg.length < 3) continue;
+        let since = 0.06 + crng() * 0.06;
+        for (let i = 0; i + 1 < seg.length; i++) {
+          const [ax, az, hw] = seg[i], [bx, bz] = seg[i + 1];
+          const dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz) || 1;
+          const end = i === 0 || i + 2 === seg.length;
+          since -= l;
+          if (!end && since > 0) continue;
+          if (!end) since = 0.06 + crng() * 0.06;
+          const count = end ? 2 + Math.floor(crng() * 2) : 1;
+          for (let c = 0; c < count; c++) {
+            const side = crng() < 0.5 ? -1 : 1, t = end ? crng() * 0.6 : crng();
+            const r = (end ? 0.002 : 0.0015) + crng() * 0.0025;
+            const off = hw + 0.001 + r * 0.6;
+            chip(ax + dx * t + (-dz / l) * side * off, az + dz * t + (dx / l) * side * off, r, Math.atan2(dz, dx));
+          }
+        }
+      }
+      buckets.forEach(({ pos, nrm, idx }, k) => {
+        if (!idx.length) return;
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+        g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+        g.setIndex(idx);
+        b.add(g, k ? pal.tileBacking : pal.cord);
+      });
     }
   }
 
