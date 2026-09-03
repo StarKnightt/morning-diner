@@ -7,6 +7,10 @@
  *                                   (reach 0.22, open → 1.45, hold → 2.85, sweep → 6.45, latch → 7.25)
  *   __interact("sit", t?, {booth, side})   sit (booth 0–4, side −1|1; default: nearest bench); `t` seeks + freezes
  *                                   (1.8 s: anticipation 0.15, step 0.75, lower 1.45, settle 1.8)
+ *   __interact("sit-stool", index?, t?)  sit on counter stool `index` (0–8; default: nearest); `t` seeks + freezes
+ *                                   (1.0 s: anticipation 0.08, step 0.42, lower 0.81, settle 1.0). Also
+ *                                   __interact("sit-stool", t, {stool}) in the other interactions' shape
+ *   __interact("look", yawDeg, {pitch?})  seated only: turn the look off the seat heading (+ = left), stool swivel snapped
  *   __interact("stand")             stand up
  *   __interact("drink", t?)         System 9: drink from the mug (2.8 s; a seek first fills it)
  *   __interact("cabinet", t?)       System 9: toggle the LEFT cabinet door; `t` seeks into the 0.8 s opening
@@ -24,20 +28,36 @@
  *
  * Seeks are silent (no SFX). `t` is seconds into that interaction's own timeline.
  */
+import * as THREE from "three";
 import type { Interactions } from "./index";
 import type { FirstPerson } from "../player/FirstPerson";
 import { EMPTY_FILL, POUR_STREAM_START } from "./Pour";
 
-export type InteractPoseName = "sit-seated" | "pour-mid" | "pour-full" | "door-open" | "drink-sip" | "cabinet-open" | "kitchen-door-open" | "kitchen-door-back";
+export type InteractPoseName =
+  | "sit-seated"
+  | "stool-approach"
+  | "stool-seated"
+  | "stool-seated-look-left"
+  | "pour-mid"
+  | "pour-full"
+  | "door-open"
+  | "drink-sip"
+  | "cabinet-open"
+  | "kitchen-door-open"
+  | "kitchen-door-back";
 
 interface SitOpts {
   booth?: number;
   side?: -1 | 1;
+  /** Counter stool index 0–8 (`sit-stool`). */
+  stool?: number;
+  /** `look`: pitch in degrees. */
+  pitch?: number;
 }
 
 declare global {
   interface Window {
-    __interact?: (name: string, t?: number, opts?: SitOpts) => void;
+    __interact?: (name: string, t?: number, opts?: SitOpts | number) => void;
     __interactPose?: (name: InteractPoseName) => void;
     __interactions?: Interactions;
     __player?: FirstPerson;
@@ -61,9 +81,14 @@ export const DRINK_CAMERA = { x: -1.25, y: 1.62, z: -1.5, yaw: 8, pitch: -28 };
 /** System 9: in the service aisle, 3/4 view down at the cabinet bay so both leaves' swing reads. */
 export const CABINET_CAMERA = { x: -1.35, y: 1.25, z: -0.7, yaw: 22, pitch: -30 };
 /** System 9: in the aisle at the -x end looking at the kitchen door; the leaf swings away and back through the frame. */
+/** Counter stool the `stool-*` poses use: stool 5 (x = −2.0), the coffee warmer behind it across the service aisle. */
+export const STOOL_POSE_INDEX = 5;
 export const KITCHEN_DOOR_CAMERA = { x: -4.0, y: 1.55, z: -0.9, yaw: 34, pitch: -8 };
 export const INTERACT_POSES: Record<InteractPoseName, { camera?: typeof POUR_CAMERA; note: string }> = {
   "sit-seated": { note: "booth 2, +x bench, seated eye 1.15 m turned 35° to the window" },
+  "stool-approach": { note: "standing 0.75 m behind stool 5 with the E — Sit prompt up (0.35 m off to +x, looking down at the seat)" },
+  "stool-seated": { note: "seated on stool 5: eye 1.45 m (seat 0.73 + 0.72) facing the counter, −12° pitch" },
+  "stool-seated-look-left": { note: "seated on stool 5, look turned 60° left (toward the door end); the seat top has swivelled with it" },
   "pour-mid": { camera: POUR_CAMERA, note: "1.2 s into the stream (t ≈ 3.0): mug half full, stream + building steam" },
   "pour-full": { camera: POUR_CAMERA, note: "6 s: decanter back on the warmer 9 mm lower, mug full, steam" },
   "door-open": { camera: DOOR_CAMERA, note: "2 s: leaf held at 85° (hold phase 1.45–2.85 s)" },
@@ -94,7 +119,22 @@ export function installInteractionDebugApi(
     return best;
   };
 
-  const interact = (name: string, t?: number, opts: SitOpts = {}): void => {
+  const nearestStool = () => {
+    const p = player.position;
+    let best = sit.stools[0];
+    let bd = Infinity;
+    for (const s of sit.stools) {
+      const d = (s.focus.x - p.x) ** 2 + (s.focus.z - p.z) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = s;
+      }
+    }
+    return best;
+  };
+
+  const interact = (name: string, t?: number, optsIn: SitOpts | number = {}): void => {
+    const opts: SitOpts = typeof optsIn === "number" ? {} : optsIn;
     switch (name) {
       case "pour":
         if (t === undefined) pour.start();
@@ -166,6 +206,24 @@ export function installInteractionDebugApi(
         }
         break;
       }
+      case "sit-stool": {
+        // Two shapes: ("sit-stool", index, t) and ("sit-stool", t, {stool}).
+        const positional = typeof optsIn === "number";
+        const index = positional ? t : opts.stool;
+        const seek = positional ? optsIn : opts.stool !== undefined ? t : undefined;
+        const stool = index !== undefined ? sit.stools[Math.max(0, Math.min(sit.stools.length - 1, Math.round(index)))] : nearestStool();
+        if (seek === undefined) {
+          if (sit.state !== "standing") sit.reset();
+          sit.sitDown(stool);
+        } else {
+          sit.seek(stool, seek, sit.aisleStand(stool));
+          clock.freeze(true);
+        }
+        break;
+      }
+      case "look":
+        sit.look(t ?? 0, opts.pitch);
+        break;
       case "stand":
         sit.standUp();
         break;
@@ -194,6 +252,19 @@ export function installInteractionDebugApi(
     switch (name) {
       case "sit-seated":
         interact("sit", 10, { booth: 2, side: 1 });
+        break;
+      case "stool-approach": {
+        // Standing where a seek would start from, prompt up, nothing running.
+        const s = sit.aisleStand(sit.stools[STOOL_POSE_INDEX]);
+        player.setPose(s.x, s.y, s.z, THREE.MathUtils.radToDeg(s.yaw), THREE.MathUtils.radToDeg(s.pitch));
+        break;
+      }
+      case "stool-seated":
+        interact("sit-stool", 10, { stool: STOOL_POSE_INDEX });
+        break;
+      case "stool-seated-look-left":
+        interact("sit-stool", 10, { stool: STOOL_POSE_INDEX });
+        interact("look", 60, { pitch: -6 });
         break;
       case "pour-mid":
         interact("pour", POUR_STREAM_START + 1.2);
