@@ -1,6 +1,6 @@
 # Morning Diner — Technical Reference Brief
 
-Scene: small roadside diner interior, ~08:00 MST, ~June 20, high-desert Southwest (Flagstaff / Holbrook AZ, ~35°N, ~2,000 m elevation), clear dry sky, hot day coming. Consumers: System 4 (lighting), System 5 (materials), System 8 (post). All numbers are for a 1 unit = 1 m scene. Where a value is an estimate rather than a measured/published figure it is marked *(est.)*.
+Scene: small diner interior, ~08:00 MST, ~June 20, high-desert Southwest (Flagstaff / Holbrook AZ, ~35°N, ~2,000 m elevation), clear dry sky, hot day coming. Consumers: System 4 (lighting), System 5 (materials), System 8 (post). All numbers are for a 1 unit = 1 m scene. Where a value is an estimate rather than a measured/published figure it is marked *(est.)*.
 
 Conventions used below: sRGB triplets are 8-bit display values; "linear" means linear-light albedo 0–1; K = correlated colour temperature; nits = cd/m²; EV = EV100 (ISO 100).
 

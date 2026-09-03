@@ -5,7 +5,7 @@
  * void") that was never enclosed: from the lot the player saw an open black crate with the
  * lit kitchen slice floating in it. This module closes the footprint with a real kitchen box
  * — rear wall + end-wall continuations in the shell's stucco, the same roof slab (Shell.ts
- * extends it), a concrete base course all round — and dresses it like a roadside diner's
+ * extends it), a concrete base course all round — and dresses it like a diner's
  * back and side: steel service door on a step, hood vent cap with its grease streak, barred
  * frosted windows, hose bibs, downspouts with scuppers and splash blocks, the electrical
  * service (meter, panel, riser, weatherhead and the drop to the road's utility pole),
