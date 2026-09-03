@@ -3224,6 +3224,37 @@ out of reach.
 - Draw calls: ready 187 (the door mesh +1; the stock rides the existing ceramic / glassClear /
   napkin / stainless / atlas buckets). All eleven cabinet doors toggle with the cabinet catch cue.
 
+## Fix — the lot light standards read as toys (`fix-pole`, `src/scene/LotLight.ts`, `shots/fix-pole-*.png`)
+
+Reported looking up at a pole from the drive aisle (`shots/fix-pole-before-lookup.png`): a
+straight cylinder arm butted into the mast with a step at the elbow, a plain box head with a
+flat "grid" underside. Exterior.ts now only makes the materials and calls `buildLotLight()`
+per pole (the pier / grout materials are passed in); the builder is `LotLight.ts`:
+
+- **Pier** — the System 3 recipe unchanged (Ø 0.6 poured pier, 15 mm chamfer, grout collar),
+  under a 420 mm base plate with four anchor bolts on washers + hex nuts; the mast stands on a
+  flared shoe. **Mast** — tapered round steel, Ø 200 → 100 over 8.2 m, flat cap with a lip;
+  handhole cover (90 × 220, two screws) 0.45 m up, facing the aisle. Paint is a 256 × 1024
+  canvas: grey-white (albedo ≈ 0.58 — a 0.8 pole clipped in the desert sun), per-column
+  vertical streaks + drip runs, chalkier toward the top, a rust bloom climbing 0.4–0.9 m from
+  the foot with a ragged per-streak edge; `roughness 0.38 / metalness 0.3` on the lot probe.
+- **Arm** — one tapered tube (Ø 92 → 60 mm) along a centripetal Catmull-Rom from the mast
+  axis to a level tenon 2.15 m out and 0.4 m up (`taperedTube`: TubeGeometry's layout and
+  winding, radius as a function of t). It leaves the mast through a collar ring + a short
+  boss along the exit tangent — the join is an intersection curve, no step.
+- **Head** — shoebox 0.6 × 0.4 × 0.18 in dark bronze: rounded upper body over a four-bar
+  door frame, so the underside is a real 0.5 × 0.31 recess; inside it an aluminium LED module
+  with 5 × 3 hemispherical optics, a flat 22 %-opacity glass flush in the frame (`noCast`),
+  a twist-lock photocell on top, a slip-fitter sleeve over the tenon with three hex set
+  screws. The optics are emissive `(1, 0.9, 0.76) × 0.36` ≈ 3,400 nits (K = 1e-4) — lit at
+  dusk, well under a sunlit white.
+
+Cost: +4 draw calls at the look-up pose (50 → 54: eight buckets for the standards where there
+were four), ≈ 5.8 k triangles per pole. Frames: `fix-pole-{before,after}-lookup.png` (the
+user's pose, 3 m out on the aisle), `fix-pole-{before,after}-lot.png` (15 m), and
+`fix-pole-after-base.png` (crouched at the pier: plate, bolts, shoe, rust, handhole). Poses
+`fix-pole-lookup`, `fix-pole-lot`, `fix-pole-base` are in `shoot.mjs`.
+
 ## System status
 
 | # | System | Status |

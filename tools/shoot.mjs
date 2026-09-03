@@ -103,6 +103,12 @@ const POSES = {
   "dbg-wheelstop": { x: 1.7, y: 0.75, z: 5.2, yaw: 248, pitch: -24 },
   // Standing on the lot in the empty stall between the two cars: CMU wall, scrub edge, road, ranges.
   "dbg-wall-road": { x: 1.35, y: 1.87, z: 6.5, yaw: 180, pitch: -1 },
+  // fix-pole — the lot light standard at x 5.4: the user's look-up at the head from ~3 m on the
+  // drive aisle (mast left, arm sweeping right), and the whole standard from 15 m.
+  "fix-pole-lookup": { x: 8.0, y: 1.62, z: 10.1, yaw: 84, pitch: 64 },
+  "fix-pole-lot": { x: 18.4, y: 1.62, z: 18.9, yaw: 60, pitch: 10 },
+  // Crouched 1.6 m from the pier: base plate, anchor bolts, shoe, rust bloom, handhole cover.
+  "fix-pole-base": { x: 6.6, y: 1.1, z: 10.2, yaw: 135, pitch: -16 },
   // Signage (Signage.ts) — from the lot, 8–12 m: the pylon at the entrance gap, the parapet
   // letters over the facade, the door's enamel panels. Shoot with --tag=sign.
   "sign-pylon": { x: 10.0, y: 1.62, z: 9.0, yaw: 140, pitch: 12 },
