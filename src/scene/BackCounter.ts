@@ -395,7 +395,7 @@ export function buildBackCounter(parent: THREE.Group, pal: Palette): { colliders
   const mug = lathe(mugProfile, 28);
   const handle = new THREE.TorusGeometry(0.022, 0.006, 8, 16, Math.PI);
   handle.rotateZ(-Math.PI / 2);
-  handle.translate(0.048, 0.05, 0);
+  handle.translate(0.034, 0.05, 0); // ends inside the wall, bulge to r 0.058
   const tumbler = lathe([[0, 0.004], [0.026, 0.004], [0.028, 0], [0.03, 0.002], [0.034, 0.125], [0.032, 0.125], [0.028, 0.008], [0, 0.008]], 24);
 
   const stack = (g: THREE.BufferGeometry, m: THREE.Material, x: number, y: number, z: number, n: number, pitch: number, jit = 0.0015) => {
