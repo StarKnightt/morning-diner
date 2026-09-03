@@ -89,6 +89,13 @@ export interface PostSettings {
     strength: number;
     /** Blur radius multiplier (1 = 13-tap at quarter res). */
     radius: number;
+    /**
+     * Scene-linear luminance ceiling on every texel fed to the bloom. A 1–3 px firefly (a
+     * point-light ping on chrome, a mote) at 1,000× the threshold otherwise blurs into a
+     * saturated 30 px blob; clamped, it blooms like any other white pixel. Extended bright
+     * areas (the sunlit lot, a lens) are far below it and unaffected.
+     */
+    clamp: number;
   };
   finish: {
     /** null → follow renderer.toneMapping (ACES in main.ts today). */
@@ -143,7 +150,9 @@ export function defaultSettings(): PostSettings {
     // strands clear of the funnel and the hood lip (z −2.25) as they rise. Wisp model (System 8 steam
     // fix): 4 strands dissolving 16 cm up in 1.6 s, 14 cm forward.
     steam: { enabled: true, strength: 0.8, count: 4, rise: 0.16, life: 1.6, offset: [0, 0.012, 0.06] },
-    bloom: { enabled: true, threshold: 2.2, knee: 0.6, strength: 0.045, radius: 1.0 },
+    // clamp 24 ≈ +6 EV over the camera curve's white (0.34): a firefly clamped there spreads
+    // to < 1 % of white after the ¼-res blur; a window-sized area at 24 still blooms fully.
+    bloom: { enabled: true, threshold: 2.2, knee: 0.6, strength: 0.045, radius: 1.0, clamp: 24 },
     finish: {
       tonemap: null,
       exposure: null,

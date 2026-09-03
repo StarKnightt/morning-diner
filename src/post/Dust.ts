@@ -89,6 +89,7 @@ const vertexShader = /* glsl */ `
 const fragmentShader = /* glsl */ `
   uniform vec3 uSunRadiance;
   uniform float uIntensity;
+  uniform float uMaxRadiance;
   varying float vLight;
   varying float vSoft;
   void main() {
@@ -97,12 +98,19 @@ const fragmentShader = /* glsl */ `
     // Gaussian-ish PSF; a 1 px point stays a 1 px point (little softness), a 3 px disc is soft.
     float a = exp(-r2 * mix(1.6, 2.6, vSoft));
     a *= smoothstep(1.0, 0.6, r2);
-    gl_FragColor = vec4(uSunRadiance * (uIntensity * vLight * a), 1.0);
+    // Peak radiance capped under the bloom knee (PostPipeline sets it): a mote is a white
+    // speck, never a bloom halo. The PSF profile is applied after the cap so the disc keeps its shape.
+    vec3 c = uSunRadiance * (uIntensity * vLight);
+    float l = max(c.r, max(c.g, c.b));
+    c *= min(1.0, uMaxRadiance / max(l, 1e-6));
+    gl_FragColor = vec4(c * a, 1.0);
   }
 `;
 
 export class SunDust {
   readonly points: THREE.Points;
+  /** Scene-linear ceiling on a mote's peak radiance (PostPipeline: just under the bloom knee). */
+  maxRadiance = 1e6;
   private readonly material: THREE.ShaderMaterial;
   private readonly sun: SunLight;
   private readonly settings: PostSettings["dust"];
@@ -133,6 +141,7 @@ export class SunDust {
         uCamPos: { value: new THREE.Vector3() },
         uSunRadiance: { value: new THREE.Color() },
         uIntensity: { value: settings.intensity },
+        uMaxRadiance: { value: 1e6 },
         uShadowMap: { value: null },
         uShadowMatrix: { value: new THREE.Matrix4() },
         uShadowBias: { value: 0 },
@@ -199,6 +208,7 @@ export class SunDust {
     u.uG.value = s.g;
     u.uTwinkle.value = s.twinkle;
     u.uIntensity.value = s.intensity;
+    u.uMaxRadiance.value = this.maxRadiance;
     u.uCamPos.value.setFromMatrixPosition(camera.matrixWorld);
     setSunUniforms(this.ap, sunRaysOf(this.sun, this.rays));
     (u.uSunRadiance.value as THREE.Color).copy(this.sun.color).multiplyScalar(this.sun.intensity);

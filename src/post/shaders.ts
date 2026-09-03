@@ -174,12 +174,19 @@ export const bloomPrefilterFragment = /* glsl */ `
   varying vec2 vUv;
   uniform sampler2D tColor;
   uniform vec2 uTexel;
-  uniform float uThreshold, uKnee;
+  uniform float uThreshold, uKnee, uClamp;
+  // Per-tap luminance ceiling: a single HDR ping (specular pin, mote) can otherwise carry
+  // 1,000× the threshold into the blur and come out as a saturated blob (the counter beads).
+  vec3 fetchClamped(vec2 uv) {
+    vec3 c = texture2D(tColor, uv).rgb;
+    float l = max(c.r, max(c.g, c.b));
+    return c * min(1.0, uClamp / max(l, 1e-4));
+  }
   void main() {
     // 4-tap box over the full-res 2×2 footprint plus its neighbours: fewer fireflies from 1-px pings.
-    vec3 c = texture2D(tColor, vUv).rgb * 0.5
-      + (texture2D(tColor, vUv + vec2(uTexel.x, 0.0)).rgb + texture2D(tColor, vUv - vec2(uTexel.x, 0.0)).rgb
-      + texture2D(tColor, vUv + vec2(0.0, uTexel.y)).rgb + texture2D(tColor, vUv - vec2(0.0, uTexel.y)).rgb) * 0.125;
+    vec3 c = fetchClamped(vUv) * 0.5
+      + (fetchClamped(vUv + vec2(uTexel.x, 0.0)) + fetchClamped(vUv - vec2(uTexel.x, 0.0))
+      + fetchClamped(vUv + vec2(0.0, uTexel.y)) + fetchClamped(vUv - vec2(0.0, uTexel.y))) * 0.125;
     float l = max(c.r, max(c.g, c.b));
     float soft = clamp(l - uThreshold + uKnee, 0.0, 2.0 * uKnee);
     soft = soft * soft / (4.0 * uKnee + 1e-4);
