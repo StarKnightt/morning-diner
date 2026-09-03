@@ -24,6 +24,7 @@ import { ROOM_PROBE_INTENSITY, buildContactShadows, buildLighting, installShadow
 import { buildProps } from "./Props";
 import { buildShell } from "./Shell";
 import { buildSystem9, type System9 } from "./Sys9";
+import { buildWorld } from "./World";
 import { DOOR, FAN, ROOM } from "./layout";
 
 export interface BuildHooks {
@@ -102,6 +103,9 @@ export class Diner {
 
     scene.add(this.group);
     const lights = buildLighting(scene);
+    // World layer (World.ts): desert ground relief, scatter, horizon — into the exterior
+    // group, before the shadow masks and the lot-probe material sweep below pick it up.
+    buildWorld(this.group, lights.horizon);
     this.sun = lights.sun;
     this.sunBeam = lights.sunBeam;
     this.sunLot = lights.sunLot;

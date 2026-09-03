@@ -99,6 +99,11 @@ const POSES = {
   "dbg-wheelstop": { x: 1.7, y: 0.75, z: 5.2, yaw: 248, pitch: -24 },
   // Standing on the lot in the empty stall between the two cars: CMU wall, scrub edge, road, ranges.
   "dbg-wall-road": { x: 1.35, y: 1.87, z: 6.5, yaw: 180, pitch: -1 },
+  // World layer (World.ts): the user's "from the lot looking out" frame plus three more.
+  "world-lot-out": { x: 0.6, y: 1.62, z: 9.0, yaw: 180, pitch: -3 },
+  "world-road": { x: -2.5, y: 1.62, z: 27.0, yaw: 100, pitch: -4 },
+  "world-facade-wide": { x: 9.0, y: 1.62, z: 29.0, yaw: 14, pitch: -3 },
+  "world-door-view": { x: 4.9, y: 1.62, z: 4.2, yaw: 172, pitch: -4 },
   // System 7 — interactions. These call window.__interactPose(name) (src/interactions/debug.ts),
   // which resets every interaction, seeks the named one to a fixed time, freezes the animation
   // clocks and places the camera itself (the seated pose IS the camera).
