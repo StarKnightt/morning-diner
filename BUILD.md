@@ -3459,6 +3459,25 @@ edges and the paint's stipple (diff maps), no area toggles; `length` and both re
 were run through the same sequence and show edges only. Frames `fix-kitchen-flicker-kitchen-*`
 re-shot; draw calls unchanged.
 
+## Fix — "a little flicker on this billboard" (`fix-sign-flicker`, `shots/fix-sign-flicker-sign-{reader,reader-far,pylon,facade}.png`)
+
+The pylon's reader board (Signage.ts). Two overlaps, both at the panel's top centre where the
+user saw a dithered grey patch over "BREAKFAST": (1) the pole (Ø 0.28 at its top) ran up to
+the cabinet saddle, i.e. straight through the 0.30 m-deep reader board whose lit faces sit at
+z ±0.12 — a 20 mm-thick, 145 mm-wide stripe of pole over "RE" plus a z-fight where the
+cylinder grazes the face plane; (2) the saddle plate (z ±0.12, from 0.32 m below the cabinet)
+had its faces exactly coplanar with the reader faces over the panel's top 100 mm × 440 mm —
+the MSAA-resolved dither. Reproduced with the new `sign-reader` pose (6 m, square to the −z
+face) and 5 mm lateral steps: a solid toggling block in the consecutive-frame diff at the
+pole/face intersection, plus the dither band. Fix: the pole now ends inside the board's bottom
+rail (`ry0 + 0.03`; the dark inner box hides the stub) and the saddle starts inside the top
+rail (`ry1 − 0.03`, rails are z ±0.15). Same file, same class: the arrow head's extrusion
+overlapped the body by 20 mm with coplanar side faces (now 3 mm deeper per side); the AIR
+CONDITIONED and WELCOME print planes were 0.5 mm proud of their enamel edge boxes (~1 depth
+step at 13 m) — now 2 mm. Fascia letters were already 3 / 8 mm stepped. After: 4-frame
+sequences at 6 m and 20 m (`sign-reader`, `sign-reader-far`) diff as text and texture edges
+only, 0.89 % / 1.4–1.7 % of pixels (the latter is scrub and sedan specular); "BREAKFAST" is
+whole. Draw calls unchanged (86 / 79 / 686 at pylon / reader / facade).
 
 ## Fix — "too much light from the windows, not the lamps" / "the world is too bright, not evening" (`fix-dining-light`, `shots/fdl-{before,after}-*.png`)
 

@@ -127,6 +127,10 @@ const POSES = {
   "sign-pylon": { x: 10.0, y: 1.62, z: 9.0, yaw: 140, pitch: 12 },
   "sign-facade": { x: 1.6, y: 1.62, z: 13.0, yaw: 0, pitch: 6 },
   "sign-door": { x: 5.6, y: 1.62, z: 11.5, yaw: 0, pitch: 2 },
+  // fix-sign-flicker — the pylon's reader board square-on from the lot side (its −z face; the
+  // pylon is yawed −32°), 6 m and 20 m from the panel centre (2.9, 4.2, 17.4).
+  "sign-reader": { x: 6.09, y: 1.62, z: 12.32, yaw: 148, pitch: 23 },
+  "sign-reader-far": { x: 13.52, y: 1.62, z: 0.46, yaw: 148, pitch: 7.4 },
   // System 7 — interactions. These call window.__interactPose(name) (src/interactions/debug.ts),
   // which resets every interaction, seeks the named one to a fixed time, freezes the animation
   // clocks and places the camera itself (the seated pose IS the camera).

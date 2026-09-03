@@ -443,19 +443,32 @@ export function buildSignage(diner: THREE.Group, pal: Palette): SignageResult {
     const poleMat = new THREE.MeshStandardMaterial({ map: poleTex, roughness: 0.5, metalness: 0.75 });
     poleMat.name = "signPole";
     const poleY0 = yLot + 0.4, poleY1 = yLot + 4.6;
+    // Cabinet: 2.4 × 1.5 × 0.36, sitting on a 0.3 m saddle above the pole.
+    const cw = 2.4, ch = 1.5, cd = 0.36;
+    const cy0 = poleY1 + 0.3, cy1 = cy0 + ch;
+    // Reader board below the cabinet: 2.0 × 0.55 × 0.3 (built further down; its extents are
+    // needed here because the pole and the saddle both have to stop INSIDE its rails).
+    const rw = 2.0, rh = 0.55, rd = 0.3;
+    const ry1 = cy0 - 0.14, ry0 = ry1 - rh;
     {
-      const g = new THREE.CylinderGeometry(0.14, 0.16, poleY1 - poleY0, 20, 1, false);
-      g.translate(0, (poleY0 + poleY1) / 2, 0);
+      // fix-sign-flicker: the pole (Ø 0.28 at the top) used to run up to the saddle, i.e.
+      // straight through the reader board, whose lit faces sit at z ±0.12 — a 20 mm-thick
+      // grey stripe of pole over "BREAKFAST" and a z-fight where the cylinder grazes the
+      // face plane. The pole now ends inside the board's bottom rail; the board's dark
+      // inner box hides the stub.
+      const poleTop = ry0 + 0.03;
+      const g = new THREE.CylinderGeometry(0.14, 0.16, poleTop - poleY0, 20, 1, false);
+      g.translate(0, (poleY0 + poleTop) / 2, 0);
       local.add(g, poleMat);
       // base flange + saddle plate
       const fl = new THREE.CylinderGeometry(0.2, 0.24, 0.05, 20);
       fl.translate(0, poleY0 + 0.025, 0);
       local.add(fl, steelDark);
     }
-    // Cabinet: 2.4 × 1.5 × 0.36, sitting on a 0.3 m saddle above the pole.
-    const cw = 2.4, ch = 1.5, cd = 0.36;
-    const cy0 = poleY1 + 0.3, cy1 = cy0 + ch;
-    local.box(steelDark, [-0.22, poleY1 - 0.02, -0.12], [0.22, cy0 + 0.01, 0.12]); // saddle
+    // Saddle: from inside the reader board's top rail (z ±0.15 hides it) up into the cabinet's
+    // bottom rail. It used to start 0.32 m below the cabinet with its z ±0.12 faces exactly
+    // coplanar with the reader faces over the panel's top 100 mm — the dithered patch.
+    local.box(steelDark, [-0.22, ry1 - 0.03, -0.12], [0.22, cy0 + 0.01, 0.12]);
     // Frame: four rails around the face aperture, on both faces, plus top / bottom / ends.
     const lip = 0.09;
     local.rbox(cabinetPaint, [-cw / 2, cy0, -cd / 2], [cw / 2, cy0 + lip, cd / 2], 0.01, 2); // bottom rail
@@ -481,9 +494,7 @@ export function buildSignage(diner: THREE.Group, pal: Palette): SignageResult {
     faceMat.userData.noCast = true;
     twoSided(local, faceMat, cw - 2 * lip - 0.05, ch - 2 * lip - 0.05, 0, (cy0 + cy1) / 2, -cd / 2 + 0.03, cd / 2 - 0.03);
 
-    // Reader board below: 2.0 × 0.55 × 0.3 on two straps from the cabinet's bottom rail.
-    const rw = 2.0, rh = 0.55, rd = 0.3;
-    const ry1 = cy0 - 0.14, ry0 = ry1 - rh;
+    // Reader board below (extents declared above): on two straps from the cabinet's bottom rail.
     for (const x of [-0.7, 0.7]) local.box(steelDark, [x - 0.03, ry1 - 0.02, -0.02], [x + 0.03, cy0 + 0.02, 0.02]);
     local.rbox(cabinetPaint, [-rw / 2, ry0, -rd / 2], [rw / 2, ry0 + 0.06, rd / 2], 0.008, 2);
     local.rbox(cabinetPaint, [-rw / 2, ry1 - 0.06, -rd / 2], [rw / 2, ry1, rd / 2], 0.008, 2);
@@ -531,8 +542,10 @@ export function buildSignage(diner: THREE.Group, pal: Palette): SignageResult {
       body.translate(-L / 2, -ah / 2, 0);
       body.applyMatrix4(arrow);
       local.add(body, trimCream);
-      const head = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(-L + 0.02, -ah - 0.1), new THREE.Vector2(-L - 0.32, -ah / 2), new THREE.Vector2(-L + 0.02, 0.1)]), { depth: ad, bevelEnabled: false });
-      head.translate(0, 0, -ad / 2);
+      // 3 mm deeper than the body on each side: the head overlaps the body by 20 mm in x and
+      // its side faces would otherwise be coplanar with the body's (fix-sign-flicker).
+      const head = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(-L + 0.02, -ah - 0.1), new THREE.Vector2(-L - 0.32, -ah / 2), new THREE.Vector2(-L + 0.02, 0.1)]), { depth: ad + 0.006, bevelEnabled: false });
+      head.translate(0, 0, -ad / 2 - 0.003);
       head.applyMatrix4(arrow);
       local.add(head, cabinetPaint);
       // bulb sockets: 9 per face, both faces, in the arrow's local frame
@@ -647,8 +660,9 @@ export function buildSignage(diner: THREE.Group, pal: Palette): SignageResult {
       g.translate(x, ay - 0.035, pz);
       b.add(g, steelDark);
     }
+    // Printed faces 2 mm proud of the enamel edge box (was 0.5 mm: ~1 depth step at 13 m).
     b.box(enamelEdge, [dx - pw / 2, py0, pz - 0.006], [dx + pw / 2, py1, pz + 0.006]);
-    twoSided(b, acMat, pw - 0.004, ph - 0.004, dx, (py0 + py1) / 2, pz - 0.0065, pz + 0.0065);
+    twoSided(b, acMat, pw - 0.004, ph - 0.004, dx, (py0 + py1) / 2, pz - 0.008, pz + 0.008);
   }
 
   /* ======================================================================= */
@@ -664,7 +678,7 @@ export function buildSignage(diner: THREE.Group, pal: Palette): SignageResult {
     b.box(enamelEdge, [px - pw / 2, py - ph / 2, zFace + 0.002], [px + pw / 2, py + ph / 2, zFace + 0.012]);
     {
       const g = new THREE.PlaneGeometry(pw - 0.004, ph - 0.004);
-      g.translate(px, py, zFace + 0.0125);
+      g.translate(px, py, zFace + 0.014); // 2 mm proud of the edge box (was 0.5 mm); screw heads still 2.5 mm proud of it
       b.add(g, wMat);
     }
     // Four screws with a rust bleed under each (the bleed is in the map)
