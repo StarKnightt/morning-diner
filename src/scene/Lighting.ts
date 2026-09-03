@@ -98,13 +98,13 @@ export const nits = (n: number): number => n * K;
  * CAMERA_WHITE_EV below.
  */
 /**
- * Rev 7 (evening): 1/25 at f/5.6 ISO 100 — 1.26 stops more open than the morning's 1/60,
- * middle grey ≈ 169 nits (L_sat 940). The 14 klux window patch on an alabaster wall
+ * Rev 7 (evening): 1/20 at f/5.6 ISO 100 — 1.6 stops more open than the morning's 1/60,
+ * middle grey ≈ 211 nits (L_sat 1,176). The 14 klux window patch on an alabaster wall
  * (2,200 nits) sits +3.7 EV → 243 unclipped; the horizon sky by the sun (1,800 nits)
  * +3.4; the zenith (400 nits) +1.2 — a real blue, not a wash; the troffers' 300 lux on the
  * counter (≈ 70 nits) reads at −1.3 EV: visibly ON. `?ev=` and `[` `]` step from here.
  */
-export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 25 } as const;
+export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 20 } as const;
 export const EV100 = Math.log2((CAMERA.fNumber * CAMERA.fNumber) / CAMERA.shutter) - Math.log2(CAMERA.iso / 100);
 /** Metered saturation luminance for that exposure (Lagarde: L_sat = 1.2 · 2^EV) ≈ 2,260 nits at 1/60 (9,560 at rev 3's 1/250); the display white sits CAMERA_WHITE_EV − 2.47 stops above it. */
 export const L_SAT_NITS = 1.2 * Math.pow(2, EV100);
@@ -363,7 +363,7 @@ export const TROFFER_LENS_NITS = TROFFER_LUMENS / (Math.PI * TROFFER_LENS_AREA);
  * saturated blue. Cosine-weighted hemisphere ≈ 3.2 klux diffuse — the sunlit lot (2.8 klux
  * direct on the ground) is barely 1 EV over its own shadows, which are blue: evening.
  */
-const SKY_HORIZON_NITS = 1_600;
+const SKY_HORIZON_NITS = 1_200;
 const SKY_ZENITH_RATIO = 0.25;
 /**
  * Chroma at unit luminance. Horizon (0.34, 0.58, 1.0) / Y, B/R 2.9; zenith (0.22, 0.45, 1.0)
@@ -375,7 +375,7 @@ const SKY_ZENITH_RATIO = 0.25;
  * read R ≈ G ≈ B outright.
  */
 /** Rev 7: warm horizon (peach, toward the sun) — also the haze tint of the ridge rings. */
-const SKY_HORIZON_CHROMA = new THREE.Color(1.0, 0.72, 0.5);
+const SKY_HORIZON_CHROMA = new THREE.Color(1.0, 0.6, 0.34);
 /** Rev 7: horizon opposite the sun — pale blue-grey (the Belt of Venus sits just above it). */
 const SKY_HORIZON_COOL_CHROMA = new THREE.Color(0.74, 0.8, 1.0);
 /** Rev 7: pale yellow band 5–25° above the sun. */
@@ -438,9 +438,11 @@ const LAMBERT_ANGLE = THREE.MathUtils.degToRad(89);
  * shade target is sRGB 40–60 (60–110 nits at this camera), not rev 4's "no median under 70".
  */
 export const ROOM_PROBE_INTENSITY = (() => {
-  if (typeof location === "undefined") return 0.1;
+  // Rev 7 (evening): 0.3 — the room the probe sees is ≈ 3 EV dimmer than the morning's, and
+  // the undertable / kick spaces it fills alone must stay ≥ 40 sRGB at the evening exposure.
+  if (typeof location === "undefined") return 0.3;
   const v = Number(new URLSearchParams(location.search).get("ibounce"));
-  return Number.isFinite(v) && v > 0 ? v : 0.1;
+  return Number.isFinite(v) && v > 0 ? v : 0.3;
 })();
 
 export interface LightingResult {
