@@ -248,12 +248,19 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // canvas itself — albedo AND roughness from one generator, so the marks coincide (rev 1 had
   // them in a separate roughness-only map at a different period: invisible under this light,
   // and misaligned with anything that could have shown). Booths.ts offsets each table's UVs.
+  // `?lamflat` (rev 4 A/B): the table laminate with its maps swapped for constants — if the
+  // sunlit ripples survive this, they are the light path's, not the maps'.
+  const lamQ = typeof location !== "undefined" ? new URLSearchParams(location.search).get("lamflat") : null;
+  const lamFlat = lamQ !== null;
+  const lamMatte = lamQ === "matte"; // …and no specular at all: is the pattern in the diffuse term?
   const formica = new THREE.MeshPhysicalMaterial({
-    map: boomerang.map,
-    roughnessMap: boomerang.roughnessMap,
-    roughness: 1, // × map ≈ 0.18
+    map: lamFlat ? null : boomerang.map,
+    color: lamFlat ? 0xede6d6 : 0xffffff,
+    roughnessMap: lamFlat ? null : boomerang.roughnessMap,
+    roughness: lamMatte ? 1 : lamFlat ? 0.4 : 1, // × map
     metalness: 0,
-    clearcoat: 0.2,
+    specularIntensity: lamMatte ? 0 : 1,
+    clearcoat: lamMatte ? 0 : 0.2,
     clearcoatRoughness: 0.15,
   });
   const speckle = tex.formicaSpeckle(1024, 44);
