@@ -35,7 +35,7 @@ import { makePaneGlass } from "./Exterior";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { PRESENCE_UV } from "../procedural/presence";
-import { BACK_BAR, KITCHEN_DOOR, ROOM } from "./layout";
+import { BACK_BAR, CABINETS, KITCHEN_DOOR, ROOM } from "./layout";
 import { nits } from "./Lighting";
 import { lathe, ribbon, SAUCER_PROFILE, tiledRect, uvIntoRect } from "./Presence";
 
@@ -53,6 +53,11 @@ export interface HingedLeaf {
 
 export interface OpenablesResult {
   cabinet: [HingedLeaf, HingedLeaf];
+  /**
+   * fix-cabinets: the upper wall cabinets' doors (CABINETS.runs, -x run first, doors -x → +x;
+   * `hinge.name` is `upper-cabinet-<run>-<k>`). Every cabinet door in the scene is openable.
+   */
+  upper: HingedLeaf[];
   kitchenDoor: HingedLeaf;
   /** The kitchen slice's fluorescent spot (Lighting-independent; here so Diner can count it). */
   kitchenLight: THREE.SpotLight;
@@ -216,12 +221,270 @@ export function tint(g: THREE.BufferGeometry, hex: number, metal = false, brush 
 export function buildOpenables(parent: THREE.Group, pal: Palette, statics: MergedBuilder, cloth: THREE.Material): OpenablesResult {
   const kitchen = buildKitchenDoor(parent, pal, statics, cloth);
   const cabinet = buildCabinet(parent, pal, statics, cloth);
+  const upper = buildUpperCabinets(parent, pal, statics, cloth);
   return {
     cabinet: cabinet.leaves,
+    upper: upper.leaves,
     kitchenDoor: kitchen.leaf,
     kitchenLight: kitchen.light,
-    envMetals: [cabinet.material, ...kitchen.materials],
+    envMetals: [cabinet.material, upper.material, ...kitchen.materials],
   };
+}
+
+/** Flat RGBA vertex colour for the vertex-coloured door buckets (alpha 0 = chrome, see `metalByVertexAlpha`). */
+function colour4(g: THREE.BufferGeometry, c: [number, number, number, number]): THREE.BufferGeometry {
+  const n = g.attributes.position.count, arr = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++) arr.set(c, i * 4);
+  g.setAttribute("color", new THREE.BufferAttribute(arr, 4));
+  return g;
+}
+
+/**
+ * A door leaf's geometry in its hinge frame: the laminate slab, a chrome wire pull and two Euro
+ * hinge cups on the inner face — collapsed into one vertex-coloured geometry.
+ *   `side`  -1: hinge at the -x edge, leaf along +x (opens toward +z with NEGATIVE angles)
+ *           +1: hinge at the +x edge, leaf along -x (POSITIVE angles)
+ *   `pull`  the pull's centre height and length (upper doors: low, 100 mm; lower: ⅔ height, 120 mm)
+ */
+function leafGeometry(
+  pal: Palette,
+  lam: THREE.Material,
+  side: -1 | 1,
+  w: number,
+  ya: number,
+  yb: number,
+  pull: { y: number; len: number },
+  hingeYs: number[],
+): THREE.BufferGeometry {
+  const dz0 = 0.001, dz1 = 0.019;
+  const b = new MergedBuilder();
+  const X = (u: number) => (side < 0 ? u : -u);
+  const xa = X(0), xb = X(w);
+  const lo = Math.min(xa, xb), hi = Math.max(xa, xb);
+  b.rbox(lam, [lo, ya, dz0], [hi, yb, dz1], 0.0025, 2, { metric: true });
+  // Chrome wire pull, vertical, 45 mm in from the free edge.
+  const pxl = side < 0 ? hi - 0.045 : lo + 0.045;
+  const bar = new THREE.CylinderGeometry(0.005, 0.005, pull.len, 14);
+  bar.translate(pxl, pull.y, dz1 + 0.03);
+  b.add(bar, pal.chrome);
+  for (const py of [pull.y - pull.len * 0.4, pull.y + pull.len * 0.4]) {
+    const post = new THREE.CylinderGeometry(0.0045, 0.0045, 0.03, 12);
+    post.rotateX(Math.PI / 2);
+    post.translate(pxl, py, dz1 + 0.015);
+    b.add(post, pal.chrome);
+  }
+  // Concealed Euro hinges on the inner face (35 mm cup in a 48 × 60 flange, the arm back to the plate).
+  for (const hy of hingeYs) {
+    const cx = X(0.0465);
+    const flange = new THREE.BoxGeometry(0.048, 0.06, 0.0015);
+    flange.translate(cx, hy, dz0 - 0.00075);
+    b.add(flange, pal.chrome);
+    const cup = new THREE.CylinderGeometry(0.0175, 0.0175, 0.011, 24);
+    cup.rotateX(Math.PI / 2);
+    cup.translate(cx, hy, dz0 - 0.0015 - 0.0055);
+    b.add(cup, pal.chrome);
+    for (const sy of [-0.021, 0.021]) {
+      const screw = new THREE.CylinderGeometry(0.0035, 0.0035, 0.001, 10);
+      screw.rotateX(Math.PI / 2);
+      screw.translate(cx, hy + sy, dz0 - 0.002);
+      b.add(screw, pal.chrome);
+    }
+    const armLo = Math.min(X(0.0465), X(-0.004)), armHi = Math.max(X(0.0465), X(-0.004));
+    b.rbox(pal.chrome, [armLo, hy - 0.009, dz0 - 0.0125], [armHi, hy + 0.009, dz0 - 0.0035], 0.001);
+  }
+  const chromeC = pal.chrome.color;
+  const CHROME: [number, number, number, number] = [chromeC.r, chromeC.g, chromeC.b, 0];
+  const LAM: [number, number, number, number] = [1, 1, 1, 1];
+  const staging = new THREE.Group();
+  const built = b.build(staging);
+  const pieces = built.map((m) => colour4(m.geometry.index ? m.geometry.toNonIndexed() : m.geometry, m.material === lam ? LAM : CHROME));
+  return mergeGeometries(pieces, false)!;
+}
+
+/* ------------------------------------------------------------------------------------ */
+/* Upper wall cabinets (fix-cabinets)                                                     */
+/* ------------------------------------------------------------------------------------ */
+
+/**
+ * The two runs of upper cabinets over the back bar (`CABINETS.runs`; Counter.ts keeps their end
+ * panels, light rail and soffit). Each run is an open laminate carcass — top, bottom, back,
+ * a partition every two doors, two shelves — stocked with what a diner keeps up high: stacked
+ * white plates, bowls, glass tumblers, mugs, boxes (cereal / tea / sugar packets with faded
+ * printed labels from the System 9 atlas) and a roll of paper towels. All of it goes into the
+ * static buckets (no draw calls); the doors are ONE baked mesh like the under-counter pair
+ * (`bakedLeaves`): +1 draw. Door modules are equal, 3 mm gaps, hinged at alternating edges so
+ * the pulls pair up (even k: hinge -x; odd k: hinge +x).
+ */
+function buildUpperCabinets(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth: THREE.Material): { leaves: HingedLeaf[]; material: THREE.MeshStandardMaterial } {
+  const { bottom, top, depth, doorWidth, runs } = CABINETS;
+  const zWall = ROOM.zBack, zFace = zWall + depth;
+  const t = 0.018;
+  const lam = pal.laminateCabinet;
+  const doorMat = lam.clone();
+  doorMat.vertexColors = true;
+  doorMat.name = "upperCabinetDoors";
+  metalByVertexAlpha(doorMat, 0.08, "cabinet-doors");
+
+  const leaves: HingedLeaf[] = [];
+  const parts: Array<{ hinge: THREE.Group; geo: THREE.BufferGeometry }> = [];
+  // Doors sit in front of the carcass: 20 mm slabs from zFace-0.02 to zFace; the carcass front edge is at zFace-0.02.
+  const zDoorBack = zFace - 0.02;
+  const zi0 = zWall + 0.02, zi1 = zDoorBack - 0.001;
+  const shelfYs = [bottom + t + 0.3, bottom + t + 0.6];
+  const hingeYs = [bottom + 0.1, top - 0.1];
+
+  runs.forEach(([x0, x1], run) => {
+    const inner0 = x0 + t, inner1 = x1 - t;
+    // Carcass: bottom, top, back; partitions every second door.
+    s.box(lam, [inner0, bottom, zi0], [inner1, bottom + t, zi1], { metric: true });
+    s.box(lam, [inner0, top - t, zi0], [inner1, top, zi1], { metric: true });
+    s.box(lam, [inner0, bottom + t, zi0], [inner1, top - t, zi0 + t], { metric: true });
+    const count = Math.max(1, Math.round((inner1 - inner0) / doorWidth));
+    const w = (inner1 - inner0) / count;
+    const bays: Array<[number, number]> = [];
+    for (let k = 0; k < count; k += 2) {
+      const bx0 = inner0 + k * w, bx1 = inner0 + Math.min(count, k + 2) * w;
+      bays.push([bx0, bx1]);
+      if (k + 2 < count) s.box(lam, [bx1 - t / 2, bottom + t, zi0 + t], [bx1 + t / 2, top - t, zi1], { metric: true });
+    }
+    // Shelves, 40 mm short of the doors, per bay.
+    for (const [bx0, bx1] of bays) for (const sy of shelfYs) s.box(lam, [bx0 + t / 2, sy, zi0 + t], [bx1 - t / 2, sy + t, zi1 - 0.04], { metric: true });
+    // Stock per bay: three "shelves" (the bottom and the two shelves), mixed by bay so no two read alike.
+    bays.forEach(([bx0, bx1], bay) => {
+      const levels = [bottom + t, shelfYs[0] + t, shelfYs[1] + t];
+      const zc = zWall + depth * 0.5;
+      const variant = (run * 3 + bay) % 4;
+      stockUpper(s, pal, cloth, bx0 + t / 2, bx1 - t / 2, levels, zc, variant);
+    });
+    // Doors.
+    for (let k = 0; k < count; k++) {
+      const dx0 = inner0 + k * w + 0.0015, dx1 = inner0 + (k + 1) * w - 0.0015;
+      const side: -1 | 1 = k % 2 === 0 ? -1 : 1;
+      const hx = side < 0 ? dx0 : dx1;
+      const hinge = new THREE.Group();
+      hinge.name = `upper-cabinet-${run}-${k}`;
+      hinge.position.set(hx, 0, zDoorBack);
+      const ya = bottom + 0.0015, yb = top - 0.003;
+      const lw = dx1 - dx0;
+      parts.push({ hinge, geo: leafGeometry(pal, lam, side, lw, ya, yb, { y: bottom + 0.11, len: 0.1 }, hingeYs) });
+      parent.add(hinge);
+      const X = (u: number) => (side < 0 ? u : -u);
+      leaves.push({
+        hinge,
+        sign: side,
+        // Focus at the door's centre, 100 mm below mid-height (a standing player looks up at it).
+        focus: new THREE.Vector3(hx + X(lw * 0.5), (ya + yb) / 2 - 0.1, zFace),
+        voice: new THREE.Vector3(hx + X(lw * 0.9), bottom + 0.15, zFace),
+        width: lw,
+      });
+    }
+  });
+  bakedLeaves(parent, parts, doorMat, "upper-cabinet-doors");
+  return { leaves, material: doorMat };
+}
+
+/**
+ * Stock for one upper bay (between x0..x1, three levels at `levels`, centred at z `zc`). Plates
+ * are a stack of 8 (260 mm, a slight taper and a foot); bowls nest four high; tumblers stand in
+ * a row; mugs in pairs; boxes carry a faded printed band (atlas `label` / `canLabel`); the paper
+ * towel roll lies on its side. `variant` shuffles which level gets what.
+ */
+function stockUpper(s: MergedBuilder, pal: Palette, cloth: THREE.Material, x0: number, x1: number, levels: number[], zc: number, variant: number): void {
+  const W = x1 - x0;
+  const plates = (x: number, y: number, n: number) => {
+    for (let i = 0; i < n; i++) {
+      const g = lathe([V2(0, 0), V2(0.055, 0), V2(0.06, 0.006), V2(0.1, 0.018), V2(0.095, 0.02), V2(0.055, 0.01), V2(0, 0.01)], 40);
+      g.rotateY(i * 0.9);
+      g.translate(x + ((i * 7) % 3) * 0.001, y + i * 0.017, zc + ((i * 5) % 3) * 0.001);
+      s.add(g, pal.ceramic);
+    }
+  };
+  const bowls = (x: number, y: number, n: number) => {
+    for (let i = 0; i < n; i++) {
+      const g = lathe([V2(0, 0), V2(0.04, 0), V2(0.045, 0.004), V2(0.08, 0.055), V2(0.083, 0.06), V2(0.078, 0.058), V2(0.042, 0.008), V2(0, 0.008)], 36);
+      g.translate(x, y + i * 0.034, zc);
+      s.add(g, pal.ceramic);
+    }
+  };
+  const tumblers = (x: number, y: number, n: number, dz = 0) => {
+    for (let i = 0; i < n; i++) {
+      const g = lathe([V2(0, 0), V2(0.03, 0), V2(0.032, 0.004), V2(0.036, 0.12), V2(0.033, 0.12), V2(0.03, 0.006), V2(0, 0.006)], 28);
+      g.translate(x + i * 0.078, y, zc + dz);
+      s.add(g, pal.glassClear);
+    }
+  };
+  const mugs = (x: number, y: number, n: number) => {
+    for (let i = 0; i < n; i++) {
+      const mx = x + i * 0.115;
+      const body = lathe([V2(0, 0), V2(0.036, 0), V2(0.04, 0.004), V2(0.04, 0.092), V2(0.037, 0.095), V2(0.034, 0.09), V2(0.034, 0.008), V2(0, 0.008)], 28);
+      body.translate(mx, y, zc);
+      s.add(body, pal.ceramic);
+      // Handle: a half torus standing on the mug's wall, bulging out along ±x (alternating).
+      const handle = new THREE.TorusGeometry(0.024, 0.006, 8, 20, Math.PI);
+      handle.rotateZ(i % 2 ? Math.PI / 2 : -Math.PI / 2);
+      handle.translate(mx + (i % 2 ? -0.038 : 0.038), y + 0.05, zc);
+      s.add(handle, pal.ceramic);
+    }
+  };
+  const box = (x: number, y: number, w: number, d: number, h: number, band: readonly [number, number, number, number], turn = 0) => {
+    s.rbox(pal.napkin, [x - w / 2, y, zc - d / 2], [x + w / 2, y + h, zc + d / 2], 0.002);
+    // A faded printed band round the box, 0.3 mm proud of the front and sides.
+    const lh = Math.min(0.045, h * 0.35);
+    const put = (pw: number, cx: number, cz: number, rotY: number) => {
+      const g = uvIntoRect(new THREE.PlaneGeometry(pw, lh), band);
+      g.rotateY(rotY + turn);
+      g.translate(cx, y + h * 0.45, cz);
+      s.add(g, cloth);
+    };
+    put(w - 0.006, x, zc + d / 2 + 0.0003, 0);
+    put(d - 0.006, x + w / 2 + 0.0003, zc, Math.PI / 2);
+    put(d - 0.006, x - w / 2 - 0.0003, zc, -Math.PI / 2);
+  };
+  const towelRoll = (x: number, y: number) => {
+    const roll = new THREE.CylinderGeometry(0.056, 0.056, 0.28, 28);
+    roll.rotateZ(Math.PI / 2);
+    roll.translate(x, y + 0.056, zc);
+    s.add(roll, pal.napkin);
+    const core = new THREE.CylinderGeometry(0.02, 0.02, 0.282, 16, 1, true);
+    core.rotateZ(Math.PI / 2);
+    core.translate(x, y + 0.056, zc);
+    s.add(core, pal.trayBrown);
+  };
+  const [y0, y1, y2] = levels;
+  const c = (x0 + x1) / 2;
+  const wide = W > 0.7;
+  switch (variant) {
+    case 0:
+      plates(x0 + 0.17, y0, 8);
+      if (wide) bowls(x0 + 0.5, y0, 4);
+      mugs(x0 + 0.08, y1, wide ? 4 : 2);
+      box(x1 - 0.14, y1, 0.19, 0.07, 0.27, PRESENCE_UV.label); // cereal
+      tumblers(x0 + 0.06, y2, wide ? 6 : 3);
+      break;
+    case 1:
+      towelRoll(x0 + 0.2, y0);
+      if (wide) plates(x1 - 0.2, y0, 6);
+      tumblers(x0 + 0.06, y1, wide ? 5 : 3);
+      box(x1 - 0.12, y1, 0.14, 0.09, 0.1, PRESENCE_UV.canLabel); // tea
+      bowls(x0 + 0.12, y2, 4);
+      if (wide) mugs(c + 0.05, y2, 3);
+      break;
+    case 2:
+      mugs(x0 + 0.08, y0, wide ? 5 : 2);
+      box(x1 - 0.1, y0, 0.12, 0.08, 0.12, PRESENCE_UV.canLabel, 0.1); // sugar packets
+      plates(x0 + 0.17, y1, 7);
+      if (wide) bowls(x1 - 0.2, y1, 3);
+      box(x0 + 0.13, y2, 0.19, 0.07, 0.27, PRESENCE_UV.label); // cereal
+      if (wide) tumblers(c + 0.02, y2, 4);
+      break;
+    default:
+      bowls(x0 + 0.12, y0, 4);
+      if (wide) plates(x1 - 0.2, y0, 8);
+      mugs(x0 + 0.08, y1, wide ? 4 : 2);
+      towelRoll(x1 - 0.2, y2);
+      if (wide) tumblers(x0 + 0.06, y2, 4);
+      break;
+  }
 }
 
 /* ------------------------------------------------------------------------------------ */
@@ -327,6 +590,32 @@ function buildCabinet(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth
       lever.push(V3(px, top + 0.216 - 0.05 * q, pz + 0.04 + 0.014 * Math.sin(q * Math.PI * 0.9) - 0.006 * q));
     }
     s.add(ribbon(lever, () => 0.009, () => 0.0035, V3(0, 0, 1), PRESENCE_UV.crumb, { ring: 8, power: 3 }), pal.blackPlastic);
+
+    // fix-cabinets — under-counter stock: a 4 qt saucepan with its lid on, mid-shelf at the back,
+    // and a 5 lb bag of flour standing on the floor behind the towel roll.
+    {
+      const cx = (x0 + x1) / 2 + 0.02, cz = zBack + 0.2;
+      const pot = lathe([V2(0, 0), V2(0.085, 0), V2(0.09, 0.005), V2(0.09, 0.11), V2(0.093, 0.112), V2(0.087, 0.112), V2(0.085, 0.006), V2(0, 0.006)], 36);
+      pot.translate(cx, top, cz);
+      s.add(pot, pal.stainless);
+      const lid = lathe([V2(0, 0), V2(0.092, 0), V2(0.092, 0.004), V2(0.06, 0.018), V2(0.012, 0.026), V2(0.012, 0.04), V2(0, 0.04)], 36);
+      lid.translate(cx, top + 0.112, cz);
+      s.add(lid, pal.stainless);
+      const grip = new THREE.CylinderGeometry(0.016, 0.014, 0.012, 16);
+      grip.translate(cx, top + 0.158, cz);
+      s.add(grip, pal.blackPlastic);
+      const hdl = new THREE.CylinderGeometry(0.008, 0.008, 0.16, 12);
+      hdl.rotateZ(Math.PI / 2);
+      hdl.translate(cx + 0.17, top + 0.1, cz);
+      s.add(hdl, pal.blackPlastic);
+      // Flour bag: a soft paper block with a folded top, a faded printed band (atlas `label`).
+      const fx = x0 + 0.5, fz = zBack + 0.14, fw = 0.15, fd = 0.09, fh = 0.26;
+      s.rbox(pal.napkin, [fx - fw / 2, floorY, fz - fd / 2], [fx + fw / 2, floorY + fh, fz + fd / 2], 0.012, 3);
+      s.rbox(pal.napkin, [fx - fw / 2 + 0.01, floorY + fh - 0.005, fz - fd / 2 + 0.02], [fx + fw / 2 - 0.01, floorY + fh + 0.02, fz + fd / 2 - 0.02], 0.006, 2);
+      const lbl = uvIntoRect(new THREE.PlaneGeometry(fw - 0.02, 0.045), PRESENCE_UV.label);
+      lbl.translate(fx, floorY + fh * 0.55, fz + fd / 2 + 0.0003);
+      s.add(lbl, cloth);
+    }
   }
 
   // Doors: full-overlay, 18 mm laminate on the die face, lapping the opening 8 mm each side
@@ -430,8 +719,16 @@ function buildCabinet(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth
     };
   };
   const leaves: [HingedLeaf, HingedLeaf] = [make(-1), make(1)];
+  bakedLeaves(parent, parts, doorMat, "cabinet-doors");
+  return { leaves, material: doorMat };
+}
 
-  // One mesh for both, baked to world space from the hinges' matrices.
+/**
+ * One mesh for a set of hinged leaves, baked to world space from the hinges' matrices whenever
+ * one of them turns (a CPU transform of a few k vertices in `updateMatrixWorld`, so the shadow
+ * pass and the main pass see the same frame). Each `geo` is authored in its hinge's local frame.
+ */
+function bakedLeaves(parent: THREE.Group, parts: Array<{ hinge: THREE.Group; geo: THREE.BufferGeometry }>, doorMat: THREE.Material, name: string): THREE.Mesh {
   const merged = mergeGeometries(parts.map((p) => p.geo), false)!;
   const local = { pos: (merged.attributes.position.array as Float32Array).slice(), nrm: (merged.attributes.normal.array as Float32Array).slice() };
   const ranges: Array<[number, number]> = [];
@@ -441,7 +738,7 @@ function buildCabinet(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth
     at += n;
   }
   const doors = new THREE.Mesh(merged, doorMat);
-  doors.name = "cabinet-doors";
+  doors.name = name;
   doors.castShadow = true;
   doors.receiveShadow = true;
   doors.frustumCulled = false; // bounds change with the doors; the mesh is small and always near the counter
@@ -474,7 +771,7 @@ function buildCabinet(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth
       }
     };
   }
-  return { leaves, material: doorMat };
+  return doors;
 }
 
 /* ------------------------------------------------------------------------------------ */

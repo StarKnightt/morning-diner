@@ -45,6 +45,8 @@ export interface Interactions {
   readonly drink: DrinkInteraction;
   /** System 9 openables: [left, right] cabinet doors and the kitchen swing door. */
   readonly cabinet: [CabinetDoorInteraction, CabinetDoorInteraction];
+  /** fix-cabinets: the upper wall cabinets' doors (scene order: -x run first, doors -x → +x). */
+  readonly upperCabinets: CabinetDoorInteraction[];
   readonly kitchenDoor: KitchenDoorInteraction;
   /** Bind sun / exposure to the door: fn(progress 0..1). Returns an unsubscribe. */
   onDoorOpen(fn: (progress: number) => void): () => void;
@@ -97,6 +99,7 @@ export function initInteractions(ctx: InteractionContext): Interactions {
     new CabinetDoorInteraction(diner.sys9.openables.cabinet[0], "cabinet-left", catchSfx, "cabinet"),
     new CabinetDoorInteraction(diner.sys9.openables.cabinet[1], "cabinet-right", catchSfx, "cabinet"),
   ];
+  const upperCabinets = diner.sys9.openables.upper.map((leaf) => new CabinetDoorInteraction(leaf, leaf.hinge.name, catchSfx, "cabinet", { reach: 2.2, halfAngleDeg: 28 }));
   const kitchenDoor = new KitchenDoorInteraction(diner.sys9.openables.kitchenDoor, {
     push: (at) => audio.sfx.kitchenDoorPush(toVec(at)),
     pass: (at, speed) => audio.sfx.kitchenDoorPass(toVec(at), speed),
@@ -111,6 +114,7 @@ export function initInteractions(ctx: InteractionContext): Interactions {
     door.interactable,
     cabinet[0].interactable,
     cabinet[1].interactable,
+    ...upperCabinets.map((c) => c.interactable),
     kitchenDoor.interactable,
   ];
 
@@ -178,11 +182,13 @@ export function initInteractions(ctx: InteractionContext): Interactions {
       door.update(step);
       cabinet[0].update(step);
       cabinet[1].update(step);
+      for (const c of upperCabinets) c.update(step);
       kitchenDoor.update(step);
       // Shadow-once (Diner.ts): both sun shadow maps are rendered once at boot, so anything
       // sunlit that moved this frame (door leaf, decanter, mug, stream) re-renders them.
       // The openables re-render once when a leaf comes to rest, not per frame.
-      const openableSettled = cabinet[0].consumeSettled() || cabinet[1].consumeSettled() || kitchenDoor.consumeSettled();
+      let openableSettled = cabinet[0].consumeSettled() || cabinet[1].consumeSettled() || kitchenDoor.consumeSettled();
+      for (const c of upperCabinets) if (c.consumeSettled()) openableSettled = true;
       if (door.consumeMoved() || pour.consumeMoved() || drink.consumeMoved() || openableSettled) diner.invalidateShadows();
       target = pickTarget();
       prompt.set(target ? target.label() : null);
@@ -195,6 +201,7 @@ export function initInteractions(ctx: InteractionContext): Interactions {
     door,
     drink,
     cabinet,
+    upperCabinets,
     kitchenDoor,
     onDoorOpen: (fn) => door.onDoorOpen(fn),
     get target() {
