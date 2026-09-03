@@ -509,7 +509,7 @@ export function installPcss(): void {
   // Blocker search: 4 × 4 cell-centred grid over the search disc.
   const search: string[] = [];
   for (const v of [-0.75, -0.25, 0.25, 0.75]) for (const u of [-0.75, -0.25, 0.25, 0.75]) {
-    search.push(`{ vec2 o = vec2( ${u}, ${v} ) * searchR; float d = texture2D( shadowMap, shadowCoord.xy + o ).r; if ( d < zR + dot( gradZ, o ) ) { sum += d; n += 1.0; } }`);
+    search.push(`{ vec2 o = vec2( ${u}, ${v} ) * searchR; float d = texture2D( shadowMap, shadowCoord.xy + o ).r; if ( d < zR + dot( gradZ, o ) ) { dNear = max( dNear, d ); n += 1.0; } }`);
   }
 
   const pcss = /* glsl */ `#else // SHADOWMAP_TYPE_BASIC — replaced by PCSS (src/scene/Lighting.ts)
@@ -556,13 +556,28 @@ export function installPcss(): void {
 
 				if ( shadowRadius > 0.0 ) {
 
-					// 1. Blocker search: average depth of everything in front of the receiver.
+					// 1. Blocker search: the NEAREST blocker in front of the receiver (largest depth).
+					// Rev 3 first used the mean blocker depth, as in the PCSS paper: under the blinds
+					// the search disc holds slat texels (0.5–1 m away) AND, wherever the roof edge's
+					// shadow crosses the table, its texels (3–6.5 m away), in a proportion that
+					// changes with every texel the 16 taps step over, so the penumbra estimate
+					// jumped between 7 mm and 60 mm and the sun patch on the macro-table laminate
+					// became a mosaic of texel-sized tiles at different blurs. The nearest blocker's
+					// edge is the one that shapes the boundary at that point; taking it makes the
+					// estimate a step function of *which* casters are present, not of how many taps
+					// hit each — the slat stripes keep their 7 mm/m penumbra over the whole table
+					// and the roof's own edge is soft where no slat is in the disc.
 					float searchR = shadowRadius * 0.2;
-					float sum = 0.0, n = 0.0;
+					float dNear = 0.0, n = 0.0;
 					${search.join("\n\t\t\t\t\t")}
 					if ( n > 0.5 ) {
-						// 2. Penumbra ∝ receiver−blocker separation, clamped to the search disk.
-						float pen = clamp( shadowRadius * ( zR - sum / n ), texel.x * 0.5, searchR );
+						// 2. Penumbra ∝ receiver−blocker separation, clamped to the search disk. The
+						// floor is 1.75 texels (6.6 mm): below that the 3.75 mm depth texels show
+						// through the filter as a staircase along every slat edge that runs at an
+						// angle to the map's grid (the near end of a table 0.5 m from the blinds,
+						// where the physical penumbra radius is 2.3 mm). It still grows with distance
+						// past 1.4 m, and by the far wall (3–4 m) it is 3× this floor.
+						float pen = clamp( shadowRadius * ( zR - dNear ), texel.x * 1.75, searchR );
 						// 3. Weighted disc of hardware-PCF taps over the penumbra.
 						float lit = 0.0;
 						${filterGlsl}
