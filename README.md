@@ -22,6 +22,15 @@ node tools/shoot.mjs           # headless capture of the reference poses → sho
 | `Q` | stand up |
 | `F` | tilt the blinds you are looking at |
 | `[` / `]` | exposure −/+ |
+| touch | left half of the screen: walk stick · right half: look drag · tap: `E` (no pointer lock) |
+
+## Quality
+
+The build picks a tier for the device on boot — `ultra` (the RTX-class look), `high`, `medium`,
+`low`, `mobile` — from the GPU string and WebGL limits, then steps the render resolution down
+when frames run over 20 ms and back up when they stay under 10 ms. `?q=low` (or `medium` /
+`high` / `ultra` / `mobile`) forces a tier and remembers it; `?q=auto` forgets. The loader shows
+the tier bottom right; `window.__quality` has the reasons. See BUILD.md "Quality tiers".
 
 ## Lighting
 
