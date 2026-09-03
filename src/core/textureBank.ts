@@ -23,6 +23,7 @@
 import * as THREE from "three";
 import { applyProps, propsOf, type JobReply, type JobRequest } from "./texProtocol";
 import { yieldToPaint } from "./scheduler";
+import { capTextureSize } from "./quality";
 
 type Shape = "direct" | readonly string[];
 
@@ -149,6 +150,23 @@ function estimateCost(fn: string, args: unknown[]): number {
   }
 }
 
+/**
+ * Quality tiers (core/quality.ts): clamp the pixel-edge arguments to the tier's texture cap.
+ * Every generator takes its edge first except the few listed; `checkerFloor` is tiles × tilePx.
+ * On ultra the cap is Infinity and the arguments pass through untouched.
+ */
+const SIZE_ARGS: Record<string, number[]> = { paintedWall: [1], trofferLens: [0, 1], kickPlateWear: [0, 1], checkerFloor: [] };
+function capSizes(fn: string, args: unknown[]): unknown[] {
+  const idx = SIZE_ARGS[fn] ?? [0];
+  const out = args.slice();
+  for (const i of idx) if (typeof out[i] === "number") out[i] = capTextureSize(out[i] as number);
+  if (fn === "checkerFloor" && typeof out[2] === "number") {
+    const tiles = Math.max(1, Number(out[0]) || 1, Number(out[1]) || 1);
+    out[2] = Math.max(32, capTextureSize((out[2] as number) * tiles) / tiles) | 0;
+  }
+  return out;
+}
+
 interface Job {
   id: number;
   mod: string;
@@ -271,6 +289,7 @@ export class TextureBank {
 
   private dispatch(mod: string, fn: string, run: Job["run"], args: unknown[], shape: Shape): unknown {
     if (!this.tFirst) this.tFirst = performance.now();
+    args = capSizes(fn, args);
     const targets = new Map<string, THREE.Texture>();
     let result: unknown;
     if (shape === "direct") {

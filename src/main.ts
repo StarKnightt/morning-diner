@@ -25,15 +25,20 @@ import { createPostPipeline, type PostPipeline } from "./post/PostPipeline";
 import { Diner } from "./scene/Diner";
 import { configureRenderer } from "./scene/Lighting";
 import { Loader } from "./ui/Loader";
+import { applyDpr, applyToScene, initQuality, isTouchPrimary, restoreUrl, showBadge, tick } from "./core/quality";
 
 const params = new URLSearchParams(location.search);
 const DEBUG = params.has("debug");
 /** Capture harness: no user to click, so the overlay is removed the moment the scene is ready. */
 const SHOOT = params.has("shoot");
 
+// Quality tier first: it injects the tier's URL knobs (`?txscale`, `?nopcss`, `?nobounce`, the
+// post counts) before Lighting.ts / post/settings.ts read `location.search` (core/quality.ts).
+const quality = initQuality();
 const markReady = installReadyPromise();
 const timeline = new BootTimeline();
 const loader = new Loader();
+showBadge(DEBUG);
 // Weights are the measured share of a cold start on the RTX 4060 (BUILD.md "Startup budget").
 const progress = new Progress(
   { geometry: 12, textures: 25, shaders: 40, probes: 18, frame: 5 },
@@ -42,7 +47,7 @@ const progress = new Progress(
 progress.stage("Opening up…");
 
 const renderer = new THREE.WebGLRenderer({ powerPreference: "high-performance", antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+renderer.setPixelRatio(quality.dpr); // tier cap (ultra: min(devicePixelRatio, 1.5), as before)
 renderer.setSize(window.innerWidth, window.innerHeight);
 // Tone mapping, exposure (a camera setting: ISO 100 · f/5.6 · 1/160 s) and the shadow
 // filter live with the light rig (System 4, scene/Lighting.ts): the camera curve (white at
@@ -168,7 +173,12 @@ async function boot(): Promise<void> {
       progress.set("probes", done / 3, `Baking reflections (${done}/3)…`);
       await yieldToPaint();
     },
-    mark: (name) => timeline.mark(name),
+    mark: (name) => {
+      timeline.mark(name);
+      // Lights and every material exist, nothing has compiled or rendered: the tier shrinks the
+      // shadow maps, swaps transmission for alpha glass and drops variant families here.
+      if (name === "geometry") applyToScene(scene, diner, renderer.capabilities.getMaxAnisotropy());
+    },
   });
 
   // Capture A/B switches: `?hide=a,b` hides every object whose name contains a token,
@@ -185,6 +195,8 @@ async function boot(): Promise<void> {
     }
   }
   player = new FirstPerson(camera, renderer.domElement, diner.colliders);
+  // Phones / tablets: a virtual stick and a look-drag instead of pointer lock (player/Touch.ts).
+  if (isTouchPrimary()) void import("./player/Touch").then(({ attachTouch }) => attachTouch(player!, renderer.domElement)).catch((e: unknown) => console.warn("[touch]", e));
   installCaptureApi(renderer, scene, camera, player, perf);
   interactions = initInteractions({ renderer, scene, camera, player, diner });
   // System 8: dust, haze, shimmer, steam, photographic finish. `?post=0` → plain renderer.render.
@@ -193,6 +205,7 @@ async function boot(): Promise<void> {
   // `diner.sunBeam`, the sun's twin whose map is a compare-mode depth texture (System 4 filters
   // `diner.sun`'s own map with PCSS from a raw depth texture, which `sampler2DShadow` cannot read).
   post = createPostPipeline(renderer, scene, camera, { sun: diner.sunBeam });
+  restoreUrl(); // every `location.search` reader has run; put the tier's injected knobs away
   timeline.mark("post");
   // The pour's four materials (clipped decanter coffee, rippled mug surface, stream, steam)
   // and the post pipeline's scene objects (dust motes, decanter steam) enter the scene here,
@@ -218,6 +231,7 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  applyDpr(renderer);
 });
 
 /* ---------------- loop ---------------- */
@@ -236,6 +250,7 @@ function frame(now: number): void {
   const minDelta = throttled ? 1000 / IDLE_FPS : 1000 / MAX_FPS - 0.75;
   if (now - last < minDelta) return;
   const dt = Math.min(0.1, last === -Infinity ? 1 / 60 : (now - last) / 1000);
+  const prev = last;
   last = now;
 
   player!.update(dt);
@@ -244,6 +259,13 @@ function frame(now: number): void {
   // pipeline's scene pass (renderer.render inside post.render) is what re-renders the maps.
   interactions!.update(dt); // also moves the audio listener with the camera
   post!.render();
+  // Dynamic resolution (core/quality.ts): GPU ms when the timer extension reports, else the loop delta.
+  if (!throttled && frames > 60) {
+    const t = post!.timings();
+    let gpu = 0;
+    if (t) for (const v of Object.values(t)) gpu += v.ema;
+    tick(renderer, gpu > 0 ? gpu : (now - prev), now);
+  }
 
   frames++;
   if (frames <= 2) timeline.mark(`frame-${frames}(p${renderer.info.programs?.length ?? 0})`);

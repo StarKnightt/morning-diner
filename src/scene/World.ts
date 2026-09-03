@@ -18,6 +18,7 @@
  * flagged `userData.lotCaster` for the lot sun's shadow map.
  */
 import * as THREE from "three";
+import { getQuality } from "../core/quality";
 import { makeFbm, makeRng, makeValueNoise } from "../core/rng";
 import { grainNormal } from "../procedural/world";
 import { LOT } from "./Exterior";
@@ -358,11 +359,13 @@ function buildScatter(parent: THREE.Group, field: Field, ground: Ground, rng: ()
   // species' instances (~0.3 M triangles from every pose, the whole scatter draws unculled).
   // (An 8-wedge / 4x4-cell split per species with frustum culling was tried: the cells' bounding
   // spheres are 70-100 m and never leave the frustum from inside the room; it only added draws.)
-  const R_MAX = 120;
+  // Quality tiers (core/quality.ts): ultra keeps 120 m × 1; lower tiers shrink the radius and thin the counts.
+  const R_MAX = getQuality().settings.scatterRadius;
+  const scatterMul = getQuality().settings.scatterMul;
   for (const sp of species) {
     const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 1, metalness: 0, side: sp.doubleSide ? THREE.DoubleSide : THREE.FrontSide });
     // 71 % of the instances fell inside 120 m before, so the near-field density is unchanged.
-    const target = Math.round(sp.count * 0.71);
+    const target = Math.round(sp.count * 0.71 * scatterMul);
     const mesh = new THREE.InstancedMesh(sp.geo, mat, target);
     let placed = 0, tries = 0;
     while (placed < target && tries < target * 12) {
