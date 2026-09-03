@@ -225,10 +225,10 @@ const vertexShader = /* glsl */ `
     vec3 wp = p + sideV * (0.5 * w * side);
     gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
 
-    // Along the strand: 0 at the surface (the rim crossing fades, it is never cut), peak 4–5 cm
+    // Along the strand: 0 at the surface (the rim crossing fades, it is never cut), peak 5–6 cm
     // up, exactly 0 at the top; the vapour that widens by diffusion thins with it (strongly: the
     // widened upper half must read clearly fainter than the root).
-    float env = smoothstep(0.0, 0.2, s) * pow(1.0 - smoothstep(0.25, 1.0, s), 1.3);
+    float env = smoothstep(0.0, 0.26, s) * pow(1.0 - smoothstep(0.3, 1.0, s), 1.3);
     env *= pow(uWidth.x * wj / max(1e-4, w), 0.8);
     env *= burst(tau);
     // Strands differ: some are faint, one or two carry the plume.

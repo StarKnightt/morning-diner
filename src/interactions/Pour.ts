@@ -143,7 +143,7 @@ class MugSteam {
         burst: 0.85,
         // Peak ≈ 0.12 in shade: a strand over the backsplash must stay well under the mug glaze
         // (steam rev 3 target ≤ 35 % of white ceramic in the same light).
-        alpha: 0.13,
+        alpha: 0.12,
         strength: 0,
         wind: [0.008, -0.003],
         fadePlane: new THREE.Vector4(0, 0, 1, -ROOM.zBack),
