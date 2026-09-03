@@ -28,9 +28,9 @@
  *   decanter Props' fixed 55 % coffee body is hidden from boot and replaced by a taller body cut by
  *            a world-horizontal clipping plane; back faces are shaded as the surface. Level drops
  *            9 mm and stays
- *   steam    `SteamEmitter` (src/post/Steam.ts — the same emitter as the decanter's ambient wisp)
- *            at the rim: strength, rise and size build over 1.5 s from the first splash, hold,
- *            then fade 18 → 30 s after
+ *   steam    `SteamEmitter` (src/post/Steam.ts — the same wisp emitter as the decanter's) at the
+ *            rim: strength, rise, width and continuity build over 1.5 s from the first splash,
+ *            hold, then fade 18 → 30 s after; scaled by the level (Drink.ts), dragged by the mug
  *
  * One pour fills the mug; E again gives a 4 mm bob (and a clink), no refill.
  * Everything runs off one internal clock so `seek(t)` is deterministic.
@@ -38,7 +38,9 @@
 import * as THREE from "three";
 import { CoffeeSfx } from "../audio/sfx/Coffee";
 import type { Palette } from "../core/materials";
+import type { SunLight } from "../post/beams";
 import { SteamEmitter } from "../post/Steam";
+import { ROOM } from "../scene/layout";
 import { clamp01, easeInOut, easeOut, lerp, phase, type Interactable } from "./util";
 
 const MUG_H = 0.089;
@@ -112,7 +114,11 @@ function flowAt(t: number): number {
   return Math.min(1, (t - a) / TL.flowUp, (b - t) / TL.flowDown);
 }
 
-/** Steam at the mug rim: the shared `SteamEmitter`, driven off the pour clock so seeks are exact. */
+/**
+ * Steam at the mug rim: the shared `SteamEmitter` (System 8's wisp model), driven off the pour
+ * clock so seeks are exact. Six strands off a 2 cm release disc, dissolving 18 cm up in 1.4 s;
+ * alpha peaks 0.2 in shade; fades to nothing within 3 cm of the back wall (z = ROOM.zBack).
+ */
 class MugSteam {
   readonly emitter: SteamEmitter;
   /** Multiplier on the plume (System 9: Drink.ts scales it with what is left in the mug). */
@@ -121,18 +127,27 @@ class MugSteam {
   private started = -1;
   private time = 0;
 
-  constructor(scene: THREE.Scene, rim: THREE.Vector3) {
-    this.emitter = new SteamEmitter({
-      count: 24,
-      radius: 0.022,
-      rise: 0.28,
-      life: 2.6,
-      size: [0.022, 0.075],
-      spread: 0.035,
-      curl: 2.6,
-      strength: 0,
-      wind: [0.008, -0.003],
-    });
+  constructor(scene: THREE.Scene, rim: THREE.Vector3, sun: SunLight | null) {
+    this.emitter = new SteamEmitter(
+      {
+        count: 5,
+        radius: 0.024,
+        rise: 0.18,
+        life: 1.4,
+        width: [0.007, 0.05],
+        shear: 0.07,
+        shearScale: 0.8,
+        release: 0.016,
+        meander: 0.02,
+        burst: 0.85,
+        alpha: 0.22,
+        strength: 0,
+        wind: [0.008, -0.003],
+        fadePlane: new THREE.Vector4(0, 0, 1, -ROOM.zBack),
+        fadeWidth: 0.03,
+      },
+      sun,
+    );
     this.emitter.object.name = "pour:steam";
     this.emitter.object.position.copy(rim);
     scene.add(this.emitter.object);
@@ -171,10 +186,14 @@ class MugSteam {
     const fade = 1 - THREE.MathUtils.smoothstep(s, 18, 30);
     const p = this.emitter.params;
     const lv = this.level;
-    p.strength = 1.3 * build * fade * lv;
-    p.rise = lerp(0.06, 0.28, build) * lerp(0.6, 1, lv);
-    p.size[0] = lerp(0.012, 0.022, build) * lerp(0.7, 1, lv);
-    p.size[1] = lerp(0.03, 0.075, build) * lerp(0.7, 1, lv);
+    // A fresh pour steams hardest and most continuously; as it cools (and empties) the strands
+    // shorten, thin and break up into intermittent puffs.
+    p.strength = 1.0 * build * fade * lv;
+    p.rise = lerp(0.05, 0.18, build) * lerp(0.6, 1, lv);
+    p.life = lerp(0.7, 1.4, build) * lerp(0.75, 1, lv);
+    p.width[0] = lerp(0.005, 0.007, build);
+    p.width[1] = lerp(0.02, 0.05, build) * lerp(0.7, 1, lv);
+    p.burst = lerp(0.95, 0.75, build * fade * lv);
     this.emitter.update(this.time);
     if (s > 30) this.stop();
   }
@@ -246,6 +265,8 @@ export class PourInteraction {
     pot: THREE.Group,
     mug: THREE.Mesh,
     private readonly audio: PourAudio,
+    /** The building sun's compare-map twin (`diner.sunBeam`): the rim steam brightens where it crosses the beam. */
+    sun: SunLight | null = null,
   ) {
     this.pot = pot;
     this.mug = mug;
@@ -415,7 +436,7 @@ export class PourInteraction {
       this.drips.push(d);
     }
 
-    this.steam = new MugSteam(scene, this.tmpV.set(this.mugTop.x, this.mugTop.y - 0.004, this.mugTop.z));
+    this.steam = new MugSteam(scene, this.tmpV.set(this.mugTop.x, this.mugTop.y - 0.004, this.mugTop.z), sun);
 
     this.interactable = {
       name: "pour",
@@ -468,6 +489,11 @@ export class PourInteraction {
   /** The rim steam emitter's object; Drink.ts carries it with the mug and puts it back. */
   get steamObject(): THREE.Object3D {
     return this.steam.emitter.object;
+  }
+
+  /** The rim steam source's world velocity (m/s); Drink.ts sets it so the wisps trail the carried mug. */
+  get steamVelocity(): THREE.Vector3 {
+    return this.steam.emitter.velocity;
   }
 
   /** Mug rim centre at rest (world). */

@@ -64,10 +64,18 @@ export function initInteractions(ctx: InteractionContext): Interactions {
   const toVec = (v: THREE.Vector3) => ({ x: v.x, y: v.y, z: v.z });
 
   const sit = new SitInteraction(player);
-  const pour = new PourInteraction(scene, renderer, diner.palette, diner.coffeePot, diner.pourMug, {
-    clink: (at) => audio.sfx.mugClink(toVec(at)),
-    pour: (seconds, at) => audio.sfx.pourCoffee(seconds, toVec(at)),
-  });
+  const pour = new PourInteraction(
+    scene,
+    renderer,
+    diner.palette,
+    diner.coffeePot,
+    diner.pourMug,
+    {
+      clink: (at) => audio.sfx.mugClink(toVec(at)),
+      pour: (seconds, at) => audio.sfx.pourCoffee(seconds, toVec(at)),
+    },
+    diner.sunBeam ?? null,
+  );
   // Latch: System 6 rev 3's `DoorSfx.setOutside(0)` plays the strike/tongue/thud itself
   // (`doorClose()`, calibrated at −23 dBFS @ 0.85 m in the live mix) on the same frame the leaf
   // seats, so `outside(0)` IS the latch cue. `wiring.doorLatch()` (rev 2's own voice) is kept for

@@ -148,6 +148,11 @@ export class DrinkInteraction {
   private readonly tmpQ = new THREE.Quaternion();
   private readonly tmpQ2 = new THREE.Quaternion();
   private readonly worldQ = new THREE.Quaternion();
+  private readonly nextP = new THREE.Vector3();
+  private readonly nextQ = new THREE.Quaternion();
+  private readonly rimOff = new THREE.Vector3();
+  private readonly rimNow = new THREE.Vector3();
+  private readonly rimNext = new THREE.Vector3();
   private readonly axisY = new THREE.Vector3(0, 1, 0);
   private readonly head = [0, 0, 0];
 
@@ -256,6 +261,7 @@ export class DrinkInteraction {
     this.mug.quaternion.copy(this.mugRestQ);
     this.pour.liquid.quaternion.identity();
     this.pour.steamObject.position.copy(this.steamRest);
+    this.pour.steamVelocity.set(0, 0, 0);
     this.player.lean.pitch = 0;
     this.player.lean.roll = 0;
     this.player.lean.yaw = 0;
@@ -288,9 +294,56 @@ export class DrinkInteraction {
     this.hold.copy(HOLD).applyQuaternion(this.camQ).add(this.camPos);
     this.lips.copy(LIPS).applyQuaternion(this.camQ).add(this.camPos);
 
+    const P = this.target;
+    const tiltRad = this.poseAt(t, P, this.worldQ);
+    // The rim's world velocity (a 1/120 s forward difference on the same path, so seeks get it
+    // too): the steam's older parcels stay where the rim was when they left it.
+    this.rimOff.set(0, MUG_H - 0.004, 0);
+    this.rimNow.copy(this.rimOff).applyQuaternion(this.worldQ).add(P);
+    this.poseAt(t + VEL_DT, this.nextP, this.nextQ);
+    this.rimNext.copy(this.rimOff).applyQuaternion(this.nextQ).add(this.nextP);
+    this.pour.steamVelocity.subVectors(this.rimNext, this.rimNow).multiplyScalar(1 / VEL_DT);
+    const parent = this.mug.parent;
+    this.mug.quaternion.copy(this.worldQ);
+    if (parent) {
+      parent.getWorldQuaternion(this.tmpQ2);
+      this.mug.quaternion.premultiply(this.tmpQ2.invert());
+      parent.worldToLocal(P);
+    }
+    this.mug.position.copy(P);
+    this.mug.updateMatrixWorld(true);
+    // The disc on the bar fades with the lift (multiply → 1): nothing dense under a mug in the air.
+    this.setDisc(this.mug.getWorldPosition(this.tmpV).y - this.restW.y);
+
+    // Liquid: horizontal in the world, level for this frame's fill, slid toward the low side.
+    const fill = this.fillAt(t);
+    this.pour.setFillVisual(fill);
+    const liquid = this.pour.liquid;
+    liquid.quaternion.copy(this.mug.getWorldQuaternion(this.tmpQ).invert()); // world-horizontal
+    if (tiltRad > 0) {
+      // A horizontal surface in a tilted cup meets the wall higher on the low side: keep the disc
+      // centred on the axis but raise it by ~half the wall rise so it reaches the lip side.
+      liquid.position.y = Math.min(MUG_H - 0.006, liquid.position.y + 0.5 * MUG_R * Math.tan(tiltRad));
+    }
+
+    // Steam: its source rides on the rim (world); the strands rise in the world and trail the carry.
+    this.pour.steamObject.position.copy(this.rimNow);
+
+    // Head: the spline of small pitch / yaw / roll offsets — 5° back at the sip, never still.
+    const h = headAt(t, this.head);
+    this.player.lean.pitch = h[0];
+    this.player.lean.yaw = h[1];
+    this.player.lean.roll = h[2];
+  }
+
+  /**
+   * The mug's world position and orientation at drink-time `t` for the current head pose
+   * (`hold` / `lips` / `camRight` already set). Returns the tilt in radians. No side effects
+   * beyond the `ctrl` / `tmpQ` / `tmpQ2` scratch, so it can be evaluated twice per frame.
+   */
+  private poseAt(t: number, P: THREE.Vector3, outQ: THREE.Quaternion): number {
     // Where the mug is and how far it has tipped (0..1), by beat.
     let tilt = 0;
-    const P = this.target;
     const rest = this.restW;
     if (t < TL.lift[0]) {
       P.copy(rest);
@@ -331,41 +384,13 @@ export class DrinkInteraction {
     this.tmpQ.setFromAxisAngle(this.axisY, yaw);
     const tiltRad = this.tiltMax * tilt;
     this.tmpQ2.setFromAxisAngle(this.camRight, tiltRad);
-    this.worldQ.copy(this.tmpQ2).multiply(this.tmpQ);
-    const parent = this.mug.parent;
-    this.mug.quaternion.copy(this.worldQ);
-    if (parent) {
-      parent.getWorldQuaternion(this.tmpQ2);
-      this.mug.quaternion.premultiply(this.tmpQ2.invert());
-      parent.worldToLocal(P);
-    }
-    this.mug.position.copy(P);
-    this.mug.updateMatrixWorld(true);
-    // The disc on the bar fades with the lift (multiply → 1): nothing dense under a mug in the air.
-    this.setDisc(this.mug.getWorldPosition(this.tmpV).y - rest.y);
-
-    // Liquid: horizontal in the world, level for this frame's fill, slid toward the low side.
-    const fill = this.fillAt(t);
-    this.pour.setFillVisual(fill);
-    const liquid = this.pour.liquid;
-    liquid.quaternion.copy(this.mug.getWorldQuaternion(this.tmpQ).invert()); // world-horizontal
-    if (tilt > 0) {
-      // A horizontal surface in a tilted cup meets the wall higher on the low side: keep the disc
-      // centred on the axis but raise it by ~half the wall rise so it reaches the lip side.
-      liquid.position.y = Math.min(MUG_H - 0.006, liquid.position.y + 0.5 * MUG_R * Math.tan(tiltRad));
-    }
-
-    // Steam: on the rim, in the world, level with the mug's tilt.
-    this.tmpV.set(0, MUG_H - 0.004, 0).applyQuaternion(this.worldQ);
-    this.mug.getWorldPosition(this.pour.steamObject.position).add(this.tmpV);
-
-    // Head: the spline of small pitch / yaw / roll offsets — 5° back at the sip, never still.
-    const h = headAt(t, this.head);
-    this.player.lean.pitch = h[0];
-    this.player.lean.yaw = h[1];
-    this.player.lean.roll = h[2];
+    outQ.copy(this.tmpQ2).multiply(this.tmpQ);
+    return tiltRad;
   }
 }
+
+/** Forward-difference step for the rim velocity (s). */
+const VEL_DT = 1 / 120;
 
 function bezier2(p0: THREE.Vector3, p1: THREE.Vector3, p2: THREE.Vector3, u: number, out: THREE.Vector3): THREE.Vector3 {
   const a = (1 - u) * (1 - u), b = 2 * u * (1 - u), c = u * u;

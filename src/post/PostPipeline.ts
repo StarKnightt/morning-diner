@@ -127,11 +127,35 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
   if (dust) scene.add(dust.points);
 
   // Ambient steam off the decanter on the warmer (System 7 makes its own emitter for the pour).
+  // Steam-timing mode (`?debug.timeSteam=1`): the scene pass is not wrapped in a query so each
+  // emitter's draw can be (GpuTimer queries do not nest); `timings()` then lists `pour:steam` /
+  // `post:steam-decanter` beside the passes.
+  SteamEmitter.timer = settings.debug.timeSteam ? timer : null;
   let steam: SteamEmitter | null = null;
   const pot = scene.getObjectByName("coffeePot");
   {
     if (pot) {
-      steam = new SteamEmitter({ count: settings.steam.count, rise: settings.steam.rise, life: settings.steam.life, strength: settings.steam.strength });
+      steam = new SteamEmitter(
+        {
+          count: settings.steam.count,
+          rise: settings.steam.rise,
+          life: settings.steam.life,
+          strength: settings.steam.strength,
+          radius: 0.02,
+          width: [0.007, 0.045],
+          alpha: 0.14,
+          burst: 0.9,
+          shear: 0.05,
+          meander: 0.018,
+          // Out of the front gap under the funnel and forward past the hood lip (z −2.25): 9 cm/s of +z.
+          wind: [0.004, 0.09],
+          // The black brewer tower stands behind the wisp from the aisle: the fixed dark-backdrop boost.
+          backdrop: 1.3,
+          fadePlane: new THREE.Vector4(0, 0, 1, -ROOM.zBack),
+          fadeWidth: 0.03,
+        },
+        sun,
+      );
       const p = new THREE.Vector3();
       pot.updateWorldMatrix(true, false);
       p.setFromMatrixPosition(pot.matrixWorld);
@@ -408,7 +432,7 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
     // 1. scene. renderer.render runs the shadow pass first (through the installShadowMasks
     // wrapper: both maps, only when shadowMap.needsUpdate is set) and restores sceneRT
     // as the target before the opaque pass, so the map the haze reads below is current.
-    timer.begin("scene");
+    if (!s.debug.timeSteam) timer.begin("scene");
     renderer.setRenderTarget(sceneRT);
     renderer.render(scene, camera);
     timer.end();

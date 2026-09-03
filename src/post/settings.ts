@@ -113,6 +113,8 @@ export interface PostSettings {
   debug: {
     /** 0 off · 1 shimmer mask · 2 haze buffer · 3 beam/aperture test · 4 bloom buffer · 5 motes without shadow test · 6 all motes */
     view: number;
+    /** Time each steam emitter's draw instead of the scene pass (GPU queries do not nest). */
+    timeSteam: boolean;
   };
 }
 
@@ -136,8 +138,11 @@ export function defaultSettings(): PostSettings {
     },
     haze: { enabled: true, strength: 0.012, g: 0.55, steps: 24, halfRes: true },
     shimmer: { enabled: true, amplitude: 1.2, frequency: 11, speed: 0.9, scroll: 0.45, minDepth: 8, heightFade: 2.2 },
-    // Offset: 5 cm toward the front of the machine so the wisp clears the brew basket above the decanter.
-    steam: { enabled: true, strength: 0.8, count: 28, rise: 0.4, life: 3.6, offset: [0, 0.02, 0.05] },
+    // Offset: the source is the front lip of the decanter mouth (the funnel floor sits 6 cm above the
+    // mouth, so the vapour spills out of the front gap); the emitter's forward draught carries the
+    // strands clear of the funnel and the hood lip (z −2.25) as they rise. Wisp model (System 8 steam
+    // fix): 4 strands dissolving 16 cm up in 1.6 s, 14 cm forward.
+    steam: { enabled: true, strength: 0.8, count: 4, rise: 0.16, life: 1.6, offset: [0, 0.012, 0.06] },
     bloom: { enabled: true, threshold: 2.2, knee: 0.6, strength: 0.045, radius: 1.0 },
     finish: {
       tonemap: null,
@@ -152,7 +157,7 @@ export function defaultSettings(): PostSettings {
       grainSize: 1.0,
       highlightDesat: 0.0,
     },
-    debug: { view: 0 },
+    debug: { view: 0, timeSteam: false },
   };
 }
 
