@@ -636,7 +636,7 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
   // Rev 4: real stainless (metalness 0.9, roughness 0.28) on its own probe captured inside the
   // slice (`userData.probePos`, Diner.ts), so the bowls mirror the lit tile and the fixture
   // instead of reading as matte melamine under the half-metal of rev 3.
-  const steel = new THREE.MeshStandardMaterial({ color: 0xe4e6e8, metalness: 0.9, roughness: 0.28, envMapIntensity: 1.2 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0xe4e6e8, metalness: 0.85, roughness: 0.36, envMapIntensity: 1.2 });
   steel.name = "kitchenSteel";
   steel.userData.probePos = new THREE.Vector3(KITCHEN_DOOR.centerX, 1.05, zBack - T - 0.9);
 
@@ -687,16 +687,20 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
       s.add(leg, ss);
     }
     s.rbox(ss, [tx0 + 0.04, 0.25, tz0 + 0.04], [tx1 - 0.04, 0.28, tz1 - 0.04], 0.003);
-    // Sheet pans (half size, 13 × 18 in): a 25 mm rolled rim on a 2 mm floor, nested 14 mm apart —
-    // the rims stack up as a ribbed block, which is what a pan stack looks like.
+    // Sheet pans (half size, 13 × 18 in): a 25 mm flared rim on a 2 mm floor, nested 14 mm apart.
+    // Rev 4: each pan's walls flare 3 mm wider than the one below and carry a 3 mm rolled bead at
+    // the top, so the stack reads as several thin lips stepping up, not one thick-rimmed tray.
     const panStack = (x: number, z: number, n: number, y: number) => {
       for (let i = 0; i < n; i++) {
-        const y0 = y + i * 0.014, W = 0.33, D = 0.46, rim = 0.025, t = 0.004;
-        s.rbox(ss, [x, y0, z], [x + W, y0 + 0.002, z + D], 0.001, 1);
-        s.rbox(ss, [x, y0, z], [x + W, y0 + rim, z + t], 0.0015, 1);
-        s.rbox(ss, [x, y0, z + D - t], [x + W, y0 + rim, z + D], 0.0015, 1);
-        s.rbox(ss, [x, y0, z], [x + t, y0 + rim, z + D], 0.0015, 1);
-        s.rbox(ss, [x + W - t, y0, z], [x + W, y0 + rim, z + D], 0.0015, 1);
+        const y0 = y + i * 0.014, f = i * 0.003, W = 0.33, D = 0.46, rim = 0.025, t = 0.0025;
+        const ax = x - f, az = z - f, cx2 = x + W + f, cz2 = z + D + f;
+        if (i === 0) s.rbox(ss, [ax, y0, az], [cx2, y0 + 0.002, cz2], 0.001, 1);
+        s.rbox(ss, [ax, y0 + 0.003, az], [cx2, y0 + rim, az + t], 0.001, 1);
+        s.rbox(ss, [ax, y0 + 0.003, cz2 - t], [cx2, y0 + rim, cz2], 0.001, 1);
+        s.rbox(ss, [ax, y0 + 0.003, az], [ax + t, y0 + rim, cz2], 0.001, 1);
+        s.rbox(ss, [cx2 - t, y0 + 0.003, az], [cx2, y0 + rim, cz2], 0.001, 1);
+        // Rolled bead round the rim, 1.5 mm proud of the wall.
+        s.rbox(ss, [ax - 0.0015, y0 + rim - 0.003, az - 0.0015], [cx2 + 0.0015, y0 + rim, cz2 + 0.0015], 0.0014, 1);
       }
     };
     panStack(tx0 + 0.12, tz0 + 0.1, 3, top); // far end

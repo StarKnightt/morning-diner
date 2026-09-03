@@ -138,13 +138,37 @@ export function presenceAtlas(size = 1024): PresenceSet {
       scrape(x, y, len, ang, w * 3, col(a * 0.2));
       scrape(x, y, len, ang, w, col(a));
     };
-    // A rub: a short thick smear where a bumper slid along the leaf — the commonest mark.
-    const rub = (x: number, y: number, len: number, hh: number, ang: number, a: number, col: (a: number) => string) => {
-      for (const [k, f] of [[2.0, 0.18], [1.4, 0.35], [1.0, 1.0]] as const) {
-        c.fillStyle = col(a * f);
+    // A rub (rev 4): a bumper slid along the leaf — a hard streaky core (three to five fine
+    // parallel rubber lines, dense where the bumper bit) that feathers out into a broad faint
+    // tail; blur (halo width) and density (alpha) differ mark by mark, so no two read alike and
+    // none is a lozenge.
+    const rub = (x: number, y: number, len: number, hh: number, ang: number, a: number, blur: number, col: (a: number) => string) => {
+      const dx = Math.cos(ang), dy = Math.sin(ang), nx = -dy, ny = dx;
+      const bow = (rng() - 0.5) * hh * 0.8; // a slight curve in the slide
+      const at = (t: number, off: number) => [x + dx * len * t + nx * (off + bow * Math.sin(t * Math.PI)), y + dy * len * t + ny * (off + bow * Math.sin(t * Math.PI))] as const;
+      const seg = (t0: number, t1: number, off: number, w: number, alpha: number) => {
+        c.strokeStyle = col(alpha);
+        c.lineWidth = w;
         c.beginPath();
-        c.ellipse(x, y, (len / 2) * (0.9 + 0.1 * k), (hh / 2) * k, ang, 0, Math.PI * 2);
-        c.fill();
+        const p0 = at(t0, off), p1 = at(t1, off);
+        c.moveTo(p0[0], p0[1]);
+        c.lineTo(p1[0], p1[1]);
+        c.stroke();
+      };
+      const n = 12;
+      for (let i = 0; i < n; i++) {
+        const t0 = i / n, t1 = (i + 1) / n, fade = Math.pow(1 - t0, 1.3);
+        seg(t0, t1, 0, hh * (1.6 + 2.2 * blur * t0), a * 0.16 * fade * (1 - 0.5 * t0)); // feathered tail
+        seg(t0, t1, 0, hh * 0.9, a * 0.35 * fade);
+      }
+      const lines = 3 + Math.floor(rng() * 3);
+      for (let k = 0; k < lines; k++) {
+        const off = (rng() - 0.5) * hh * 0.9, w = 0.6 + 1.1 * rng(), reach = 0.35 + 0.6 * rng();
+        for (let i = 0; i < n; i++) {
+          const t0 = i / n, t1 = (i + 1) / n;
+          if (t0 > reach) break;
+          seg(t0, t1, off, w, a * (0.5 + 0.5 * rng()) * Math.pow(1 - t0 / reach, 0.8));
+        }
       }
     };
     const band = (y0: number, busy: number) => {
@@ -152,8 +176,9 @@ export function presenceAtlas(size = 1024): PresenceSet {
       // Rubs: 40–130 mm long, 8–20 mm tall, at the bumper's height, a few higher.
       const nRub = Math.round(busy * (3 + rng() * 2));
       for (let i = 0; i < nRub; i++) {
-        const x = R * (0.1 + 0.8 * rng()), y = yb(0.45 + 0.45 * rng());
-        rub(x, y, 22 + 50 * rng(), 4.5 + 7 * rng(), (rng() - 0.5) * 0.3, 0.1 + 0.14 * rng(), rng() < 0.25 ? dolly : rubber);
+        // Spread along the leaf (no two within 60 mm), heights across the bumper band.
+        const x = R * (0.08 + 0.84 * ((i + 0.2 + 0.6 * rng()) / nRub)), y = yb(0.4 + 0.5 * rng());
+        rub(x, y, 28 + 60 * rng(), 4 + 7 * rng(), (rng() - 0.5) * 0.36, 0.16 + 0.22 * rng(), 0.3 + rng(), rng() < 0.25 ? dolly : rubber);
       }
       // Bumper arcs: a cart's corner bumper (r ≈ 40–70 mm) swinging in, transfers on the swing.
       const nArc = Math.round(busy * (2 + rng() * 2));
@@ -296,13 +321,15 @@ export function presenceAtlas(size = 1024): PresenceSet {
           const top = 0.5 + 0.19 * e * (1 - 0.36 * Math.exp(-Math.pow(xi / 0.17, 2))) + 0.01 * (lipN(u * 2, v) - 0.5);
           const bot = 0.5 - 0.035 - 0.04 * Math.sqrt(e) - 0.05 * Math.exp(-Math.pow(xi / 0.32, 2));
           const inside = Math.min(top - v, v - bot); // > 0 inside
-          const soft = 0.018;
-          a = smooth01((inside + soft) / (2 * soft)) * clamp01((1.03 - Math.abs(xi)) / 0.06);
+          // Rev 4: a 1.2 mm feather (rev 3's 0.4 mm stair-stepped at 2×) and the lip lines cut
+          // right through — the print is a bundle of short vertical streaks, not a solid patch.
+          const soft = 0.05;
+          a = smooth01((inside + soft) / (2 * soft)) * clamp01((1.05 - Math.abs(xi)) / 0.12);
           // Pressure: strongest at the contact edge, lighter at the lobe tops; lip lines — thin
           // vertical creases where less colour transferred.
-          const pressure = 0.55 + 0.45 * clamp01(1 - (v - bot) / Math.max(0.02, top - bot));
-          const creases = Math.pow(clamp01(Math.sin(u * Math.PI * 2 * 21 + 3 * (lipN(u, v * 0.3) - 0.5)) * 0.5 + 0.5), 6);
-          a *= pressure * (1 - 0.55 * creases) * (0.8 + 0.4 * lipN(u * 3, v * 3));
+          const pressure = 0.5 + 0.5 * clamp01(1 - (v - bot) / Math.max(0.02, top - bot));
+          const creases = Math.pow(clamp01(Math.sin(u * Math.PI * 2 * 23 + 4 * (lipN(u, v * 0.3) - 0.5)) * 0.5 + 0.5), 2.2);
+          a *= pressure * (1 - 0.85 * creases) * (0.7 + 0.6 * lipN(u * 3, v * 3));
           // A faint transferred halo just outside the print.
           a = Math.max(a, 0.07 * smooth01((inside + 0.05) / 0.05) * clamp01((1.08 - Math.abs(xi)) / 0.1) * lipN(u * 4, v * 4));
           // Rev 3: the wet inner lip leaves a faint, broken trace above the lobe tops — the part
@@ -313,7 +340,8 @@ export function presenceAtlas(size = 1024): PresenceSet {
         }
         const n = lipN(u * 5 + 1, v * 5);
         // Rev 3: ~15 % toward luminance (a worn lipstick, not a fresh swatch).
-        px(X0 + x, Y0 + y, 0.73 + 0.05 * (n - 0.5), 0.19 + 0.05 * (n - 0.5), 0.24 + 0.04 * (n - 0.5), clamp01(a * 0.9));
+        // Rev 4: worn, half-wiped — colour toward brick (0.64/0.26/0.28), opacity ≤ 0.7.
+        px(X0 + x, Y0 + y, 0.64 + 0.05 * (n - 0.5), 0.26 + 0.05 * (n - 0.5), 0.28 + 0.04 * (n - 0.5), clamp01(a * 0.7));
         rough[(Y0 + y) * S + X0 + x] = 0.38;
         height[(Y0 + y) * S + X0 + x] = 0.5;
       }

@@ -435,7 +435,7 @@ function buildPlate(s: MergedBuilder, pal: Palette, mats: PresenceMaterials): TH
   // out of the window's sun spot on the glaze.
   {
     const L = 0.19;
-    const yaw = Math.PI - 0.85; // handle toward −x, −z (the far / aisle side)
+    const yaw = Math.PI - 1.15; // handle toward −x, −z (the far / aisle side); rev 4: swung 17° toward the camera so the handle end leaves the sun patch (its sun glint bloomed to a 25 px disc)
     const M = new THREE.Matrix4().makeRotationY(yaw);
     const tips = V3(px + 0.02, tableTop + wellY + 0.0012, pz + 0.04);
     M.setPosition(tips);
