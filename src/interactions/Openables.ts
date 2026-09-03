@@ -13,15 +13,21 @@
  *   close  reach 0 → 0.15, swing 0.15 → 0.75  95° → 0°: a shove, the damper slows the
  *          last 20°, the magnetic catch pulls the last 3° home with a click (close)
  *
- * Kitchen door (double-acting spring pivots, pushed from the dining room):
- *   reach  0 → 0.20     palm to the plate
- *   push   0.20 → 0.70  0° → 90° into the kitchen (ease-out; push thud at 0.20, the
- *                       first frame-pass whoosh at 0.20 too — the leaf leaves the frame)
- *   swing  0.70 → 2.80  released from rest: θ = 90°·e^(−2.0τ)·(cos 4.6τ + 0.43 sin 4.6τ)
- *                       — through the frame at τ 0.43 s to −23° into the dining room (0.68),
- *                       through again (1.11) to +6° (1.37), once more (1.79), then the pivots'
- *                       check blends the last 0.3 s to rest and it seats with a bumper thud.
- *                       Whoosh on every frame pass, scaled by the angular speed.
+ * Kitchen door (double-acting spring pivots with a hold-open stop at 90°; fix-counter-door made
+ * it a toggle like the front door — it used to spring shut the moment it was pushed). One
+ * press opens and it stays open; the next press releases it and the spring brings it home:
+ *   open   reach  0 → 0.20     palm to the plate
+ *          push   0.20 → 0.70  0° → 90° into the kitchen (ease-out; push thud at 0.20, the
+ *                              first frame-pass whoosh at 0.20 too — the leaf leaves the frame)
+ *          settle 0.70 → 1.50  against the hold-open: θ = 90° + 3°·e^(−4τ)·sin 9τ, a short
+ *                              wobble (bumper thud at 0.70), then it rests OPEN at 90°.
+ *   close  reach  0 → 0.15     palm to the plate (the hold-open lets go: push thud at 0.15)
+ *          swing  0.15 → 2.25  released from rest: θ = 90°·e^(−2.0τ)·(cos 4.6τ + 0.43 sin 4.6τ)
+ *                              — through the frame at τ 0.43 s to −23° into the dining room
+ *                              (0.68), through again (1.11) to +6° (1.37), once more (1.79),
+ *                              then the pivots' check blends the last 0.3 s to rest and it
+ *                              seats with a bumper thud. Whoosh on every frame pass, scaled
+ *                              by the angular speed.
  */
 import * as THREE from "three";
 import type { HingedLeaf } from "../scene/Openables";
@@ -178,39 +184,51 @@ export class CabinetDoorInteraction {
 /* ------------------------------------------------------------------------------------ */
 
 const KD_OPEN_DEG = 90;
-const KD_TL = { reach: [0, 0.2], push: [0.2, 0.7] } as const;
 /** Spring pivots: decay rate (1/s) and angular frequency (rad/s) of the free swing. */
 const KD_LAMBDA = 2.0;
 const KD_OMEGA = 4.6;
 /** Free swing until the envelope is under ~1.5° (ln(90·1.09/1.5)/λ ≈ 2.1 s); the check seats it there. */
 const KD_FREE_S = 2.1;
-export const KITCHEN_DOOR_END = KD_TL.push[1] + KD_FREE_S;
+/** Hold-open wobble: amplitude (°), decay (1/s), frequency (rad/s), duration (3°·e^(−3.2) ≈ 0.1°). */
+const KD_WOBBLE_DEG = 3;
+const KD_WOBBLE_LAMBDA = 4.0;
+const KD_WOBBLE_OMEGA = 9.0;
+const KD_WOBBLE_S = 0.8;
+const KD_TL = {
+  open: { reach: [0, 0.2], push: [0.2, 0.7], settle: [0.7, 0.7 + KD_WOBBLE_S], end: 0.7 + KD_WOBBLE_S },
+  close: { reach: [0, 0.15], swing: [0.15, 0.15 + KD_FREE_S], end: 0.15 + KD_FREE_S },
+} as const;
+export const KITCHEN_DOOR_OPEN_END = KD_TL.open.end;
+export const KITCHEN_DOOR_CLOSE_END = KD_TL.close.end;
 
 export interface KitchenDoorAudio {
-  /** A palm on the push plate (as the leaf starts). */
+  /** A palm on the push plate (as the leaf starts moving / as the hold-open lets go). */
   push(at: THREE.Vector3): void;
   /** The leaf sweeping through the frame; `speed` 0..1 relative to the first pass. */
   pass(at: THREE.Vector3, speed: number): void;
-  /** The check seats the leaf in the frame. */
+  /** A bumper thud: the leaf meets the hold-open stop, or the check seats it in the frame. */
   settle(at: THREE.Vector3): void;
 }
+
+export type KitchenDoorState = "closed" | "opening" | "open" | "closing";
 
 export class KitchenDoorInteraction {
   readonly interactable: Interactable;
   /** Signed degrees: positive into the kitchen, negative toward the dining room. */
   angleDeg = 0;
+  state: KitchenDoorState = "closed";
   private t = -1;
   private settled = false;
 
   constructor(readonly leaf: HingedLeaf, private readonly audio: KitchenDoorAudio) {
     this.interactable = {
       name: "kitchen-door",
-      label: () => "Push door",
+      label: () => (this.state === "open" ? "Close kitchen door" : "Open kitchen door"),
       focus: (out) => out.copy(this.leaf.focus),
       reach: 1.6,
       halfAngleDeg: 26,
-      available: () => this.t < 0,
-      interact: () => this.push(),
+      available: () => this.state === "closed" || this.state === "open",
+      interact: () => this.toggle(),
     };
   }
 
@@ -224,18 +242,29 @@ export class KitchenDoorInteraction {
     return s;
   }
 
-  push(): void {
+  /** One press: open (and hold) from closed, release from open. Ignored mid-motion. */
+  toggle(): void {
     if (this.t >= 0) return;
+    this.state = this.state === "open" ? "closing" : "opening";
     this.t = 0;
     this.update(0);
   }
 
-  seek(seconds: number): void {
-    this.t = seconds >= KITCHEN_DOOR_END ? -1 : Math.max(0, seconds);
+  /** Jump to `seconds` into the opening cycle from closed (or the closing cycle from open), silent. */
+  seek(seconds: number, from: "closed" | "open" = "closed"): void {
+    const tl = from === "closed" ? KD_TL.open : KD_TL.close;
+    if (seconds >= tl.end) {
+      this.state = from === "closed" ? "open" : "closed";
+      this.t = -1;
+    } else {
+      this.state = from === "closed" ? "opening" : "closing";
+      this.t = Math.max(0, seconds);
+    }
     this.apply(this.t);
   }
 
   reset(): void {
+    this.state = "closed";
     this.t = -1;
     this.apply(-1);
   }
@@ -244,20 +273,28 @@ export class KitchenDoorInteraction {
     if (this.t < 0) return;
     const before = this.t;
     const t = before + dt;
+    const opening = this.state === "opening";
+    const end = opening ? KD_TL.open.end : KD_TL.close.end;
     if (dt > 0) {
-      if (before < KD_TL.push[0] && t >= KD_TL.push[0]) {
-        this.audio.push(this.leaf.voice);
-        this.audio.pass(this.leaf.voice, 1);
+      if (opening) {
+        if (before < KD_TL.open.push[0] && t >= KD_TL.open.push[0]) {
+          this.audio.push(this.leaf.voice);
+          this.audio.pass(this.leaf.voice, 1);
+        }
+        if (before < KD_TL.open.settle[0] && t >= KD_TL.open.settle[0]) this.audio.settle(this.leaf.voice);
+      } else {
+        if (before < KD_TL.close.swing[0] && t >= KD_TL.close.swing[0]) this.audio.push(this.leaf.voice);
+        // Frame passes during the free swing: sign changes of the angle.
+        const a0 = this.angleAt(before), a1 = this.angleAt(t);
+        if (before >= KD_TL.close.swing[0] && Math.sign(a0) !== Math.sign(a1) && a1 !== 0) {
+          const speed = Math.abs(this.angularSpeedAt(t)) / (KD_OPEN_DEG * KD_OMEGA);
+          this.audio.pass(this.leaf.voice, clamp01(speed * 1.6));
+        }
+        if (before < end && t >= end) this.audio.settle(this.leaf.voice);
       }
-      // Frame passes during the free swing: sign changes of the angle.
-      const a0 = this.angleAt(before), a1 = this.angleAt(t);
-      if (before >= KD_TL.push[1] && Math.sign(a0) !== Math.sign(a1) && a1 !== 0) {
-        const speed = Math.abs(this.angularSpeedAt(t)) / (KD_OPEN_DEG * KD_OMEGA);
-        this.audio.pass(this.leaf.voice, clamp01(speed * 1.6));
-      }
-      if (before < KITCHEN_DOOR_END && t >= KITCHEN_DOOR_END) this.audio.settle(this.leaf.voice);
     }
-    if (t >= KITCHEN_DOOR_END) {
+    if (t >= end) {
+      this.state = opening ? "open" : "closed";
       this.t = -1;
       this.apply(-1);
       this.settled = true;
@@ -267,22 +304,35 @@ export class KitchenDoorInteraction {
     this.apply(t);
   }
 
-  /** Signed degrees at cycle time `t`; −1 = at rest. */
+  /** Signed degrees at cycle time `t` for the current state; −1 = at rest. */
   angleAt(t: number): number {
-    if (t < 0 || t < KD_TL.push[0]) return 0;
-    if (t < KD_TL.push[1]) return KD_OPEN_DEG * easeOut(phase(t, KD_TL.push[0], KD_TL.push[1]));
-    const tau = t - KD_TL.push[1];
-    if (tau >= KD_FREE_S) return 0;
-    // Released from rest at 90°: the (cos + λ/ω·sin) form has zero initial velocity, so the
-    // hand-over from the push is velocity-continuous. The check blends the last 0.3 s to 0.
-    const free = KD_OPEN_DEG * Math.exp(-KD_LAMBDA * tau) * (Math.cos(KD_OMEGA * tau) + (KD_LAMBDA / KD_OMEGA) * Math.sin(KD_OMEGA * tau));
-    return free * (1 - smooth((tau - (KD_FREE_S - 0.3)) / 0.3));
+    if (t < 0) return this.state === "open" ? KD_OPEN_DEG : 0;
+    if (this.state === "opening") {
+      const { push, settle } = KD_TL.open;
+      if (t < push[0]) return 0;
+      if (t < push[1]) return KD_OPEN_DEG * easeOut(phase(t, push[0], push[1]));
+      const tau = t - settle[0];
+      if (tau >= KD_WOBBLE_S) return KD_OPEN_DEG;
+      // The leaf meets the hold-open stop and shivers against it: a small damped sine.
+      return KD_OPEN_DEG + KD_WOBBLE_DEG * Math.exp(-KD_WOBBLE_LAMBDA * tau) * Math.sin(KD_WOBBLE_OMEGA * tau);
+    }
+    if (this.state === "closing") {
+      const { swing } = KD_TL.close;
+      if (t < swing[0]) return KD_OPEN_DEG;
+      const tau = t - swing[0];
+      if (tau >= KD_FREE_S) return 0;
+      // Released from rest at 90°: the (cos + λ/ω·sin) form has zero initial velocity, so the
+      // hand-over from the hold is velocity-continuous. The check blends the last 0.3 s to 0.
+      const free = KD_OPEN_DEG * Math.exp(-KD_LAMBDA * tau) * (Math.cos(KD_OMEGA * tau) + (KD_LAMBDA / KD_OMEGA) * Math.sin(KD_OMEGA * tau));
+      return free * (1 - smooth((tau - (KD_FREE_S - 0.3)) / 0.3));
+    }
+    return this.state === "open" ? KD_OPEN_DEG : 0;
   }
 
-  /** dθ/dt in deg/s during the free swing (0 elsewhere). */
+  /** dθ/dt in deg/s during the closing free swing (0 elsewhere). */
   private angularSpeedAt(t: number): number {
-    const tau = t - KD_TL.push[1];
-    if (tau < 0 || tau >= KD_FREE_S) return 0;
+    const tau = t - KD_TL.close.swing[0];
+    if (this.state !== "closing" || tau < 0 || tau >= KD_FREE_S) return 0;
     return -KD_OPEN_DEG * Math.exp(-KD_LAMBDA * tau) * (KD_OMEGA + (KD_LAMBDA * KD_LAMBDA) / KD_OMEGA) * Math.sin(KD_OMEGA * tau);
   }
 

@@ -11,6 +11,7 @@ import { DOOR, ROOM, WINDOW } from "../scene/layout";
 import { VINYL_CRAZE_METRES, boothVinylCrazeLayout } from "./upholstery";
 import { FLUORESCENT, TROFFER_LENS_NITS, luminance, nits } from "../scene/Lighting";
 import type { TextureBank } from "./textureBank";
+import { installShaderPatches } from "./shaderPatches";
 
 export interface Palette {
   wallPaint: THREE.MeshStandardMaterial;
@@ -135,6 +136,9 @@ export interface Palette {
 type DerivedKey = "tbarPainted" | "formicaCounterWorn" | "formicaEdgeBrushed" | "chromeScuffed" | "chromeBar" | "stainlessTouched" | "glassCarafe" | "baseboardWorn" | "vinylRedWeltCracked" | "kickPlate" | "stainlessLip" | "kickPlateWorn" | "castBaseDusty";
 
 export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palette {
+  // Before any program compiles (shaderPatches.ts, fix-counter-door): an orthonormal anisotropy
+  // frame on UV-stretched faces — the counter-edge beads.
+  installShaderPatches();
   const aniso = Math.min(8, maxAnisotropy);
   // With a TextureBank the generators run in workers and return placeholders that
   // fill in later (see core/textureBank.ts); without one they run synchronously.

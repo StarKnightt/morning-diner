@@ -308,7 +308,7 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
   const prefilterMat = new THREE.ShaderMaterial({
     vertexShader: fsVertex,
     fragmentShader: bloomPrefilterFragment,
-    uniforms: { tColor: { value: compRT.texture }, uTexel: { value: new THREE.Vector2() }, uThreshold: { value: 2 }, uKnee: { value: 0.5 }, uExposure: { value: 1 } },
+    uniforms: { tColor: { value: compRT.texture }, uTexel: { value: new THREE.Vector2() }, uThreshold: { value: 2 }, uKnee: { value: 0.5 }, uExposure: { value: 1 }, uClamp: { value: 100 } },
     depthTest: false,
     depthWrite: false,
     toneMapped: false,
@@ -422,6 +422,9 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
     const shadowReady = !!sun?.shadow.map?.depthTexture;
     if (dust) {
       // debug.view 5 → motes ignore the shadow map; 6 → every mote lit (spawn-volume check)
+      // Motes never bloom: their radiance is capped just under the knee (a 1–3 px PSF disc at
+      // +2 EV over white clips to white either way; only the 30 px halo went).
+      dust.maxRadiance = s.bloom.enabled ? Math.max(0.01, s.bloom.threshold - s.bloom.knee) : 1e6;
       dust.update(time, camera, renderer.getPixelRatio(), s.debug.view === 5 ? 1 : s.debug.view === 6 ? 2 : 0);
       dust.points.visible = s.dust.enabled && shadowReady;
     }
@@ -522,6 +525,7 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
       prefilterMat.uniforms.uThreshold.value = s.bloom.threshold;
       prefilterMat.uniforms.uKnee.value = Math.max(1e-3, s.bloom.knee);
       prefilterMat.uniforms.uExposure.value = s.finish.exposure ?? renderer.toneMappingExposure;
+      prefilterMat.uniforms.uClamp.value = Math.max(s.bloom.threshold, s.bloom.clamp);
       runPass(prefilterMat, bloomHalfA);
       const r = s.bloom.radius;
       blurMat.uniforms.tColor.value = bloomHalfA.texture;

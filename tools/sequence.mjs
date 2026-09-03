@@ -143,11 +143,21 @@ const SEQUENCES = {
     interact: "kitchen-door",
     camera: KITCHEN_DOOR_CAMERA,
     t0: 0,
-    t1: 2.8,
+    t1: 1.5,
     step: 0.1,
-    keys: [0, 0.4, 0.7, 1.1, 1.4, 2.1],
+    keys: [0, 0.4, 0.7, 0.9, 1.1, 1.5],
     cols: 6,
-    title: "KITCHEN DOOR  push + spring return, aisle camera  0-2.8 s @ 0.1 s",
+    title: "KITCHEN DOOR  push to the hold-open, aisle camera  0-1.5 s @ 0.1 s",
+  },
+  "kitchen-door-close": {
+    interact: "kitchen-door-close",
+    camera: KITCHEN_DOOR_CAMERA,
+    t0: 0,
+    t1: 2.25,
+    step: 0.1,
+    keys: [0, 0.4, 0.8, 1.3, 1.6, 2.2],
+    cols: 6,
+    title: "KITCHEN DOOR  release + spring return, aisle camera  0-2.25 s @ 0.1 s",
   },
 };
 const NAMES = ONLY.length ? Object.keys(SEQUENCES).filter((s) => ONLY.includes(s)) : Object.keys(SEQUENCES);
@@ -418,10 +428,10 @@ async function main() {
           if (s.interact === "sit") return ix.sit.state.toUpperCase().replace("-", " ").slice(0, 12);
           if (s.interact === "drink") return `FILL ${(ix.drink.fill * 100).toFixed(0)}%`;
           if (s.interact === "cabinet" || s.interact === "cabinet-close") return `${ix.cabinet[0].angleDeg.toFixed(1)}DEG`;
-          if (s.interact === "kitchen-door") return `${ix.kitchenDoor.angleDeg.toFixed(1)}DEG`;
+          if (s.interact === "kitchen-door" || s.interact === "kitchen-door-close") return `${ix.kitchenDoor.angleDeg.toFixed(1)}DEG`;
           return "";
         },
-        { s: seq, t, cam: seq.camera, hidePrompt: ["drink", "cabinet", "cabinet-close", "kitchen-door"].includes(seq.interact) },
+        { s: seq, t, cam: seq.camera, hidePrompt: ["drink", "cabinet", "cabinet-close", "kitchen-door", "kitchen-door-close"].includes(seq.interact) },
       );
       // Frozen clocks: a few frames so the shadow maps re-render and the prompt settles.
       await page.evaluate(

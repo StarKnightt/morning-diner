@@ -174,15 +174,23 @@ export const bloomPrefilterFragment = /* glsl */ `
   varying vec2 vUv;
   uniform sampler2D tColor;
   uniform vec2 uTexel;
-  uniform float uThreshold, uKnee, uExposure;
+  uniform float uThreshold, uKnee, uExposure, uClamp;
+  // Per-tap ceiling (fix-counter, main): a single HDR ping (specular pin, mote) can otherwise
+  // carry 1,000× the threshold into the blur and come out as a saturated blob (the counter
+  // beads). Display-referred like the threshold (System 4 rev 6): uClamp is in exposed units.
+  vec3 fetchClamped(vec2 uv) {
+    vec3 c = texture2D(tColor, uv).rgb;
+    float l = max(c.r, max(c.g, c.b)) * uExposure;
+    return c * min(1.0, uClamp / max(l, 1e-4));
+  }
   // Karis weight (jungle-trail grade.js BLOOM_PRE_FRAG): a tap counts by the reciprocal of its
   // own brightness, so one sub-pixel ping cannot carry the whole footprint and flicker.
   float kw(vec3 c) { return 1.0 / (1.0 + max(c.r, max(c.g, c.b)) * uExposure); }
   void main() {
-    // 5-tap cross over the full-res 2×2 footprint plus its neighbours, Karis-weighted.
-    vec3 c0 = texture2D(tColor, vUv).rgb;
-    vec3 c1 = texture2D(tColor, vUv + vec2(uTexel.x, 0.0)).rgb, c2 = texture2D(tColor, vUv - vec2(uTexel.x, 0.0)).rgb;
-    vec3 c3 = texture2D(tColor, vUv + vec2(0.0, uTexel.y)).rgb, c4 = texture2D(tColor, vUv - vec2(0.0, uTexel.y)).rgb;
+    // 5-tap cross over the full-res 2×2 footprint plus its neighbours, clamped and Karis-weighted.
+    vec3 c0 = fetchClamped(vUv);
+    vec3 c1 = fetchClamped(vUv + vec2(uTexel.x, 0.0)), c2 = fetchClamped(vUv - vec2(uTexel.x, 0.0));
+    vec3 c3 = fetchClamped(vUv + vec2(0.0, uTexel.y)), c4 = fetchClamped(vUv - vec2(0.0, uTexel.y));
     float w0 = 0.5 * kw(c0), w1 = 0.125 * kw(c1), w2 = 0.125 * kw(c2), w3 = 0.125 * kw(c3), w4 = 0.125 * kw(c4);
     vec3 c = (c0 * w0 + c1 * w1 + c2 * w2 + c3 * w3 + c4 * w4) / (w0 + w1 + w2 + w3 + w4);
     // Thresholded on the DISPLAY-referred value (scene × the exposure the tone map is about to

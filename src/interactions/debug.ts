@@ -12,7 +12,9 @@
  *   __interact("cabinet", t?)       System 9: toggle the LEFT cabinet door; `t` seeks into the 0.8 s opening
  *   __interact("cabinet-right", t?) the right door likewise
  *   __interact("cabinet-close", t?) close the (open) left door; `t` seeks into the 0.75 s closing
- *   __interact("kitchen-door", t?)  System 9: push the kitchen swing door; `t` seeks into the 2.8 s cycle
+ *   __interact("kitchen-door", t?)  System 9: toggle the kitchen swing door (opens and HOLDS at 90°, a second
+ *                                   press releases it); `t` seeks into the 1.5 s opening
+ *   __interact("kitchen-door-close", t?)  release the (open) kitchen door; `t` seeks into the 2.25 s spring return
  *   __interact("resume")            unfreeze
  *   __interact("reset")             everything back to rest, unfrozen
  *   __interactPose("sit-seated" | "pour-mid" | "pour-full" | "door-open")
@@ -67,8 +69,8 @@ export const INTERACT_POSES: Record<InteractPoseName, { camera?: typeof POUR_CAM
   "door-open": { camera: DOOR_CAMERA, note: "2 s: leaf held at 85° (hold phase 1.45–2.85 s)" },
   "drink-sip": { camera: DRINK_CAMERA, note: "1.35 s into the drink from a full mug: rim at the lips, head tilted back 5°, level falling" },
   "cabinet-open": { camera: CABINET_CAMERA, note: "both cabinet doors open at rest (95°): shelf, saucers, filters, spray bottle" },
-  "kitchen-door-open": { camera: KITCHEN_DOOR_CAMERA, note: "0.7 s: leaf pushed to 90° into the kitchen, the lit kitchen slice beyond" },
-  "kitchen-door-back": { camera: KITCHEN_DOOR_CAMERA, note: "1.38 s: the spring's back-swing, leaf ~23° into the dining room" },
+  "kitchen-door-open": { camera: KITCHEN_DOOR_CAMERA, note: "open at rest: leaf held at 90° into the kitchen, the lit kitchen slice beyond" },
+  "kitchen-door-back": { camera: KITCHEN_DOOR_CAMERA, note: "0.83 s into the release: the spring's back-swing, leaf ~23° into the dining room" },
 };
 
 export function installInteractionDebugApi(
@@ -138,9 +140,17 @@ export function installInteractionDebugApi(
         break;
       }
       case "kitchen-door":
-        if (t === undefined) kitchenDoor.push();
+        if (t === undefined) kitchenDoor.toggle();
         else {
           kitchenDoor.seek(t);
+          clock.freeze(true);
+        }
+        break;
+      case "kitchen-door-close":
+        if (t === undefined) {
+          if (kitchenDoor.state === "open") kitchenDoor.toggle();
+        } else {
+          kitchenDoor.seek(t, "open");
           clock.freeze(true);
         }
         break;
@@ -202,10 +212,10 @@ export function installInteractionDebugApi(
         interact("cabinet-right", 10);
         break;
       case "kitchen-door-open":
-        interact("kitchen-door", 0.7);
+        interact("kitchen-door", 10);
         break;
       case "kitchen-door-back":
-        interact("kitchen-door", 1.38);
+        interact("kitchen-door-close", 0.83);
         break;
     }
     // Run one zero-dt tick so the prompt and camera reflect the new state before the next render.
