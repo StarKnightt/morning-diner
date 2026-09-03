@@ -269,7 +269,7 @@ export function buildLotLight(b: MergedBuilder, m: LotLightMats, px: number, pz:
   rb(m.alu, [-ox + 0.015, yMod - 0.008, oz0 + 0.012], [ox - 0.015, yMod, oz1 - 0.012], 0.002, 1);
   for (let i = 0; i < 5; i++)
     for (let j = 0; j < 3; j++) {
-      const lens = new THREE.SphereGeometry(0.021, 12, 5, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+      const lens = new THREE.SphereGeometry(0.021, 10, 4, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
       lens.scale(1, 0.7, 1);
       lens.translate(-0.18 + i * 0.09, yMod - 0.008, oz0 + 0.06 + j * ((oz1 - oz0 - 0.12) / 2));
       put(lens, m.led);
