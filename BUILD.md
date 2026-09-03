@@ -182,7 +182,8 @@ shallow dim kitchen box behind the pass-through and a black void elsewhere.
 | `F` | tilt the blinds of the window you are looking at (`feat-blinds-f`) |
 | `[` / `]` | exposure −/+ ⅓ EV (`main.ts`) |
 
-Evening preset: `?ev=<0..1>` blends the 6:45 PM golden-hour rig (System 4 rev 7) over the morning rig.
+The scene lights with the 6:45 PM evening preset (System 4 rev 7). `?ev=±n` sets the exposure
+offset in stops (default 0; `[` `]` step it and the value is remembered in localStorage).
 
 ## Startup
 

@@ -23,9 +23,9 @@ node tools/shoot.mjs           # headless capture of the reference poses → sho
 | `F` | tilt the blinds you are looking at |
 | `[` / `]` | exposure −/+ |
 
-## Evening
+## Lighting
 
-Add `?ev=1` to the URL for the 6:45 PM golden-hour preset (`?ev=0.5` blends half-way toward it);
-see BUILD.md "System 4 — Evening preset" for the rig and its numbers.
+The scene is lit with the 6:45 PM evening preset (golden hour, sun 9° up). `?ev=±n` in the URL
+offsets the exposure by n stops (`[` `]` do the same live); see BUILD.md "Evening preset".
 
 Build notes, per-system verification and the capture / bench harnesses: `BUILD.md`.
