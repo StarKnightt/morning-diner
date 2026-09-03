@@ -112,6 +112,10 @@ const POSES = {
   // which resets every interaction, seeks the named one to a fixed time, freezes the animation
   // clocks and places the camera itself (the seated pose IS the camera).
   "sit-seated": { interact: "sit-seated" },
+  // Counter stools (feat-stool-sit): prompt up behind stool 5, seated on it, seated with the look turned 60° left.
+  "stool-approach": { interact: "stool-approach" },
+  "stool-seated": { interact: "stool-seated" },
+  "stool-seated-look-left": { interact: "stool-seated-look-left" },
   "pour-mid": { interact: "pour-mid" },
   "pour-full": { interact: "pour-full" },
   "door-open": { interact: "door-open" },

@@ -61,6 +61,8 @@ export class Diner {
   pourMug!: THREE.Mesh;
   pourMugShadow!: THREE.Mesh;
   coffeePot!: THREE.Group;
+  /** Counter stool seat tops, one Group per stool pivoted on its column (swivelled by Sit.ts). */
+  stoolSeats: THREE.Group[] = [];
   /** System 9: the openables' hinges and the presence props (Sys9.ts). */
   sys9!: System9;
   private fanRotor!: THREE.Group;
@@ -103,6 +105,7 @@ export class Diner {
     this.pourMug = props.pourMug;
     this.pourMugShadow = props.pourMugShadow;
     this.coffeePot = props.coffeePot;
+    this.stoolSeats = counter.stoolSeats;
     this.fanRotor = ceiling.fanRotor;
     this.colliders.push(...shell.colliders, ...booths.colliders, ...counter.colliders, ...backCounter.colliders);
 

@@ -63,7 +63,10 @@ export function initInteractions(ctx: InteractionContext): Interactions {
   const { audio } = wiring;
   const toVec = (v: THREE.Vector3) => ({ x: v.x, y: v.y, z: v.z });
 
-  const sit = new SitInteraction(player);
+  const sit = new SitInteraction(player, diner.stoolSeats, {
+    creak: (_at, strength) => audio.sfx.seatCreak(strength),
+    squeak: (_at, amount) => audio.sfx.stoolSqueak(amount),
+  });
   const pour = new PourInteraction(
     scene,
     renderer,
