@@ -49,10 +49,11 @@ export function buildCeiling(parent: THREE.Group, pal: Palette): CeilingResult {
   // Grid tees carry metric UVs (1 canvas = 1 m of tee) for the chipped-paint map.
   const tee = { uvScale: 1 };
   {
-    // Two water-stained tiles (under the AC line and by the pass-through) are their own
-    // small mesh with the stained variant: +1 draw, the only way to give two instances a
+    // Two water-stained tiles (under the AC line, and a smaller older one two bays toward the
+    // door — rev 4 moved it from 15,3 by the pass-through, which no pose could see — are their
+    // own small mesh with the stained variant: +1 draw, the only way to give two instances a
     // different map. System 5.
-    const stained = new Set(["6,7", "15,3"]);
+    const stained = new Set(["6,7", "3,5"]);
     const cells: Array<[number, number]> = [];
     for (let i = 0; i < nx; i++) for (let j = 0; j < nz; j++) if (own(i, j) === undefined && !stained.has(`${i},${j}`)) cells.push([i, j]);
     const tileT = 0.015;

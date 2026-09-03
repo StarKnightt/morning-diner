@@ -812,14 +812,16 @@ export function acousticTile(size: number, seed = 555, stain = false): TextureSe
       return best;
     };
     // Rev 3: the stain is a TINT MULTIPLIED into the tile (the fissures and their shading show
-    // through it — a wet board, not a decal): a soft tan wash grading to brown toward the rim
-    // (minerals travel to the drying edge), the rim itself a brown line whose weight and
-    // darkness wander 2–8 mm around the outline, and inside it 2–3 nested tide rings — the
-    // same leak drying back on successive days — each fainter and thinner, each wandering
-    // on its own. No crazing network, no chalk flakes. The board still swells ~1 mm.
+    // through it — a wet board, not a decal). Rev 4: ONE outer rim — a brown line whose weight
+    // (2–9 mm) and darkness wander around the outline, broken for short stretches — ONE faint
+    // inner tide line (the first, older leak's outline, off-centre and its own shape, so it
+    // is not a concentric contour), a BLOTCHY interior (the tan wash is driven by a coarse
+    // mottle, with dry islands and heavier patches, not a radial gradient), and the tile's
+    // fissures darker inside the stain than outside (dirt settles in the slots as the water
+    // dries). Rev 3's three nested tide rings read as a contour map and are gone.
     const mottle = makeFbm(seed + 33 + k, 9, 3);
+    const blotch = makeFbm(seed + 77 + k, 4, 3);
     const wander = makeFbm(seed + 51 + k, 14, 2);
-    const rings: Array<[number, number, number]> = k === 0 ? [[0.13, 0.42, 1.6], [0.27, 0.3, 2.2], [0.42, 0.2, 2.6]] : [[0.16, 0.4, 1.6], [0.34, 0.25, 2.2]]; // [s, alpha, width×]
     for (let y = 0; y < size; y++)
       for (let x = 0; x < size; x++) {
         const s = field(blobs, x, y, 0.3 + k);
@@ -828,25 +830,22 @@ export function acousticTile(size: number, seed = 555, stain = false): TextureSe
         const u = x / size, v = y / size;
         const m1 = mottle(u, v), m2 = mottle(u + 3, v), wd = wander(u, v) - 0.5;
         const inside = smoothstep(0.0, 0.015, s);
-        // Rim: 2–8 mm wide, its weight wandering along the outline
-        const rimW = 0.012 + 0.035 * m1;
-        const rim = smoothstep(-0.012, 0.0, s) * (1 - smoothstep(rimW * 0.35, rimW, s)) * (0.55 + 0.45 * m2);
-        // Wash: tan, heavier toward the rim, mottled; the centre nearly dry
-        const wash = inside * (0.25 + 0.55 * (1 - smoothstep(0.02, 0.4, s))) * (0.7 + 0.5 * m2);
-        // Nested tide rings: thin brown lines at fixed depths s_k, each wandering ±0.03 in s
-        // — soft-edged, and BROKEN: a tide ring only shows where enough mineral was left, so
-        // each is open for a third or so of its length (gated on its own noise), not a contour.
-        let tide = 0;
-        for (const [sk, ak, wk] of rings) {
-          const ds = Math.abs(s - (sk + wd * 0.06));
-          const gate = smoothstep(0.36, 0.5, mottle(u + sk * 5, v - sk * 3));
-          tide = Math.max(tide, (1 - smoothstep(0.0, 0.012 * wk, ds)) * ak * gate);
-        }
-        // Older leak's own outline, faint
+        // Rim: 2–9 mm wide, its weight and darkness wandering along the outline, open for a
+        // few short stretches (the minerals did not reach everywhere)
+        const rimW = 0.012 + 0.04 * m1;
+        const rimGate = 0.35 + 0.65 * smoothstep(0.3, 0.42, mottle(u * 1.7 + 9, v * 1.7 + 4));
+        const rim = smoothstep(-0.012, 0.0, s) * (1 - smoothstep(rimW * 0.3, rimW, s)) * (0.5 + 0.5 * m2) * rimGate;
+        // Wash: tan, blotchy — a coarse mottle with dry islands, a little heavier near the rim
+        const bl = blotch(u, v);
+        const wash = inside * (0.18 + 0.7 * smoothstep(0.35, 0.68, bl) + 0.2 * (1 - smoothstep(0.02, 0.25, s))) * (0.75 + 0.4 * m2);
+        // The one faint inner tide line: the older leak's outline, soft, broken
         const si = field([inner], x, y, 0.7 + k);
-        tide = Math.max(tide, smoothstep(-0.015, 0.0, si) * (1 - smoothstep(0.006, 0.02, si)) * inside * 0.3);
-        // Multiply: tan (0.86,0.74,0.52) by the wash, brown (0.42,0.29,0.14) by rim + tide
-        const aW = Math.min(1, wash), aL = Math.min(1, rim * 0.9 + tide * inside);
+        const tideGate = smoothstep(0.38, 0.5, mottle(u * 2.3 + 1, v * 2.3 - 2));
+        const tide = smoothstep(-0.02 + wd * 0.02, 0.0 + wd * 0.02, si) * (1 - smoothstep(0.004, 0.02, si)) * inside * 0.28 * (0.4 + 0.6 * tideGate);
+        // Dirt in the fissures inside the stain: the slot floors go a shade browner
+        const fiss = Math.min(1, Math.max(0, -hf2[j])) * inside * 0.45;
+        // Multiply: tan (0.86,0.74,0.52) by the wash, brown (0.42,0.29,0.14) by rim + tide + fissure dirt
+        const aW = Math.min(1, wash), aL = Math.min(1, rim * 0.95 + tide + fiss);
         const mr = (1 - aW + 0.86 * aW) * (1 - aL + 0.42 * aL);
         const mg = (1 - aW + 0.74 * aW) * (1 - aL + 0.29 * aL);
         const mb = (1 - aW + 0.52 * aW) * (1 - aL + 0.14 * aL);
