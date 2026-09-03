@@ -201,6 +201,9 @@ export function bounceQuads(p: BounceParams): BounceQuad[] {
  */
 export function bounceRectsUniform(quads: BounceQuad[], k: number): Float32Array {
   const data = new Float32Array(quads.length * 32);
+  // Influence radius slot (N.w = r²max, tested in the loop). perf-frame 2 tried
+  // 512 · |Lpt| / (2π · max|L|) — a 1/512-of-peak cut per quad — and the ceiling shifted
+  // (3.2 % of `length` pixels: it sums ~40 small floor contributions), so it is disabled.
   quads.forEach((q, i) => {
     const e1 = new THREE.Vector3().subVectors(q.v[1], q.v[0]), e3 = new THREE.Vector3().subVectors(q.v[3], q.v[0]);
     const e2 = new THREE.Vector3().subVectors(q.v[2], q.v[0]);
@@ -212,7 +215,8 @@ export function bounceRectsUniform(quads: BounceQuad[], k: number): Float32Array
     const Lpt = q.radiance.clone().multiplyScalar(k * area);
     const o = i * 32;
     const put = (j: number, v: THREE.Vector3, w = 0) => { data[o + j * 4] = v.x; data[o + j * 4 + 1] = v.y; data[o + j * 4 + 2] = v.z; data[o + j * 4 + 3] = w; };
-    put(0, c, far); put(1, N); put(2, L); put(3, Lpt);
+    const r2max = 1e9;
+    put(0, c, far); put(1, N, r2max); put(2, L); put(3, Lpt);
     put(4, q.v[0]); put(5, q.v[1]); put(6, q.v[2]); put(7, q.v[3]);
   });
   return data;
@@ -235,8 +239,9 @@ export function bounceRectsGlsl(quads: BounceQuad[], zInside = ROOM.zFront): str
       vec4 cf = uBounce[ b ];
       vec3 dc = cf.xyz - p;
       float r2 = dot( dc, dc );
-      float ce = -dot( dc, uBounce[ b + 1 ].xyz );
-      if ( ce > 0.01 ) {
+      vec4 nr = uBounce[ b + 1 ];
+      float ce = -dot( dc, nr.xyz );
+      if ( ce > 0.01 && r2 < nr.w ) {
         if ( r2 > cf.w ) {
           acc += uBounce[ b + 3 ].xyz * ( ce * max( dot( n, dc ), 0.0 ) / ( r2 * r2 ) );
         } else {
@@ -255,6 +260,9 @@ export function bounceRectsGlsl(quads: BounceQuad[], zInside = ROOM.zFront): str
   // Declared for every program (BOUNCE_NO_RECTS ones never call bounceIrradiance, so the
   // linker drops it there).
   uniform vec4 uBounce[ BOUNCE_N * 8 ];
+  // 0 while three renders the transmission target (Lighting.ts gates it): from inside, that
+  // target holds the exterior, which has no bounce anyway; the loop is skipped wholesale.
+  uniform float uBounceOn;
   // acos on [-1, 1], Eberly's polynomial (|err| < 7e-5 rad); the exact one is the cost here.
   float bounceAcos( float x ) {
     float ax = abs( x );
@@ -274,7 +282,7 @@ export function bounceRectsGlsl(quads: BounceQuad[], zInside = ROOM.zFront): str
   // away, gets nothing. Checked against the parallel-rectangle form factor (E/L 1.741 for a 2×2
   // patch 1 m below a downward-facing point) in /tmp ff.mjs before shipping.
   vec3 bounceIrradiance( vec3 p, vec3 n ) {
-    if ( p.z > ${f(zInside + 0.02)} ) return vec3( 0.0 );
+    if ( uBounceOn < 0.5 || p.z > ${f(zInside + 0.02)} ) return vec3( 0.0 );
     vec3 acc = vec3( 0.0 );${body}
     return acc;
   }

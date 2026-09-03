@@ -21,7 +21,7 @@ import { buildCeiling } from "./Ceiling";
 import { buildCounter } from "./Counter";
 import { buildDoor } from "./Door";
 import { buildExterior } from "./Exterior";
-import { ROOM_PROBE_INTENSITY, buildContactShadows, buildLighting, installShadowMasks, sunDirection } from "./Lighting";
+import { ROOM_PROBE_INTENSITY, buildContactShadows, buildLighting, installShadowMasks, sunDirection, installBounceGate } from "./Lighting";
 import { buildProps } from "./Props";
 import { buildRear } from "./Rear";
 import { buildKitchen } from "./Kitchen";
@@ -136,6 +136,7 @@ export class Diner {
     // Interior casters stay out of the lot sun's shadow map: the cone occluder already
     // blacks the whole building out of that light, and this saves ~120 depth draws/frame.
     installShadowMasks(renderer, this.group, lights, [this.palette.concrete]);
+    installBounceGate(renderer);
 
     // Background and fog in the sky's physical scale (Lighting.ts): the horizon colour.
     scene.background = lights.horizon.clone();

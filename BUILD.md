@@ -3424,6 +3424,16 @@ Rear/Kitchen/Signage/World use no `transmission` (the pass renders the 5 window 
 as before). `post-bench.mjs` gained `--settle=ms`, `--samples=n`, the three new poses and a
 `tris=` column.
 
+perf-frame 2: `uBounceOn` (getter uniform, `installBounceGate` wraps `renderer.setRenderTarget`
+and flags three's transmission target — the only RT with a mipmapped texture and unresolved
+depth) zeroes the loop while the transmission pass renders; interior frames unchanged (length
+0.55 %, kitchen-line 0.36 % pixels > 8 vs 18a1bba, i.e. grain). A per-quad influence-radius
+cull at 1/512 of peak was tried and left disabled (r²max slot kept at 1e9): the ceiling sums
+~40 small floor contributions and shifted 3.2 % of `length`. Bench after (2 samples):
+`length` 15.4 / `booth` 15.4 / `lot-wide` 9.8 / `sign-facade` 9.9 / `kitchen-line` 14.3 /
+`world-road` 2.9 ms total — but the bloom pass (constant work) read 0.2–0.5 ms in this run vs
+0.8 in the 18a1bba run, so ~1/3 of the drop is GPU clock state, not the gate.
+
 ## System status
 
 | # | System | Status |

@@ -750,6 +750,7 @@ export function installPcss(): void {
       fn.call(this, shader, renderer);
       (shader.uniforms as Record<string, { value: unknown }>).sunPcfMap = SUN_PCF_UNIFORM;
       (shader.uniforms as Record<string, { value: unknown }>).uBounce = BOUNCE_UNIFORM;
+      (shader.uniforms as Record<string, { value: unknown }>).uBounceOn = BOUNCE_ON_UNIFORM;
     };
     wrapped.toString = () => fn.toString() + "+sunpcf";
     (wrapped as unknown as { sunPcf?: boolean }).sunPcf = true;
@@ -773,6 +774,7 @@ function bindSunPcf(m: THREE.Material): void {
     own.call(this, shader, renderer);
     (shader.uniforms as Record<string, { value: unknown }>).sunPcfMap = SUN_PCF_UNIFORM;
     (shader.uniforms as Record<string, { value: unknown }>).uBounce = BOUNCE_UNIFORM;
+    (shader.uniforms as Record<string, { value: unknown }>).uBounceOn = BOUNCE_ON_UNIFORM;
   };
   (wrapped as unknown as { sunPcf?: boolean }).sunPcf = true;
   m.onBeforeCompile = wrapped;
@@ -895,6 +897,24 @@ function installSlatShadow(): void {
  */
 /** The bounce quad table (bounceRectsUniform); bound to every lit program by the PCSS wrapper. */
 const BOUNCE_UNIFORM: { value: Float32Array } = { value: new Float32Array(0) };
+/**
+ * 1 normally, 0 while the renderer draws three's transmission target (perf-frame 2). Read per
+ * draw through the getter; `installBounceGate` flips the flag from a `setRenderTarget` wrapper.
+ * Seen from inside, the transmission target holds the exterior (BOUNCE_NO_RECTS programs), so
+ * skipping the 43-quad loop there costs nothing visible and saves the half-res pass's share.
+ */
+let inTransmissionPass = false;
+const BOUNCE_ON_UNIFORM = { get value(): number { return inTransmissionPass ? 0 : 1; } };
+export function installBounceGate(renderer: THREE.WebGLRenderer): void {
+  const orig = renderer.setRenderTarget.bind(renderer);
+  let transmissionRT: THREE.WebGLRenderTarget | null = null;
+  renderer.setRenderTarget = ((target: THREE.WebGLRenderTarget | null, face?: number, mip?: number) => {
+    // three's transmission RT is the only target with a mipmapped, unresolved-depth texture.
+    if (target && transmissionRT === null && target.resolveDepthBuffer === false && target.texture.generateMipmaps) transmissionRT = target;
+    inTransmissionPass = target !== null && target === transmissionRT;
+    orig(target, face, mip);
+  }) as typeof renderer.setRenderTarget;
+}
 
 function installBounceRects(): void {
   const q = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
