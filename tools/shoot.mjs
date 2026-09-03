@@ -22,7 +22,7 @@ import { assertSceneGpu, launchOptions, readLaunchRenderer, isSoftwareRenderer }
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const WIDTH = 1920;
 const HEIGHT = 1080;
-const READY_TIMEOUT_MS = 90_000;
+const READY_TIMEOUT_MS = Number(process.env.SHOOT_READY_MS) || 90_000;
 const SETTLE_MS = 600;
 
 const argv = process.argv.slice(2);
