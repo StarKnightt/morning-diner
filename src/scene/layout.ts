@@ -166,6 +166,33 @@ export const PASS_THROUGH = {
   kitchenHalfWidth: 1.6,
 } as const;
 
+/**
+ * The kitchen box behind the partition (fix-rear): the building's real back-of-house. The
+ * whole footprint is enclosed — walls, roof slab and base course continue from Shell.ts —
+ * and the swing-door slice (Openables.ts) fills the box's depth. `BUILDING` is the closed
+ * exterior box: Lighting.ts's sun-cone / shadow-camera fit should contain it.
+ */
+export const REAR = {
+  /** Kitchen interior depth behind the partition's kitchen face (zBack − wallThickness). */
+  kitchenDepth: 4.2,
+  /** Interior face of the rear wall. */
+  zFar: -2.6 - 0.25 - 4.2,
+  /** Exterior face of the rear wall. */
+  zOuter: -2.6 - 0.25 - 4.2 - 0.25,
+  /** Steel service door out of the kitchen, on the rear wall (x extents of the rough opening). */
+  door: { x0: -3.55, x1: -2.6, height: 2.1 },
+} as const;
+
+/** Closed exterior box of the whole building, walls included (for the lighting fit). */
+export const BUILDING = {
+  x0: -5.8 - 0.25,
+  x1: 5.8 + 0.25,
+  z0: REAR.zOuter,
+  z1: 3.25 + 0.25,
+  /** Roof slab top (the parapet line). */
+  roof: 2.9 + 0.35,
+} as const;
+
 export const KITCHEN_DOOR = {
   /** Closed swing door at the -x end of the back-bar wall; the service aisle opens onto it. */
   centerX: -5.15,
