@@ -16,6 +16,7 @@
  */
 import * as THREE from "three";
 import { makeRng } from "../core/rng";
+import { BLIND_DROP } from "../scene/slatShadow";
 import { apertureGlsl, apertureUniforms, MAX_APERTURES, sampleBeamPoints, setSunUniforms, shadowGlsl, sunRaysOf, type ApertureUniforms, type SunLight, type SunRays } from "./beams";
 import type { PostSettings } from "./settings";
 
@@ -145,6 +146,7 @@ export class SunDust {
         uShadowMap: { value: null },
         uShadowMatrix: { value: new THREE.Matrix4() },
         uShadowBias: { value: 0 },
+        uBlindDrop: BLIND_DROP, // feat-blinds-f: shared per-window raise state (slatShadow.ts)
       },
       blending: THREE.AdditiveBlending,
       depthTest: true,

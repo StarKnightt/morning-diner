@@ -83,6 +83,10 @@ export interface DinerSfx {
   kitchenDoorPush(at: Vec3): void;
   kitchenDoorPass(at: Vec3, speed?: number): void;
   kitchenDoorSettle(at: Vec3): void;
+  /** feat-blinds-f: the venetian blind — cord ratchet / slat rustle on the raise, a shorter run on the way down, the slats' clatter as they seat. */
+  blindRaise(at: Vec3): void;
+  blindRun(at: Vec3): void;
+  blindClatter(at: Vec3): void;
 }
 
 export interface DinerAudio {
@@ -159,6 +163,9 @@ class DinerAudioImpl implements DinerAudio {
       kitchenDoorPush: (at) => this.openablesSfx?.kitchenDoorPush(at),
       kitchenDoorPass: (at, s) => this.openablesSfx?.kitchenDoorPass(at, s),
       kitchenDoorSettle: (at) => this.openablesSfx?.kitchenDoorSettle(at),
+      blindRaise: (at) => this.openablesSfx?.blindRustle(at, 1.6),
+      blindRun: (at) => this.openablesSfx?.blindRustle(at, 1.0),
+      blindClatter: (at) => this.openablesSfx?.blindClatter(at),
     };
   }
 

@@ -33,7 +33,22 @@ import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { WINDOW } from "./layout";
 import { installLotGroundFill } from "./Lighting";
-import { blindLayout, SLAT } from "./slatShadow";
+import { BLIND_DROP, blindLayout, SLAT } from "./slatShadow";
+
+/**
+ * feat-blinds-f: make `uBlindDrop[]` (slatShadow.ts, declared in `lights_pars_begin` for every lit
+ * program) a uniform of every built-in lit material. `WebGLPrograms.getUniforms` clones the
+ * ShaderLib entry per material and `cloneUniforms` passes a Float32Array by REFERENCE, so all
+ * programs read the one `BLIND_DROP.value` array. Idempotent; runs at module load (before any
+ * material compiles — the first render is after the scene build).
+ */
+function installBlindDropUniform(): void {
+  for (const id of ["standard", "physical", "phong", "lambert", "toon"] as const) {
+    const lib = (THREE.ShaderLib as unknown as Record<string, { uniforms: Record<string, unknown> }>)[id];
+    if (lib && !lib.uniforms.uBlindDrop) lib.uniforms.uBlindDrop = BLIND_DROP;
+  }
+}
+installBlindDropUniform();
 
 export const BLIND = {
   // Slat geometry lives in slatShadow.ts (System 4 rev 6): the analytic shadow term is baked
@@ -197,9 +212,32 @@ function appendSlat(out: { pos: number[]; nor: number[]; uv: number[]; col: numb
   }
 }
 
+/**
+ * feat-blinds-f: one raisable blind. `setDrop(d)` (1 = hanging as built, 0 = fully raised) moves
+ * the slats (they stack up from the bottom onto the rising bottom rail, flattening as they are
+ * picked up), the bottom-rail assembly, and shortens the ladder / lift cords from the headrail;
+ * it also writes `BLIND_DROP.value[wi]` so the analytic stripe term follows. Pull cords + tassel
+ * stay static (noted in BUILD.md).
+ */
+export interface BlindRig {
+  wi: number;
+  /** Window centre / clear opening / a look-at point on the glass at eye height. */
+  cx: number;
+  x0: number;
+  x1: number;
+  focus: THREE.Vector3;
+  /** Current drop 0..1. */
+  drop: number;
+  setDrop(d: number): void;
+  /** Everything that casts (the rail assembly) — for the caller's shadow-once bookkeeping. */
+  rail: THREE.Group;
+}
+
 export interface BlindsResult {
   /** One merged slat mesh per window. */
   slats: THREE.Mesh[];
+  /** feat-blinds-f: per-window raise/lower rigs. */
+  rigs: BlindRig[];
 }
 
 export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
@@ -227,8 +265,17 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
   const cordR = 0.00055; // 1.1 mm braided ladder / lift cord
   const q = new THREE.Quaternion(), e = new THREE.Euler(), one = new THREE.Vector3(1, 1, 1);
   const meshes: THREE.Mesh[] = [];
+  const rigs: BlindRig[] = [];
+  // feat-blinds-f: the stack a fully raised blind makes under the headrail (1.4 mm per slat).
+  const stackPitch = 0.0014;
+  const stackFullH = countFull * stackPitch;
 
   WINDOW.centersX.forEach((cx, wi) => {
+    // feat-blinds-f: per-slat rest height / tilt and the vertex range each slat occupies in the
+    // merged slat geometry (and in the per-window rung mesh), for the raise animation.
+    const slatMeta: Array<{ y: number; tilt: number; v0: number; v1: number }> = [];
+    const rungB = new MergedBuilder();
+    const railB = new MergedBuilder();
     // Per-blind character: tilt 25 ± 5°; drop — two hang to the sill, two were pulled up 3–8 cm,
     // the last one in the row 15–30 cm (blindLayout draws both from this blind's generator).
     const { rng, x0, x1, tilt, raised, yRail, hanging, stacked } = layout[wi];
@@ -280,15 +327,20 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
       };
       // ±4 % per-slat tone: no two neighbours share a value, so the stack is not one flat sheet
       const t = 0.96 + rng() * 0.08;
+      const v0 = out.pos.length / 3;
       appendSlat(out, slatLen, BLIND.slatWidth, BLIND.ladderOffsets, shape, [t, t * (0.995 + rng() * 0.01), t * (0.99 + rng() * 0.02)], cx, zc);
+      slatMeta.push({ y: shape.y, tilt: shape.tilt, v0, v1: out.pos.length / 3 });
       // Ladder rungs: one thread under each slat at each ladder, following the slat's tilt
       e.set(shape.tilt, 0, 0);
       q.setFromEuler(e);
       for (const lo of BLIND.ladderOffsets) {
         const rm = new THREE.Matrix4().compose(new THREE.Vector3(cx + lo + shape.dx, shape.y - 0.0009, zc), q, one);
-        b.add(rung.clone(), pal.cord, rm);
+        rungB.add(rung.clone(), pal.cord, rm);
       }
     }
+    // feat-blinds-f: the rungs of this window as their own mesh (they ride with their slats).
+    const rungMesh = rungB.build(parent, { name: `blind-rungs-${wi}`, castShadow: false })[0];
+    const rungPer = rung.attributes.position.count * BLIND.ladderOffsets.length;
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(out.pos, 3));
     g.setAttribute("normal", new THREE.Float32BufferAttribute(out.nor, 3));
@@ -306,30 +358,114 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
     parent.add(mesh);
     meshes.push(mesh);
 
+    // feat-blinds-f: ladder + lift cords in a group hung from the headrail; `scale.y` shortens
+    // them as the rail rises (the real cords bunch inside the stack).
     const cordLen = yHead0 - yRail;
+    const cordGroup = new THREE.Group();
+    cordGroup.name = `blind-cords-${wi}`;
+    cordGroup.position.y = yHead0;
+    parent.add(cordGroup);
+    const cordB = new MergedBuilder();
     for (const lo of BLIND.ladderOffsets) {
       // Ladder cords: same 1.3 mm gauge front and rear, hugging the slat edges
       for (const zs of [-1, 1]) {
         const zcord = zc + zs * (BLIND.slatWidth / 2 * Math.cos(tilt) + 0.0006);
         const cord = new THREE.CylinderGeometry(cordR, cordR, cordLen, 6);
-        cord.translate(cx + lo, yRail + cordLen / 2, zcord);
-        b.add(cord, pal.cord);
+        cord.translate(cx + lo, -cordLen / 2, zcord);
+        cordB.add(cord, pal.cord);
       }
       // Lift cord: straight down through the route holes to the bottom rail
       const lift = new THREE.CylinderGeometry(cordR, cordR, cordLen + 0.006, 6);
-      lift.translate(cx + lo, yRail + cordLen / 2, zc);
-      b.add(lift, pal.cord);
+      lift.translate(cx + lo, -cordLen / 2, zc);
+      cordB.add(lift, pal.cord);
     }
+    cordB.build(cordGroup, { name: `blind-cords-${wi}` });
     // Bottom rail: closed 27 × 19 mm steel channel with a slight crown, plastic end caps, and a
     // cord button under each outer ladder where the lift cord is knotted off (the centre cord
-    // ties inside the rail).
-    b.rbox(pal.slatRail, [x0 + 0.006, yRail - BLIND.bottomRail.h / 2, zc - BLIND.bottomRail.d / 2], [x1 - 0.006, yRail + BLIND.bottomRail.h / 2, zc + BLIND.bottomRail.d / 2], 0.003, 3);
+    // ties inside the rail). feat-blinds-f: its own group so it can ride up with the blind.
+    railB.rbox(pal.slatRail, [x0 + 0.006, yRail - BLIND.bottomRail.h / 2, zc - BLIND.bottomRail.d / 2], [x1 - 0.006, yRail + BLIND.bottomRail.h / 2, zc + BLIND.bottomRail.d / 2], 0.003, 3);
     for (const [ex0, ex1] of [[x0 + 0.003, x0 + 0.016], [x1 - 0.016, x1 - 0.003]])
-      b.rbox(pal.slatCap, [ex0, yRail - BLIND.bottomRail.h / 2 - 0.001, zc - BLIND.bottomRail.d / 2 - 0.001], [ex1, yRail + BLIND.bottomRail.h / 2 + 0.001, zc + BLIND.bottomRail.d / 2 + 0.001], 0.002, 2);
+      railB.rbox(pal.slatCap, [ex0, yRail - BLIND.bottomRail.h / 2 - 0.001, zc - BLIND.bottomRail.d / 2 - 0.001], [ex1, yRail + BLIND.bottomRail.h / 2 + 0.001, zc + BLIND.bottomRail.d / 2 + 0.001], 0.002, 2);
     for (const lo of [BLIND.ladderOffsets[0], BLIND.ladderOffsets[2]]) {
       const button = new THREE.CylinderGeometry(0.006, 0.0065, 0.0035, 14);
       button.translate(cx + lo, yRail - BLIND.bottomRail.h / 2 - 0.00175, zc);
-      b.add(button, pal.slatCap);
+      railB.add(button, pal.slatCap);
+    }
+    const railGroup = new THREE.Group();
+    railGroup.name = `blind-rail-${wi}`;
+    parent.add(railGroup);
+    railB.build(railGroup, { name: `blind-rail-${wi}` });
+
+    // feat-blinds-f: the rig. Rail travel from its rest height to the stack under the headrail;
+    // slat k is picked up when the rising stack reaches it: y' = max(rest, stackBase + (N−1−k)·1.4 mm),
+    // and flattens (tilt → 0.3×) over its first centimetre of lift, rotating about its own centre line.
+    {
+      const yRail0 = yRail;
+      const yRailUp = yHead0 - 0.012 - stackFullH - 0.003 - BLIND.bottomRail.h / 2;
+      const pos = g.attributes.position as THREE.BufferAttribute;
+      const nor = g.attributes.normal as THREE.BufferAttribute;
+      const pos0 = (pos.array as Float32Array).slice();
+      const nor0 = (nor.array as Float32Array).slice();
+      const rPos = rungMesh.geometry.attributes.position as THREE.BufferAttribute;
+      const rNor = rungMesh.geometry.attributes.normal as THREE.BufferAttribute;
+      const rPos0 = (rPos.array as Float32Array).slice();
+      const rNor0 = (rNor.array as Float32Array).slice();
+      // Culling bounds: the whole travel, fixed once (no per-frame bounding recompute).
+      for (const gg of [g, rungMesh.geometry]) {
+        gg.boundingBox!.min.y = Math.min(gg.boundingBox!.min.y, yRail0 - BLIND.bottomRail.h);
+        gg.boundingBox!.max.y = Math.max(gg.boundingBox!.max.y, yHeadTop);
+        gg.boundingBox!.getBoundingSphere(gg.boundingSphere!);
+      }
+      const move = (src: Float32Array, dst: Float32Array, nsrc: Float32Array, ndst: Float32Array, v0: number, v1: number, yc: number, dy: number, ang: number) => {
+        const c = Math.cos(ang), s = Math.sin(ang);
+        for (let v = v0; v < v1; v++) {
+          const i = v * 3;
+          const ry = src[i + 1] - yc, rz = src[i + 2] - zc;
+          dst[i] = src[i];
+          dst[i + 1] = yc + dy + ry * c - rz * s;
+          dst[i + 2] = zc + ry * s + rz * c;
+          const ny = nsrc[i + 1], nz = nsrc[i + 2];
+          ndst[i] = nsrc[i];
+          ndst[i + 1] = ny * c - nz * s;
+          ndst[i + 2] = ny * s + nz * c;
+        }
+      };
+      const rig: BlindRig = {
+        wi,
+        cx,
+        x0,
+        x1,
+        focus: new THREE.Vector3(cx, 1.55, zc - 0.05),
+        drop: 1,
+        rail: railGroup,
+        setDrop(dIn: number) {
+          const d = Math.min(1, Math.max(-0.006, dIn));
+          if (d === this.drop) return;
+          this.drop = d;
+          BLIND_DROP.value[wi] = Math.min(1, Math.max(0, d));
+          const yR = yRail0 + (1 - d) * (yRailUp - yRail0);
+          railGroup.position.y = yR - yRail0;
+          cordGroup.scale.y = Math.max(0.002, (yHead0 - yR) / cordLen);
+          const stackBase = yR + BLIND.bottomRail.h / 2 + 0.003;
+          const dArr = pos.array as Float32Array, nArr = nor.array as Float32Array;
+          const rdArr = rPos.array as Float32Array, rnArr = rNor.array as Float32Array;
+          for (let k = 0; k < slatMeta.length; k++) {
+            const m = slatMeta[k];
+            const yStack = stackBase + (countFull - 1 - k) * stackPitch;
+            const lift = Math.max(0, yStack - m.y);
+            // Hanging slats carry tilt × 1; the built stack already has × 0.3. Flatten the lifted ones.
+            const f = k < hanging ? Math.min(1, lift / 0.01) : 0;
+            const ang = -0.7 * m.tilt * f;
+            move(pos0, dArr, nor0, nArr, m.v0, m.v1, m.y, lift, ang);
+            move(rPos0, rdArr, rNor0, rnArr, k * rungPer, (k + 1) * rungPer, m.y, lift, ang);
+          }
+          pos.needsUpdate = true;
+          nor.needsUpdate = true;
+          rPos.needsUpdate = true;
+          rNor.needsUpdate = true;
+        },
+      };
+      rigs.push(rig);
     }
     // Tilt wand: 12 mm tan acrylic rod, 0.5 m, on a swivel hook under the headrail at the
     // left jamb. Hangs 45 mm in front of the slat edges so it silhouettes against the glass
@@ -379,5 +515,5 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
     }
   });
   b.build(parent, { name: "blinds" });
-  return { slats: meshes };
+  return { slats: meshes, rigs };
 }

@@ -115,6 +115,12 @@ const POSES = {
   "sys9-kitchen-door": { x: -4.6, y: 1.5, z: -1.3, yaw: 23, pitch: -18 },
   "sys9-kitchen-door-open": { interact: "kitchen-door-open" },
   "sys9-kitchen-door-back": { interact: "kitchen-door-back" },
+  // feat-blinds-f — window 1's blind down / mid-raise / up from the second booth, and the raised
+  // blind from the lot (all through __interactPose; the camera is part of the pose).
+  "blinds-down": { interact: "blinds-down" },
+  "blinds-mid": { interact: "blinds-mid" },
+  "blinds-up": { interact: "blinds-up" },
+  "blinds-up-exterior": { interact: "blinds-up-exterior" },
 };
 const NAMES = ONLY.length ? Object.keys(POSES).filter((p) => ONLY.includes(p)) : Object.keys(POSES);
 

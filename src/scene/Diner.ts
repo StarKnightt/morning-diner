@@ -14,7 +14,7 @@ import { issueCompile, waitForPrograms } from "../core/compile";
 import { createPalette, type Palette } from "../core/materials";
 import type { Collider } from "../core/merge";
 import type { TextureBank } from "../core/textureBank";
-import { buildBlinds } from "./Blinds";
+import { buildBlinds, type BlindRig } from "./Blinds";
 import { buildBooths } from "./Booths";
 import { buildCeiling } from "./Ceiling";
 import { buildCounter } from "./Counter";
@@ -61,6 +61,8 @@ export class Diner {
   coffeePot!: THREE.Group;
   /** System 9: the openables' hinges and the presence props (Sys9.ts). */
   sys9!: System9;
+  /** feat-blinds-f: per-window raisable blind rigs (Blinds.ts), F to raise / lower. */
+  blinds!: BlindRig[];
   private fanRotor!: THREE.Group;
 
   constructor(
@@ -87,7 +89,7 @@ export class Diner {
     const props = buildProps(this.group, this.palette);
     this.sys9 = buildSystem9(this.group, this.palette, this.bank);
     await hooks.stage("Setting the tables", 6 / 8);
-    buildBlinds(this.group, this.palette);
+    this.blinds = buildBlinds(this.group, this.palette).rigs;
     await hooks.stage("Hanging the blinds", 7 / 8);
     const exterior = buildExterior(this.group, this.palette, sunDirection(), this.bank);
     // System 4: baked contact occlusion along every base line (nothing else in the rig

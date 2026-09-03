@@ -33,6 +33,7 @@ import * as THREE from "three";
 import { FullScreenQuad } from "three/examples/jsm/postprocessing/Pass.js";
 import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
 import { ROOM } from "../scene/layout";
+import { BLIND_DROP } from "../scene/slatShadow";
 import { apertureUniforms, beamBounds, findSun, setSunUniforms, sunRaysOf, type SunLight, type SunRays } from "./beams";
 import { SunDust } from "./Dust";
 import { GpuTimer } from "./GpuTimer";
@@ -248,6 +249,7 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
     uShadowMap: { value: null as THREE.Texture | null },
     uShadowMatrix: { value: new THREE.Matrix4() },
     uShadowBias: { value: 0 },
+    uBlindDrop: BLIND_DROP, // feat-blinds-f: shared per-window raise state (slatShadow.ts)
   };
   const depthUniforms = {
     tDepth: { value: sceneRT.depthTexture },

@@ -15,6 +15,8 @@
  *   __interact("kitchen-door", t?)  System 9: toggle the kitchen swing door (opens and HOLDS at 90°, a second
  *                                   press releases it); `t` seeks into the 1.5 s opening
  *   __interact("kitchen-door-close", t?)  release the (open) kitchen door; `t` seeks into the 2.25 s spring return
+ *   __interact("blinds-raise", wi?, t?)   feat-blinds-f: raise window `wi`'s blind (default 1); `t` seeks into the 2.5 s raise
+ *   __interact("blinds-lower", wi?, t?)   lower it (from up); `t` seeks into the 2.0 s lowering
  *   __interact("resume")            unfreeze
  *   __interact("reset")             everything back to rest, unfrozen
  *   __interactPose("sit-seated" | "pour-mid" | "pour-full" | "door-open")
@@ -28,7 +30,19 @@ import type { Interactions } from "./index";
 import type { FirstPerson } from "../player/FirstPerson";
 import { EMPTY_FILL, POUR_STREAM_START } from "./Pour";
 
-export type InteractPoseName = "sit-seated" | "pour-mid" | "pour-full" | "door-open" | "drink-sip" | "cabinet-open" | "kitchen-door-open" | "kitchen-door-back";
+export type InteractPoseName =
+  | "sit-seated"
+  | "pour-mid"
+  | "pour-full"
+  | "door-open"
+  | "drink-sip"
+  | "cabinet-open"
+  | "kitchen-door-open"
+  | "kitchen-door-back"
+  | "blinds-down"
+  | "blinds-mid"
+  | "blinds-up"
+  | "blinds-up-exterior";
 
 interface SitOpts {
   booth?: number;
@@ -37,7 +51,7 @@ interface SitOpts {
 
 declare global {
   interface Window {
-    __interact?: (name: string, t?: number, opts?: SitOpts) => void;
+    __interact?: (name: string, t?: number, opts?: SitOpts | number) => void;
     __interactPose?: (name: InteractPoseName) => void;
     __interactions?: Interactions;
     __player?: FirstPerson;
@@ -62,6 +76,12 @@ export const DRINK_CAMERA = { x: -1.25, y: 1.62, z: -1.5, yaw: 8, pitch: -28 };
 export const CABINET_CAMERA = { x: -1.35, y: 1.25, z: -0.7, yaw: 22, pitch: -30 };
 /** System 9: in the aisle at the -x end looking at the kitchen door; the leaf swings away and back through the frame. */
 export const KITCHEN_DOOR_CAMERA = { x: -4.0, y: 1.55, z: -0.9, yaw: 34, pitch: -8 };
+/** feat-blinds-f: standing at the second booth (window 1, x −2.9) looking at the blind AND the table / bench the stripes land on. */
+export const BLINDS_CAMERA = { x: -2.35, y: 1.5, z: 1.35, yaw: 166, pitch: -14 };
+/** feat-blinds-f: on the lot in front of window 1, looking back in through the raised blind. */
+export const BLINDS_EXTERIOR_CAMERA = { x: -2.2, y: 1.6, z: 5.6, yaw: 14, pitch: 2 };
+/** Which window the blind poses use. */
+export const BLINDS_POSE_WINDOW = 1;
 export const INTERACT_POSES: Record<InteractPoseName, { camera?: typeof POUR_CAMERA; note: string }> = {
   "sit-seated": { note: "booth 2, +x bench, seated eye 1.15 m turned 35° to the window" },
   "pour-mid": { camera: POUR_CAMERA, note: "1.2 s into the stream (t ≈ 3.0): mug half full, stream + building steam" },
@@ -71,6 +91,10 @@ export const INTERACT_POSES: Record<InteractPoseName, { camera?: typeof POUR_CAM
   "cabinet-open": { camera: CABINET_CAMERA, note: "both cabinet doors open at rest (95°): shelf, saucers, filters, spray bottle" },
   "kitchen-door-open": { camera: KITCHEN_DOOR_CAMERA, note: "open at rest: leaf held at 90° into the kitchen, the lit kitchen slice beyond" },
   "kitchen-door-back": { camera: KITCHEN_DOOR_CAMERA, note: "0.83 s into the release: the spring's back-swing, leaf ~23° into the dining room" },
+  "blinds-down": { camera: BLINDS_CAMERA, note: "window 1 blind hanging as built: full stripe pattern on the table and bench" },
+  "blinds-mid": { camera: BLINDS_CAMERA, note: "1.25 s into the raise: stack half way up, stripes only in the upper half, full sun below" },
+  "blinds-up": { camera: BLINDS_CAMERA, note: "raised at rest: stack under the headrail, clear glass, one full sun patch" },
+  "blinds-up-exterior": { camera: BLINDS_EXTERIOR_CAMERA, note: "from the lot: the raised blind's headrail stack, clear glass, the interior visible" },
 };
 
 export function installInteractionDebugApi(
@@ -78,7 +102,7 @@ export function installInteractionDebugApi(
   player: FirstPerson,
   clock: { freeze(f: boolean): void; isFrozen(): boolean },
 ): void {
-  const { sit, pour, door, drink, cabinet, kitchenDoor } = api;
+  const { sit, pour, door, drink, cabinet, kitchenDoor, blinds } = api;
 
   const nearestBench = () => {
     const p = player.position;
@@ -94,8 +118,23 @@ export function installInteractionDebugApi(
     return best;
   };
 
-  const interact = (name: string, t?: number, opts: SitOpts = {}): void => {
+  const interact = (name: string, t?: number, opts: SitOpts | number = {}): void => {
     switch (name) {
+      // feat-blinds-f: ("blinds-raise", windowIndex?, t?) — the window index rides in `t`'s slot.
+      case "blinds-raise":
+      case "blinds-lower": {
+        const wi = Math.max(0, Math.min(blinds.length - 1, Math.round(t ?? BLINDS_POSE_WINDOW)));
+        const seek = typeof opts === "number" ? opts : undefined;
+        const b = blinds[wi];
+        const from = name === "blinds-raise" ? "down" : "up";
+        if (seek === undefined) {
+          if (b.state === from) b.toggle();
+        } else {
+          b.seek(seek, from);
+          clock.freeze(true);
+        }
+        break;
+      }
       case "pour":
         if (t === undefined) pour.start();
         else {
@@ -155,8 +194,9 @@ export function installInteractionDebugApi(
         }
         break;
       case "sit": {
+        const so: SitOpts = typeof opts === "number" ? {} : opts;
         const bench =
-          opts.booth !== undefined ? sit.benches.find((b) => b.booth === opts.booth && b.side === (opts.side ?? 1)) ?? nearestBench() : nearestBench();
+          so.booth !== undefined ? sit.benches.find((b) => b.booth === so.booth && b.side === (so.side ?? 1)) ?? nearestBench() : nearestBench();
         if (t === undefined) {
           if (sit.state !== "standing") sit.reset();
           sit.sitDown(bench);
@@ -180,6 +220,7 @@ export function installInteractionDebugApi(
         cabinet[0].reset();
         cabinet[1].reset();
         kitchenDoor.reset();
+        for (const b of blinds) b.reset();
         clock.freeze(false);
         break;
       default:
@@ -216,6 +257,15 @@ export function installInteractionDebugApi(
         break;
       case "kitchen-door-back":
         interact("kitchen-door-close", 0.83);
+        break;
+      case "blinds-down":
+        break;
+      case "blinds-mid":
+        interact("blinds-raise", BLINDS_POSE_WINDOW, 1.25);
+        break;
+      case "blinds-up":
+      case "blinds-up-exterior":
+        interact("blinds-raise", BLINDS_POSE_WINDOW, 10);
         break;
     }
     // Run one zero-dt tick so the prompt and camera reflect the new state before the next render.

@@ -5,17 +5,20 @@
  *   const interactions = initInteractions({ renderer, scene, camera, player, diner });
  *   ... in the loop, after diner.update(dt):  interactions.update(dt);
  *
- * Input: E (also F, or a click while the pointer is locked). A centre-bottom
+ * Input: E (or a click while the pointer is locked). A centre-bottom
  * hint fades in when a target is within reach and inside the look cone.
  * System 9: Q stands up (E again when seated does too — the seated target is
  * "Stand"); the player's Shift / Space are refused mid-interaction via
  * `player.blocked` (sit transitions, a pour, a drink, the door swing).
+ * feat-blinds-f: F raises / lowers the blind of the window being looked at (and
+ * nothing else — F is not an E alias any more); prompt "F — Raise / Lower blinds".
  * Debug/capture API on `window.__interact` — see debug.ts.
  */
 import * as THREE from "three";
 import { wireDinerAudio, type DinerAudioWiring } from "../audio/wiring";
 import type { FirstPerson } from "../player/FirstPerson";
 import type { Diner } from "../scene/Diner";
+import { BlindInteraction } from "./Blinds";
 import { installInteractionDebugApi } from "./debug";
 import { DoorInteraction } from "./DoorSwing";
 import { DrinkInteraction } from "./Drink";
@@ -46,6 +49,10 @@ export interface Interactions {
   /** System 9 openables: [left, right] cabinet doors and the kitchen swing door. */
   readonly cabinet: [CabinetDoorInteraction, CabinetDoorInteraction];
   readonly kitchenDoor: KitchenDoorInteraction;
+  /** feat-blinds-f: one per window, F to raise / lower. */
+  readonly blinds: BlindInteraction[];
+  /** Currently highlighted blind (F target), or null. */
+  readonly blindTarget: Interactable | null;
   /** Bind sun / exposure to the door: fn(progress 0..1). Returns an unsubscribe. */
   onDoorOpen(fn: (progress: number) => void): () => void;
   /** Currently highlighted target, or null. */
@@ -55,7 +62,7 @@ export interface Interactions {
   dispose(): void;
 }
 
-const KEYS = new Set(["KeyE", "KeyF"]);
+const KEYS = new Set(["KeyE"]);
 
 export function initInteractions(ctx: InteractionContext): Interactions {
   const { renderer, scene, camera, player, diner } = ctx;
@@ -103,6 +110,15 @@ export function initInteractions(ctx: InteractionContext): Interactions {
     settle: (at) => audio.sfx.kitchenDoorSettle(toVec(at)),
   });
 
+  // feat-blinds-f: the blinds are on F, picked from their own list (a window is never an E target).
+  const blindSfx = {
+    raise: (at: THREE.Vector3) => audio.sfx.blindRaise(toVec(at)),
+    run: (at: THREE.Vector3) => audio.sfx.blindRun(toVec(at)),
+    clatter: (at: THREE.Vector3) => audio.sfx.blindClatter(toVec(at)),
+  };
+  const blinds = diner.blinds.map((rig) => new BlindInteraction(rig, blindSfx));
+  const blindItems = blinds.map((b) => b.interactable);
+
   const prompt = new Prompt("E", new URLSearchParams(location.search).has("shoot"));
   const items: Interactable[] = [
     ...sit.interactables,
@@ -118,15 +134,20 @@ export function initInteractions(ctx: InteractionContext): Interactions {
   const camFwd = new THREE.Vector3();
   const focus = new THREE.Vector3();
   let target: Interactable | null = null;
+  let blindTarget: Interactable | null = null;
   let frozen = false;
 
   function pickTarget(): Interactable | null {
     if (sit.seated) return sit.stand.available() ? sit.stand : null;
+    return pickFrom(items);
+  }
+
+  function pickFrom(list: Interactable[]): Interactable | null {
     camera.getWorldPosition(camPos);
     camera.getWorldDirection(camFwd);
     let best: Interactable | null = null;
     let bestScore = Infinity;
-    for (const it of items) {
+    for (const it of list) {
       if (!it.available()) continue;
       it.focus(focus).sub(camPos);
       const d = focus.length();
@@ -148,10 +169,20 @@ export function initInteractions(ctx: InteractionContext): Interactions {
     if (t && t.available()) t.interact();
   }
 
+  /** What F does: toggle the blind being looked at; nothing when no window is in the cone. */
+  function interactBlinds(): void {
+    const t = blindTarget ?? pickFrom(blindItems);
+    if (t && t.available()) t.interact();
+  }
+
   const onKey = (e: KeyboardEvent): void => {
     if (e.repeat) return;
     if (e.code === "KeyQ") {
       if (sit.seated) sit.standUp();
+      return;
+    }
+    if (e.code === "KeyF") {
+      interactBlinds();
       return;
     }
     if (!KEYS.has(e.code)) return;
@@ -179,13 +210,24 @@ export function initInteractions(ctx: InteractionContext): Interactions {
       cabinet[0].update(step);
       cabinet[1].update(step);
       kitchenDoor.update(step);
+      let blindDirty = false;
+      for (const b of blinds) {
+        b.update(step);
+        if (b.consumeShadowDirty()) blindDirty = true;
+      }
       // Shadow-once (Diner.ts): both sun shadow maps are rendered once at boot, so anything
       // sunlit that moved this frame (door leaf, decanter, mug, stream) re-renders them.
-      // The openables re-render once when a leaf comes to rest, not per frame.
+      // The openables re-render once when a leaf comes to rest, not per frame; a blind every
+      // ~0.3 s of travel (its rail casts) and once at rest.
       const openableSettled = cabinet[0].consumeSettled() || cabinet[1].consumeSettled() || kitchenDoor.consumeSettled();
-      if (door.consumeMoved() || pour.consumeMoved() || drink.consumeMoved() || openableSettled) diner.invalidateShadows();
+      if (door.consumeMoved() || pour.consumeMoved() || drink.consumeMoved() || openableSettled || blindDirty) diner.invalidateShadows();
       target = pickTarget();
-      prompt.set(target ? target.label() : null);
+      blindTarget = pickFrom(blindItems);
+      // One hint line: E's target first; the F blind hint when there is no E target (or the
+      // only E target is "Stand" — seated at a booth window is where the blinds get used).
+      if (target && !(sit.seated && blindTarget)) prompt.set(target.label(), "E");
+      else if (blindTarget) prompt.set(blindTarget.label(), "F");
+      else prompt.set(null);
       audio.update(camera);
     },
     startAudio: wiring.startAudio,
@@ -196,9 +238,13 @@ export function initInteractions(ctx: InteractionContext): Interactions {
     drink,
     cabinet,
     kitchenDoor,
+    blinds,
     onDoorOpen: (fn) => door.onDoorOpen(fn),
     get target() {
       return target;
+    },
+    get blindTarget() {
+      return blindTarget;
     },
     interact,
     dispose(): void {

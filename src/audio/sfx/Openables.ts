@@ -208,4 +208,102 @@ export class OpenablesSfx {
     rattle.stop(t + 0.2);
     scheduleCleanup(bump, t + 0.3, spatial, engine);
   }
+
+  /**
+   * feat-blinds-f: a venetian blind running on its cords for `dur` seconds — a soft 1.2–3 kHz
+   * cord/slat rustle (pink noise, gentle swell) with a train of small ratchet ticks (the cord
+   * lock's pawl, ~11/s) riding on it. ≈ −30 dBFS at 1 m; a texture, not an event.
+   */
+  blindRustle(at: Vec3, dur = 1.5): void {
+    const engine = this.engine;
+    const ctx = engine.ctx;
+    const rng = engine.rng;
+    const t = engine.now + 0.005;
+    engine.logEvent("sfx.blind-rustle", t, dur);
+    const out = ctx.createGain();
+    out.gain.value = dbToGain(-16);
+    const spatial = engine.attach(out, at, this.bus, { model: "equalpower" });
+    const air = engine.noiseSource("pink", 1, t);
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.setValueAtTime(rng.range(1200, 1600), t);
+    bp.frequency.linearRampToValueAtTime(rng.range(2200, 3000), t + dur * 0.6);
+    bp.frequency.linearRampToValueAtTime(rng.range(1400, 1800), t + dur);
+    bp.Q.value = 0.8;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.5, t + 0.12);
+    g.gain.setValueAtTime(0.5, t + dur * 0.8);
+    g.gain.linearRampToValueAtTime(0, t + dur);
+    air.connect(bp);
+    bp.connect(g);
+    g.connect(out);
+    air.stop(t + dur + 0.05);
+    // Ratchet ticks: short 2.5–4 kHz clicks every ~90 ms, slightly irregular.
+    const ticks = engine.noiseSource("white", 1, t);
+    const tbp = ctx.createBiquadFilter();
+    tbp.type = "bandpass";
+    tbp.frequency.value = rng.range(2500, 4000);
+    tbp.Q.value = 3;
+    const tg = ctx.createGain();
+    tg.gain.setValueAtTime(0, t);
+    for (let tt = t + 0.1; tt < t + dur * 0.85; tt += 0.075 + rng.range(0, 0.03)) {
+      tg.gain.setValueAtTime(0, tt);
+      tg.gain.linearRampToValueAtTime(rng.range(0.15, 0.3), tt + 0.001);
+      tg.gain.setTargetAtTime(0, tt + 0.002, 0.003);
+    }
+    ticks.connect(tbp);
+    tbp.connect(tg);
+    tg.connect(out);
+    ticks.stop(t + dur + 0.05);
+    scheduleCleanup(air, t + dur + 0.05, spatial, engine);
+  }
+
+  /**
+   * feat-blinds-f: the slats seating on the bottom rail — a burst of 8–12 thin aluminium clicks
+   * (3–6 kHz, 3 ms) over 0.25 s, densest at the start, with the rail's soft thud under them.
+   */
+  blindClatter(at: Vec3): void {
+    const engine = this.engine;
+    const ctx = engine.ctx;
+    const rng = engine.rng;
+    const t = engine.now + 0.005;
+    engine.logEvent("sfx.blind-clatter", t, 0.3);
+    const out = ctx.createGain();
+    out.gain.value = dbToGain(-13);
+    const spatial = engine.attach(out, at, this.bus, { model: "equalpower" });
+    const thud = engine.noiseSource("brown", 1, t);
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = rng.range(160, 260);
+    bp.Q.value = 1.0;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(1.4, t + 0.005);
+    g.gain.setTargetAtTime(0, t + 0.01, 0.015);
+    thud.connect(bp);
+    bp.connect(g);
+    g.connect(out);
+    thud.stop(t + 0.3);
+    const clicks = engine.noiseSource("white", 1, t);
+    const cbp = ctx.createBiquadFilter();
+    cbp.type = "bandpass";
+    cbp.frequency.value = rng.range(3000, 6000);
+    cbp.Q.value = 4;
+    const cg = ctx.createGain();
+    cg.gain.setValueAtTime(0, t);
+    const n = 8 + Math.floor(rng.range(0, 5));
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      const tt = t + 0.25 * u * u + rng.range(0, 0.01); // densest at the start
+      cg.gain.setValueAtTime(0, tt);
+      cg.gain.linearRampToValueAtTime(rng.range(0.3, 0.6) * (1 - 0.5 * u), tt + 0.001);
+      cg.gain.setTargetAtTime(0, tt + 0.003, 0.004);
+    }
+    clicks.connect(cbp);
+    cbp.connect(cg);
+    cg.connect(out);
+    clicks.stop(t + 0.35);
+    scheduleCleanup(thud, t + 0.35, spatial, engine);
+  }
 }
