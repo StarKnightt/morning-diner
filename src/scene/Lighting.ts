@@ -611,14 +611,34 @@ export function installPcss(): void {
 	`;
   THREE.ShaderChunk.shadowmap_pars_fragment = chunk.slice(0, start) + pcss + chunk.slice(end);
 
-  // Every program that includes the chunk needs the sampler bound. Materials without their
-  // own onBeforeCompile get it through the prototype; assignSunSplit wraps the others.
-  const proto = THREE.Material.prototype as unknown as { onBeforeCompile: (s: THREE.WebGLProgramParametersWithUniforms, r: THREE.WebGLRenderer) => void };
-  const prev = proto.onBeforeCompile;
-  proto.onBeforeCompile = function (this: THREE.Material, shader, renderer) {
-    prev.call(this, shader, renderer);
-    (shader.uniforms as Record<string, { value: unknown }>).sunPcfMap = SUN_PCF_UNIFORM;
+  // Every program that includes the chunk needs the sampler bound, or the unit-0 default
+  // makes ANGLE reject the draw ("two textures of different types use the same sampler
+  // location") and the mesh silently vanishes — rev 3 lost the coffee-pot liquid that way.
+  // `onBeforeCompile` becomes an accessor on the prototype: materials that never set their
+  // own hook get the default + binding; a hook assigned later (Pour.ts builds its materials
+  // after the lighting is installed) is stored and wrapped by the setter. The wrapper's
+  // toString carries the inner hook's source so the default program cache key still
+  // distinguishes them. Own data properties assigned *before* this ran are untouched by
+  // the accessor; assignSunSplit wraps those (bindSunPcf).
+  type Hook = (this: THREE.Material, s: THREE.WebGLProgramParametersWithUniforms, r: THREE.WebGLRenderer) => void;
+  const proto = THREE.Material.prototype as unknown as { onBeforeCompile: Hook };
+  const base = proto.onBeforeCompile;
+  const wrap = (fn: Hook): Hook => {
+    const wrapped: Hook = function (this: THREE.Material, shader, renderer) {
+      fn.call(this, shader, renderer);
+      (shader.uniforms as Record<string, { value: unknown }>).sunPcfMap = SUN_PCF_UNIFORM;
+    };
+    wrapped.toString = () => fn.toString() + "+sunpcf";
+    (wrapped as unknown as { sunPcf?: boolean }).sunPcf = true;
+    return wrapped;
   };
+  const defaultHook = wrap(base);
+  const SLOT = Symbol("onBeforeCompile");
+  Object.defineProperty(proto, "onBeforeCompile", {
+    configurable: true,
+    get(this: Record<symbol, Hook | undefined>) { return this[SLOT] ?? defaultHook; },
+    set(this: Record<symbol, Hook | undefined>, fn: Hook) { this[SLOT] = (fn as unknown as { sunPcf?: boolean }).sunPcf ? fn : wrap(fn); },
+  });
 }
 
 /** Give a material with its own `onBeforeCompile` the PCSS sampler too (see installPcss). */
