@@ -448,6 +448,12 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     const kd = KITCHEN.depth + T + 0.2;
     const g = new THREE.BoxGeometry(halfX * 2 + 0.4, H + slabDrop, kd);
     g.translate(0, (H - slabDrop) / 2, zBack - T - kd / 2 + 0.1);
+    // No +z face: the player is inside the kitchen now, and a back-side face in the partition's
+    // plane would black out the pass-through and the open swing door from the kitchen side.
+    // (BoxGeometry face order +x, -x, +y, -y, +z, -z; 6 indices each.)
+    const idx = g.index!.array as ArrayLike<number>;
+    g.setIndex([...Array.from(idx).slice(0, 24), ...Array.from(idx).slice(30)]);
+    g.clearGroups();
     const voidMat = pal.voidBlack.clone();
     voidMat.side = THREE.BackSide;
     const voidBox = new THREE.Mesh(g, voidMat);
