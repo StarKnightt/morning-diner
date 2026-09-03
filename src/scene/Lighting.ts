@@ -615,6 +615,14 @@ export function installPcss(): void {
 						// where the physical penumbra radius is 2.3 mm). It still grows with distance
 						// past 1.4 m, and by the far wall (3–4 m) it is 3× this floor.
 						float pen = clamp( shadowRadius * ( zR - dNear ), texel.x * 1.75, searchR );
+						// 2b. Camera-footprint floor (rev 4). A pixel integrates the shadow over its own
+						// footprint in the map — on the far wall (11 m) one pixel spans ~2 texels, and the
+						// 25 mm slat stripes there are 3.5 px apart: filtered at the 1.75-texel floor,
+						// each stripe edge's texel staircase beat against the next into a diagonal hatch
+						// that the critics counted as hard motes (L 200–235 on a 110 wall). Widening the
+						// disc to the pixel footprint is exactly the sensor's own box filter; it changes
+						// nothing within ~4 m (footprint < 0.5 texel there).
+						pen = max( pen, min( max( length( dxUV ), length( dyUV ) ), texel.x * 12.0 ) );
 						// 3. Weighted disc of hardware-PCF taps over the penumbra.
 						float lit = 0.0;
 						${filterGlsl}
@@ -630,6 +638,9 @@ export function installPcss(): void {
 
 					// Fixed kernel: four bilinear taps on a square of half-side |radius| texels.
 					float r = max( 0.5, -shadowRadius ) * texel.x * 0.7071;
+					// Camera-footprint floor, as in the PCSS branch (rev 4): the lot's shadow outlines
+					// stepped 2.7 px where a pixel covered more than the kernel.
+					r = max( r, 0.7071 * min( max( length( dxUV ), length( dyUV ) ), texel.x * 8.0 ) );
 					vec2 a = vec2( r, r ), b = vec2( r, -r );
 					float lit = pcssTap( shadowMap, shadowCoord.xy + a, texel, zR )
 						+ pcssTap( shadowMap, shadowCoord.xy - a, texel, zR )
