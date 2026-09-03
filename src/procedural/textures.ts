@@ -1347,7 +1347,9 @@ export function trofferLens(w: number, h: number, tubes: number, cells: number):
     img.data[o + 3] = 255;
   }
   ctx.putImageData(img, 0, 0);
-  const t = finish(c, true, 4);
+  // 16× anisotropy: seen down the room (`length`) the lens is a 20-px sliver at 15–20° to
+  // the view; with 4× the mips average the bars into the valleys and the sliver stops clipping.
+  const t = finish(c, true, 16);
   t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
   return { emissiveMap: t };
 }
