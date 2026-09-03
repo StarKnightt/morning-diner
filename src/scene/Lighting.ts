@@ -51,8 +51,9 @@
  * between them — a per-MAP caster list with no wasted depth draws.
  */
 import * as THREE from "three";
-import { BACK_BAR, BOOTH, CEILING, COUNTER, DOOR, PASS_THROUGH, ROOM, STOOL, WINDOW, trofferCenter } from "./layout";
-import { slatShadowGlsl } from "./slatShadow";
+import { BACK_BAR, BOOTH, CEILING, COUNTER, PASS_THROUGH, ROOM, STOOL, WINDOW, trofferCenter } from "./layout";
+import { slatBeamOpen, slatShadowGlsl } from "./slatShadow";
+import { bounceQuads, bounceRectsGlsl } from "./bounceRects";
 
 /* ------------------------------------------------------------------------- */
 /* Units and exposure                                                         */
@@ -283,15 +284,24 @@ export const FLUORESCENT = new THREE.Color().setRGB(236 / 255, 255 / 255, 238 / 
  * 230 nits on white crockery, against ≈ 250 nits of shaded wall. Six fixtures (layout.ts
  * CEILING.troffers) → 63,000 lm over the 68 m² room, ≈ 550 lux on the working plane with a
  * room cavity utilisation of ≈ 0.6.
+ *
+ * Rev 6 (survey #4/#7 physics): back to the derived 5,800 lm maintained. Rev 3's 10,500 was
+ * tuned so the fixtures would visibly light the room against the sun — the one thing a
+ * fluorescent troffer cannot do at 8 AM: 35 klm maintained over 68 m² is ≈ 300 lux, one
+ * hundredth of the 34,500 lux in a sun patch, and in the photographs the fixtures show only
+ * as their own lens. Half the flux takes ≈ 45 nits off every shaded wall (the critics' walls
+ * at sRGB 40–60), and the lens keeps its +4 EV: 5,800 / (π · 0.566 m²) = 3,260 nits mean
+ * with the two lamp-pair bars at 2.2× — 7,200 nits, +4.1 EV over grey, above the bloom
+ * threshold (post/settings.ts, 2.0 exposed = +3.5 EV) so the bars glow as a lit lens does.
  */
-export const TROFFER_LUMENS = 10_500;
+export const TROFFER_LUMENS = 5_800;
 /** Lens: 1.11 × 0.51 m opening (two 0.6 m cells less the door frame). */
 export const TROFFER_LENS_AREA = (CEILING.tile * 2 - 0.09) * (CEILING.tile - 0.09);
 /**
  * Mean lens luminance of a Lambertian emitter of TROFFER_LUMENS over TROFFER_LENS_AREA:
- * Φ / (π A) ≈ 5,900 nits (+1.8 EV over grey); the two tube-pair images in the emissive map
- * peak at ≈ 1.8× → 10,600 nits, past the camera curve's white (9,560): the bars clip, the
- * field between them holds the green-cyan tint — a lit troffer in a daylight exposure.
+ * Φ / (π A) ≈ 3,260 nits (rev 6; +3.0 EV over grey); the two tube-pair images in the emissive
+ * map peak at ≈ 2.2× → 7,200 nits, +4.1 EV: the bars sit on the knee and bloom, the field
+ * between them holds the green-cyan tint — a lit troffer in a daylight exposure.
  */
 export const TROFFER_LENS_NITS = TROFFER_LUMENS / (Math.PI * TROFFER_LENS_AREA);
 /**
@@ -335,44 +345,13 @@ SKY_HORIZON_CHROMA.multiplyScalar(1 / luminance(SKY_HORIZON_CHROMA));
 SKY_ZENITH_CHROMA.multiplyScalar(1 / luminance(SKY_ZENITH_CHROMA));
 const SKY_SCALE = nits(SKY_HORIZON_NITS);
 /**
- * Sun inside the room, on the horizontal, averaged over the slat duty cycle: 90 klux ×
- * 0.88 glass × sin 35° × 0.5 (half-open 1" slats pass ~50 % of the beam) ≈ 22,700 lux on
- * a sunlit patch; on a vertical face toward +x (the bench fronts; the sun vector's x is
- * sin 38° · cos 35° = 0.504) 90 klux × 0.88 × 0.504 × 0.5 ≈ 20,000 lux.
+ * First bounce of the sun patches (System 4 rev 6, step 5): see scene/bounceRects.ts. Rev 2–5
+ * derived one Lambertian spot per booth from PATCH_LUX × area × albedo (≈ 25,000 lm per booth,
+ * BOUNCE_FLUX / VINYL_FLUX; BUILD.md rev 2–4); the rectangles now carry E_patch · ρ / π as
+ * radiance and the shader integrates the form factor, so the derivation lives there. Glass
+ * 0.88, blind beam transmittance from the slat geometry (slatShadow.ts slatBeamOpen, 0.76).
  */
-const PATCH_LUX_H = SUN_LUX * 0.88 * Math.sin(THREE.MathUtils.degToRad(35)) * 0.5;
-const PATCH_LUX_X = SUN_LUX * 0.88 * 0.504 * 0.5;
-/**
- * First bounce of one window's beam, per booth. The beam lands on (ray-traced from the
- * window rectangle along the sun vector, see BUILD.md rev 2):
- *   · the aisle floor past the booth back — 1.35 m wide × ≈ 1.3 m deep ≈ 1.75 m² of checker
- *     (albedo 0.47/0.45/0.42, warm grey);
- *   · the sun side of the table top — ≈ 0.3 m² of cream laminate (0.90/0.85/0.75);
- *   · the −x bench's seat and back front, both facing the sun — ≈ 0.8 m² of red vinyl,
- *     linear albedo (0.40/0.010/0.007) from #AA1A15.
- * Reflected flux per channel = Σ E × A × ρ:
- *   floor 22.7k × 1.75 × (0.47, 0.45, 0.42) = (18.7k, 17.9k, 16.7k)
- *   table 22.7k × 0.30 × (0.90, 0.85, 0.75) = ( 6.1k,  5.8k,  5.1k)
- *   vinyl 20.0k × 0.80 × (0.40, 0.01, 0.007)= ( 6.4k,  0.16k, 0.11k)  → VINYL_FLUX (rev 3)
- *   total ≈ (31k, 24k, 22k) lm-equivalent; the red vinyl is 20 % of the red channel,
- * which is the colour bleed (a warm pink, not the sun's white-yellow) that reaches the
- * ceiling, the table underside and the wall behind the far bench. One upward Lambertian
- * spot per booth, Φ/π cd, at the flux-weighted centroid of the floor and table terms.
- *
- * Rev 3 splits the vinyl term out (VINYL_FLUX): folded into the aisle spot it was one fifth
- * of a room-wide warm tint and the critics measured no red shift at all on the wall beside
- * a bench (R/G +0.015 against a far wall). The lit bench is a 2,500-nit red Lambertian
- * panel 0.5 m from the wall above it, the divider and the table underside: those faces see
- * it over ≈ 1 sr, ≈ 2,000 lux of red on top of ≈ 1,300 lux of white ambient — the pink
- * cast next to a sunlit red bench in every Shore/Eggleston diner frame. One spot per
- * booth ON the lit (−x) bench, firing +x and up (the seat radiates up, the back +x).
- */
-const BOUNCE_FLUX = new THREE.Vector3(
-  PATCH_LUX_H * 1.75 * 0.47 + PATCH_LUX_H * 0.3 * 0.9,
-  PATCH_LUX_H * 1.75 * 0.45 + PATCH_LUX_H * 0.3 * 0.85,
-  PATCH_LUX_H * 1.75 * 0.42 + PATCH_LUX_H * 0.3 * 0.75,
-);
-const VINYL_FLUX = new THREE.Vector3(PATCH_LUX_X * 0.8 * 0.4, PATCH_LUX_X * 0.8 * 0.01, PATCH_LUX_X * 0.8 * 0.007);
+export const GLASS_T = 0.88;
 /** Spot cone that approximates a Lambertian emitter: smoothstep(cos 89°, 1, cos θ) ≈ cos θ. */
 const LAMBERT_ANGLE = THREE.MathUtils.degToRad(89);
 /**
@@ -408,11 +387,16 @@ const LAMBERT_ANGLE = THREE.MathUtils.degToRad(89);
  * room's darkest corners — the floor under the tables, the mat between the mugs — set the
  * frame medians of `undertable` and `macro-warmer`, and both critics want no interior
  * median under sRGB 70; the walls move 0.1 EV (106 → 110 far, 126 → 130 near the windows).
+ *
+ * Rev 6: 0.1 again. The first bounce is now the exact rectangle term (bounceRects.ts), which
+ * the probe capture also sees, so the probe is purely the second bounce; measured at `length`
+ * (`?ibounce=0.01` against 0.13) it was adding 19 nits to a 173-nit shaded wall. The brief's
+ * shade target is sRGB 40–60 (60–110 nits at this camera), not rev 4's "no median under 70".
  */
 export const ROOM_PROBE_INTENSITY = (() => {
-  if (typeof location === "undefined") return 0.13;
+  if (typeof location === "undefined") return 0.1;
   const v = Number(new URLSearchParams(location.search).get("ibounce"));
-  return Number.isFinite(v) && v > 0 ? v : 0.13;
+  return Number.isFinite(v) && v > 0 ? v : 0.1;
 })();
 
 export interface LightingResult {
@@ -429,7 +413,7 @@ export interface LightingResult {
   sunLot: THREE.DirectionalLight;
   /** One Lambertian spot per 2×4 fixture (`?nofluor` → none). */
   troffers: THREE.SpotLight[];
-  /** One upward Lambertian spot per booth: the first bounce of that window's sun (`?nobounce` → none). */
+  /** Rev 2–5: one upward Lambertian spot per booth. Rev 6: always empty — the first bounce is the analytic rectangle term (bounceRects.ts, `?nobounce` → off). */
   bounces: THREE.SpotLight[];
   /** Horizon colour in scene units, for the fog and the background. */
   horizon: THREE.Color;
@@ -444,7 +428,7 @@ export function configureRenderer(renderer: THREE.WebGLRenderer): void {
   installCameraToneMapping();
   installSunSplit();
   installSlatShadow();
-  installBounceDiffuseOnly();
+  installBounceRects();
   installSpecularAA();
   renderer.toneMapping = TONE_MAPPING;
   renderer.toneMappingExposure = EXPOSURE;
@@ -453,13 +437,11 @@ export function configureRenderer(renderer: THREE.WebGLRenderer): void {
   renderer.shadowMap.type = SHADOW_MAP_TYPE;
   primeShadowMapType(renderer);
   installPcss();
-  // The window and door panes are transmissive, so three renders the whole opaque scene a
-  // second time into the transmission buffer every frame — 140 of the 294 draws at `length`,
-  // every one of them paying for the PCSS, and all of it for the exterior seen through six
-  // panes. Measured (rev 2, GPU timer at `length`): 3.4 ms of an 11.4 ms scene pass at full
-  // resolution; 0.5 (a 960×540 buffer) gives the same frame for 8.0 ms. What is behind the
-  // glass is the sunlit lot — mostly clipped — and a hot-morning exterior through 6 mm float
-  // is never pixel-sharp anyway (System 8's shimmer works the same region). `?txscale=n`.
+  // Transmissive materials (rev 6: only the carafe, sugar, mug and clock glass — the panes
+  // are alpha glazing, scene/Glazing.ts) make three render the opaque scene a second time
+  // into the transmission buffer. Rev 2 measured 3.4 ms of an 11.4 ms scene pass at full
+  // resolution when the panes used it; 0.5 (a 960×540 buffer) is kept for the tabletop glass,
+  // whose refracted view of the room is never pixel-sharp anyway. `?txscale=n`.
   const q = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
   const tx = Number(q?.get("txscale"));
   const txScale = Number.isFinite(tx) && tx > 0 ? tx : 0.5;
@@ -855,35 +837,40 @@ function installSlatShadow(): void {
   THREE.ShaderChunk.lights_pars_begin = chunk + slatShadowGlsl();
 }
 
-/** SpotLight.distance value that marks a bounce stand-in as diffuse-only (buildLighting). */
-const BOUNCE_DIFFUSE_ONLY_DISTANCE = 100;
-
 /**
- * Bounce stand-ins are diffuse-only (rev 4). The per-booth / door / vinyl bounce spots
- * (`lambertSpot`) are point sources standing for square-metre Lambertian patches; a point
- * has the patch's far-field irradiance but a specular image ~10⁴× too concentrated, so every
- * glossy surface within a few metres carried a hot highlight of the "floor" — the counter's
- * stainless lip clipped along 6 m (14,700 nits; 900 with the specular off). The patch's true
- * specular image is in the sun-on probe the metals sample. Marker: `spotLight.distance >
- * 50` (BOUNCE_DIFFUSE_ONLY_DISTANCE); such a spot adds its Lambert term and is zeroed before
- * RE_Direct. Spot lights only; every lit material struct carries `diffuseColor`.
+ * Sun-patch first bounce as rectangle form factors (rev 6, scene/bounceRects.ts): the quad list
+ * goes into `lights_pars_begin`, and `bounceIrradiance( worldPos, worldNormal )` is added to
+ * `irradiance` at three's light-probe line — the same slot sedona-sunset's s4GroundBand uses —
+ * so it feeds `indirectDiffuse` through the material's own Lambert term and nothing else (no
+ * specular image: the point-source stand-ins needed a diffuse-only patch for that, rev 4).
+ * `?nobounce` leaves it out.
  */
-function installBounceDiffuseOnly(): void {
+function installBounceRects(): void {
+  const q = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
+  if (q?.has("nobounce") || q?.has("nofill")) return;
+  const pars = THREE.ShaderChunk.lights_pars_begin;
+  if (pars.includes("bounceIrradiance")) return;
   const chunk = THREE.ShaderChunk.lights_fragment_begin;
-  const spotBlock = chunk.indexOf("#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )");
-  const reDirect = "RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );";
-  const at = spotBlock < 0 ? -1 : chunk.indexOf(reDirect, spotBlock);
-  if (at < 0) {
-    console.warn("[lighting] lights_fragment_begin layout changed; bounce diffuse-only not installed");
+  // Anchor on the ambient line, not the light-probe one: that one sits inside
+  // `#if defined( USE_LIGHT_PROBES )`, which this scene never defines (found the hard way —
+  // the ceiling lost its bounce entirely on the first build).
+  const anchor = "vec3 irradiance = getAmbientLightIrradiance( ambientLightColor );";
+  if (!chunk.includes(anchor)) {
+    console.warn("[lighting] lights_fragment_begin layout changed; bounce rectangles not installed");
     return;
   }
-  THREE.ShaderChunk.lights_fragment_begin = chunk.slice(0, at) + /* glsl */ `if ( spotLight.distance > 50.0 ) {
-			// bounce stand-in (src/scene/Lighting.ts installBounceDiffuseOnly): Lambert term only
-			reflectedLight.directDiffuse += saturate( dot( geometryNormal, directLight.direction ) ) * directLight.color * BRDF_Lambert( material.diffuseColor );
-			directLight.color = vec3( 0.0 );
-			directLight.visible = false;
-		}
-		` + chunk.slice(at);
+  const sun = sunDirection();
+  const quads = bounceQuads({ sunLux: SUN_LUX, sun, glass: GLASS_T, slatOpen: slatBeamOpen(sun) });
+  THREE.ShaderChunk.lights_pars_begin = pars + bounceRectsGlsl(quads, K);
+  THREE.ShaderChunk.lights_fragment_begin = chunk.replace(anchor, `${anchor}
+    #ifndef BOUNCE_NO_RECTS
+    {
+      // System 4 rev 6: first bounce of the sun patches, exact rectangle form factors (bounceRects.ts)
+      vec3 bWp = cameraPosition - ( vec4( vViewPosition, 0.0 ) * viewMatrix ).xyz;
+      vec3 bWn = inverseTransformDirection( geometryNormal, viewMatrix );
+      irradiance += bounceIrradiance( bWp, bWn );
+    }
+    #endif`);
 }
 
 /**
@@ -1172,98 +1159,10 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
     }
   }
 
-  /* ---------------- first bounce of each window's beam (per booth) ---------------- */
-  // BOUNCE_FLUX (derivation at the constant): ≈ 25,000 lm-equivalent per booth, colour
-  // (1.0, 0.77, 0.70) — the checker floor's warm grey pulled toward red by the sunlit
-  // bench. Placed at the flux-weighted centroid of the lit floor patch (aisle, z ≈ 1.0,
-  // shifted −x by the sun's plan angle), the table and the −x bench: about 1.2 m into the
-  // room from the booth's centre, low, so it lights the table underside and the bench
-  // undersides from below, the ceiling above the booths (≈ 950 lux directly above at
-  // 2.6 m → a 240-nit tile, −2.2 EV, fading to ≈ 60 lux at the back wall — the ceiling
-  // gradient the critics asked for) and the divider/wall faces next to the lit vinyl.
-  // The dielectrics' probe is captured with the interior sun off (Diner.ts), so these
-  // are the only sun bounce they see; metals use the sun-on probe and get it from there.
+  /* ---------------- first bounce of each window's beam ---------------- */
+  // Rev 6: the analytic rectangle term installed by installBounceRects (configureRenderer);
+  // no lights. Kept as an empty list for the callers that iterate it.
   const bounces: THREE.SpotLight[] = [];
-  if (!q.has("nobounce")) {
-    const planShift = Math.tan(THREE.MathUtils.degToRad(38));
-    const zFloor = (COUNTER.topFrontZ + 0.15 + BOOTH.zInner - 0.4) / 2; // aisle patch centre, ≈ 0.95
-    const zBooth = BOOTH.zInner + 0.5; // table / bench sun zone
-    const wFloor = 0.73, wBooth = 0.27; // flux shares from the table above
-    const zc = zFloor * wFloor + zBooth * wBooth;
-    const flux = BOUNCE_FLUX;
-    const lum = 0.2126 * flux.x + 0.7152 * flux.y + 0.0722 * flux.z;
-    const color = new THREE.Color(flux.x / lum, flux.y / lum, flux.z / lum); // luminance 1 → intensity carries the lumens
-    for (const cx of WINDOW.centersX) {
-      const l = lambertSpot(color, lum, "sun-bounce");
-      const xc = cx - (ROOM.zFront - zFloor) * planShift * wFloor - 0.5 * wBooth;
-      if (xc > -ROOM.halfX + 0.4) {
-        l.position.set(xc, 0.12, zc);
-        l.target.position.set(xc, 3, zc);
-      } else {
-        // The first window's beam meets the −x end wall 1.1 m past its centre: the wall
-        // patch (the one the `counter` pose looks at) is a band at z ≈ zFront − 1.1/tan 38°
-        // from the floor up to 2.62 − 1.78·tan 35° ≈ 1.4 m. That bounce leaves the wall
-        // horizontally, toward +x — so this spot sits ON the wall and fires along +x. Rev 2's
-        // first round clamped it to an up-facing spot 0.4 m from the wall, which lit the
-        // wall it stood for (a wall cannot light itself) to 1,090 nits, 0.9 EV over the
-        // other shaded walls, and the ceiling above the first booth with it.
-        const dx = ROOM.halfX - 0.05 + cx; // window centre → wall, along −x
-        const zWall = ROOM.zFront - dx / planShift;
-        l.position.set(-ROOM.halfX + 0.05, 0.7, zWall);
-        l.target.position.set(-ROOM.halfX + 3, 0.7, zWall);
-      }
-      scene.add(l, l.target);
-      bounces.push(l);
-    }
-    // The door's beam (rev 3). The leaf's light is 0.69 × 1.69 m of clear glass with no
-    // blinds: 90 klux × (sun·+z = cos 35°·cos 38° = 0.645) × 0.88 × 1.17 m² ≈ 60,000 lm
-    // enter and land on the vestibule floor between 0.4 and 2.8 m inside the wall, shifted
-    // −x by tan 38°; × checker albedo ≈ 27,000 lm back up — as much as a whole booth window.
-    // Without it the walls either side of the door (the `door` pose) saw only the probe and
-    // sat at sRGB 27, a stop under the other shaded walls, while a 1 m² patch of 26,000-nit
-    // floor lay 1.5 m in front of them.
-    {
-      const glassA = 0.692 * 1.692;
-      const E = SUN_LUX * Math.cos(THREE.MathUtils.degToRad(35)) * Math.cos(THREE.MathUtils.degToRad(38)) * 0.88;
-      const flux = new THREE.Vector3(0.47, 0.45, 0.42).multiplyScalar(E * glassA);
-      const lum = 0.2126 * flux.x + 0.7152 * flux.y + 0.0722 * flux.z;
-      const color = new THREE.Color(flux.x / lum, flux.y / lum, flux.z / lum);
-      const depth = 1.12 / Math.tan(THREE.MathUtils.degToRad(35)); // glass mid-height → floor
-      const l = lambertSpot(color, lum, "door-bounce");
-      l.position.set(DOOR.centerX - depth * planShift, 0.12, ROOM.zFront - depth);
-      l.target.position.set(l.position.x, 3, l.position.z);
-      scene.add(l, l.target);
-      bounces.push(l);
-    }
-    // Red bounce off the lit −x bench of each booth (VINYL_FLUX, derivation at BOUNCE_FLUX):
-    // on the bench's front face at seat-back height, aimed +x and 35° up, so it reaches the
-    // opposite bench, the divider, the table underside and the window wall above the seat.
-    // Only booths whose bench the beam actually reaches (the first window's lands on the
-    // end wall, see above).
-    {
-      const lum = 0.2126 * VINYL_FLUX.x + 0.7152 * VINYL_FLUX.y + 0.0722 * VINYL_FLUX.z;
-      const color = new THREE.Color(VINYL_FLUX.x / lum, VINYL_FLUX.y / lum, VINYL_FLUX.z / lum);
-      const zc = (BOOTH.zInner + BOOTH.zOuter) / 2;
-      for (const cx of WINDOW.centersX) {
-        const xc = cx - (ROOM.zFront - zFloor) * planShift * wFloor - 0.5 * wBooth;
-        if (xc <= -ROOM.halfX + 0.4) continue;
-        const l = lambertSpot(color, lum, "vinyl-bounce");
-        l.position.set(cx - BOOTH.back.frontX + 0.02, 0.62, zc);
-        l.target.position.set(cx - BOOTH.back.frontX + 0.02 + Math.cos(0.61), 0.62 + Math.sin(0.61), zc);
-        scene.add(l, l.target);
-        bounces.push(l);
-      }
-    }
-  }
-
-  // Diffuse-only marker (rev 4, see installBounceDiffuseOnly): the bounce stand-ins are
-  // point sources for 1–3 m² Lambertian patches. Their DIFFUSE far field is right; their
-  // specular is not — a 25,000 lm point 1.5 m from the counter's stainless lip put a
-  // 14,700-nit highlight along its whole length (the critics' "neon tube"), where the
-  // real patch's image is a broad 2,000-nit smear that the metals already get from the
-  // sun-on probe. `distance` 100 m is the flag the shader reads (cutoff attenuation at
-  // 3 m: 1 − (3/100)⁴ → 1.0000); no other spot in the scene sets a distance above 50.
-  for (const l of bounces) l.distance = BOUNCE_DIFFUSE_ONLY_DISTANCE;
 
   /* ---------------- heat lamps over the pass-through shelf ---------------- */
   // Two 250 W red R40 heat lamps (Shell.ts: shades at pass.a0 + 0.35 and pass.a1 − 0.35,

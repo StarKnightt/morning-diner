@@ -95,6 +95,19 @@ export function blindLayout(): BlindState[] {
  * GLSL: `float slatTransmit( vec3 p, vec3 s, float aa )` — p world position, s unit vector toward
  * the sun (world), aa the pixel footprint in metres (0 for a march). Needs `PI` (three's common).
  */
+/**
+ * Fraction of the sun's beam the nominal blind passes (the shader's `open` term at the
+ * distance where the slat shadows have merged): 1 − 2·hw/du with hw the slat half-width and
+ * du the slat period, both measured across the beam. 25° slats under a 35° sun sit 10° off
+ * edge-on to it and pass ≈ 0.76 — not the 0.5 rev 2 assumed for the patch illuminance.
+ */
+export function slatBeamOpen(sun: THREE.Vector3, tilt = THREE.MathUtils.degToRad(SLAT.tiltDeg)): number {
+  const e = new THREE.Vector2(sun.z, sun.y).normalize();
+  const hw = (SLAT.width / 2) * Math.abs(e.x * Math.sin(tilt) - e.y * Math.cos(tilt));
+  const du = e.x * SLAT.pitch;
+  return Math.max(0, 1 - (2 * hw) / du);
+}
+
 export function slatShadowGlsl(): string {
   const wins = blindLayout();
   const f = (v: number) => v.toFixed(5);
