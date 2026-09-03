@@ -12,6 +12,7 @@
  */
 import * as THREE from "three";
 import { DOOR, ROOM, WINDOW } from "../scene/layout";
+import { slatShadowGlsl } from "../scene/slatShadow";
 
 export interface Aperture {
   x0: number;
@@ -244,13 +245,16 @@ export const shadowGlsl = /* glsl */ `
   uniform highp sampler2DShadow uShadowMap;
   uniform mat4 uShadowMatrix;
   uniform float uShadowBias;
-  // 1 = lit. Hardware compare (LinearFilter → 4-tap PCF per fetch).
+  ${slatShadowGlsl()}
+  // 1 = lit. Hardware compare (LinearFilter → 4-tap PCF per fetch) × the analytic blind-slat
+  // transmittance (System 4 rev 6, scene/slatShadow.ts: the slats are not in the map).
   float sunVisible(vec3 p) {
     vec4 sc = uShadowMatrix * vec4(p, 1.0);
     sc.xyz /= sc.w;
     sc.z += uShadowBias;
-    if (sc.x < 0.0 || sc.x > 1.0 || sc.y < 0.0 || sc.y > 1.0 || sc.z > 1.0) return 1.0;
-    return texture(uShadowMap, sc.xyz);
+    float slat = slatTransmit(p, sunRay(p), 0.0);
+    if (sc.x < 0.0 || sc.x > 1.0 || sc.y < 0.0 || sc.y > 1.0 || sc.z > 1.0) return slat;
+    return texture(uShadowMap, sc.xyz) * slat;
   }
   // Slat-stripe-averaged visibility for the haze march: three taps spread over one slat pitch
   // (25 mm) vertically. A 24-step march cannot resolve 25 mm stripes and would alias into

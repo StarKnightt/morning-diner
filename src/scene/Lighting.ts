@@ -52,6 +52,7 @@
  */
 import * as THREE from "three";
 import { BACK_BAR, BOOTH, CEILING, COUNTER, DOOR, PASS_THROUGH, ROOM, STOOL, WINDOW, trofferCenter } from "./layout";
+import { slatShadowGlsl } from "./slatShadow";
 
 /* ------------------------------------------------------------------------- */
 /* Units and exposure                                                         */
@@ -432,6 +433,7 @@ export interface LightingResult {
 export function configureRenderer(renderer: THREE.WebGLRenderer): void {
   installCameraToneMapping();
   installSunSplit();
+  installSlatShadow();
   installBounceDiffuseOnly();
   installSpecularAA();
   renderer.toneMapping = TONE_MAPPING;
@@ -816,11 +818,31 @@ function installSunSplit(): void {
     .replace(spotLine, `${spotLine}
 		#if defined( SUN_SKIP_SPOT0 ) && ( UNROLLED_LOOP_INDEX == 0 )
 			directLight.visible = false; directLight.color = vec3( 0.0 );
+		#elif ( UNROLLED_LOOP_INDEX == 0 ) && ! defined( SLAT_NO_ANALYTIC )
+			// System 4 rev 6: the blind slats are not in this sun's shadow map; their stripes are the
+			// closed-form transmittance of src/scene/slatShadow.ts (installSlatShadow), world-space.
+			{
+				vec3 slatWp = cameraPosition - ( vec4( vViewPosition, 0.0 ) * viewMatrix ).xyz;
+				vec3 slatWs = ( vec4( directLight.direction, 0.0 ) * viewMatrix ).xyz;
+				float slatAa = length( fwidth( slatWp ) );
+				directLight.color *= slatTransmit( slatWp, slatWs, slatAa );
+			}
 		#endif`)
     .replace(dirLine, `${dirLine}
 		#if defined( SUN_SKIP_DIR0 ) && ( UNROLLED_LOOP_INDEX == 0 )
 			directLight.visible = false; directLight.color = vec3( 0.0 );
 		#endif`);
+}
+
+/**
+ * Declare `slatTransmit` (slatShadow.ts) in every lit fragment shader, ahead of the light loop
+ * that calls it (installSunSplit). The post pipeline's beam / dust / haze shaders include the
+ * same GLSL through beams.ts `shadowGlsl`, so a mote in a stripe's shadow is dark in both.
+ */
+function installSlatShadow(): void {
+  const chunk = THREE.ShaderChunk.lights_pars_begin;
+  if (chunk.includes("slatTransmit")) return;
+  THREE.ShaderChunk.lights_pars_begin = chunk + slatShadowGlsl();
 }
 
 /** SpotLight.distance value that marks a bounce stand-in as diffuse-only (buildLighting). */

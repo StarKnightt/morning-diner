@@ -31,20 +31,22 @@
 import * as THREE from "three";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
-import { makeRng } from "../core/rng";
-import { ROOM, WINDOW } from "./layout";
+import { WINDOW } from "./layout";
 import { installLotGroundFill } from "./Lighting";
+import { blindLayout, SLAT } from "./slatShadow";
 
 export const BLIND = {
-  slatWidth: 0.025,
-  pitch: 0.022,
+  // Slat geometry lives in slatShadow.ts (System 4 rev 6): the analytic shadow term is baked
+  // from the same numbers, so the two cannot drift apart.
+  slatWidth: SLAT.width,
+  pitch: SLAT.pitch,
   /** Outer (street-side) edge raised by this angle from horizontal (nominal; ±5° per blind). */
-  tiltDeg: 25,
+  tiltDeg: SLAT.tiltDeg,
   /** Slat stack centre-line z: 40 mm in from the interior wall plane, 85 mm inside the glass. */
-  zCentre: ROOM.zFront + 0.04,
-  headrail: { h: 0.038, d: 0.025 },
+  zCentre: SLAT.zCentre,
+  headrail: { h: SLAT.headrailH, d: 0.025 },
   /** Closed steel channel, 1.5× the slat's tilted height (≈ 12.5 mm) so it reads as a rail, not another slat. */
-  bottomRail: { h: 0.019, d: 0.027 },
+  bottomRail: { h: SLAT.bottomRailH, d: 0.027 },
   /** Three ladders: the slats are 49.5" — 1" blinds go to four ladders above 52". The outer
    *  pair sits 3" from the ends as on the real thing; rev 4's 8" read as a second pair of
    *  frame verticals from the lot. */
@@ -202,13 +204,15 @@ export interface BlindsResult {
 
 export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
   const b = new MergedBuilder();
-  const fw = 0.04; // window frame face (Shell.ts)
+  const fw = SLAT.frameFace; // window frame face (Shell.ts)
   const openW = WINDOW.width - 2 * fw; // clear between frame members
+  const layout = blindLayout(); // per-window tilt / drop, shared with the analytic shadow (slatShadow.ts)
   const slatLen = openW - 0.012;
   const zc = BLIND.zCentre;
   const slatMat = pal.slat.clone();
   slatMat.vertexColors = true;
   slatMat.name = "slat";
+  (slatMat.defines ??= {}).SLAT_NO_ANALYTIC = 1; // a slat's own u-range is never inside a gap
   installLotGroundFill(slatMat); // System 4 rev 4: sunlit-lot bounce onto the undersides (Lighting.ts)
 
   const yHeadTop = WINDOW.head - fw; // underside of the head frame member
@@ -225,17 +229,11 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
   const meshes: THREE.Mesh[] = [];
 
   WINDOW.centersX.forEach((cx, wi) => {
-    const rng = makeRng(3301 + wi * 7919);
-    const x0 = cx - openW / 2, x1 = cx + openW / 2;
-    // Per-blind character
-    const tilt = THREE.MathUtils.degToRad(BLIND.tiltDeg + (rng() - 0.5) * 10); // 25 ± 5°
-    // Drop: two hang to the sill, two were pulled up 3–8 cm, the last one in the row 15–30 cm
-    const raised = wi === 1 || wi === 3 ? 0 : wi === WINDOW.centersX.length - 1 ? 0.15 + rng() * 0.15 : 0.03 + rng() * 0.05;
+    // Per-blind character: tilt 25 ± 5°; drop — two hang to the sill, two were pulled up 3–8 cm,
+    // the last one in the row 15–30 cm (blindLayout draws both from this blind's generator).
+    const { rng, x0, x1, tilt, raised, yRail, hanging, stacked } = layout[wi];
     const sagAmp = 0.001 + rng() * 0.002; // 1–3 mm between ladders (the general run)
     const droopAmp = 0.0004 + rng() * 0.0008;
-    const yRail = yStopFull - 0.018 + raised; // bottom rail centre (0.902 when fully lowered: 6 mm over the sill frame)
-    const hanging = Math.floor((yFirst - (yRail + BLIND.bottomRail.h / 2 + 0.012)) / BLIND.pitch) + 1;
-    const stacked = countFull - hanging; // slats resting on the rail
     // Headrail: 25 × 38 steel channel in the slat colour; a valance lip on the room face
     b.rbox(pal.slatRail, [x0 + 0.003, yHead0, zc - BLIND.headrail.d / 2], [x1 - 0.003, yHeadTop, zc + BLIND.headrail.d / 2], 0.002);
     b.rbox(pal.slatRail, [x0 + 0.003, yHead0 - 0.004, zc - BLIND.headrail.d / 2 - 0.002], [x1 - 0.003, yHead0 + 0.012, zc - BLIND.headrail.d / 2], 0.001);
@@ -299,7 +297,10 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
     g.computeBoundingBox();
     g.computeBoundingSphere();
     const mesh = new THREE.Mesh(g, slatMat);
-    mesh.castShadow = true;
+    // System 4 rev 6: the slats are NOT in the sun's shadow map — their stripes are the analytic
+    // term in slatShadow.ts (the map's PCSS filter floor was filling the stripe troughs). They
+    // still receive the map (frame, headrail) and skip the analytic term on themselves.
+    mesh.castShadow = false;
     mesh.receiveShadow = true;
     mesh.name = `blind-slats-${wi}`;
     parent.add(mesh);
