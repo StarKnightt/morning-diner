@@ -2382,15 +2382,18 @@ src/audio/wiring.ts   createDinerAudio() with the warmer at the brewer's lower p
                  + a quiet 700 Hz pane shiver, at the strike jamb through the door bus
 ```
 
-Controls: E (F, or click under pointer lock) on the highlighted target. Reach:
+Controls: E (or click under pointer lock) on the highlighted target. Reach:
 benches 1.4 m, mug 1.25 m, door 1.4 m, cabinet doors 1.5 m, kitchen door 1.6 m (System 9);
-look cone 22–30° half-angle.
+look cone 22–30° half-angle. **F** (feat-blinds-f) raises / lowers the venetian blind of the
+window being looked at (reach 2.5 m, 22° cone, prompt "F — Raise blinds" / "Lower blinds");
+F is no longer an E alias and does nothing when no window is in the cone. See "Fix — F
+raises the blinds" below.
 System 9 keys (`src/player/FirstPerson.ts`, feature 5): **WASD / arrows** walk 1.4 m/s;
 **Shift** walk fast (2.6 m/s, 0.2 s blend in/out, same 0.15 / 0.12 s accel/decel *times*,
 head-bob 1.8 → 2.4 Hz phase and 1.4 → 2.2 cm p-p with speed); **Space** a hop (0.32 m apex,
 g = 9.81, 0.51 s in the air, 2 cm landing dip over 0.15 s + `sfx.footfall`; one hop per
 press, no bunny-hop on a held key); **E** the prompt action (interact / sit / pour / open —
-"Stand" when seated); **Q** stand up. Shift and Space are refused while seated (controller
+"Stand" when seated); **F** raise / lower the looked-at window's blind; **Q** stand up. Shift and Space are refused while seated (controller
 disabled by Sit) and mid-interaction (`player.blocked()`: pouring, drinking, or standing in the
 door swing while the leaf cycles); a sprint in progress blends out. The hop and the bob are camera
 offsets only — `position.y`, the colliders and `setPose()` never see them, and both are
@@ -2404,8 +2407,9 @@ Debug / capture API (`src/interactions/debug.ts`, on `window`):
 | `__interact(name, t)` | seek to `t` seconds into that interaction and freeze the clocks (silent) |
 | `__interact("stand" \| "resume" \| "reset")` | stand up / unfreeze / everything back to rest |
 | `__interact("drink" \| "cabinet" \| "cabinet-right" \| "cabinet-close" \| "kitchen-door" \| "kitchen-door-close", t?)` | System 9: drink (1.6 s; a seek fills the mug first), toggle the left / right cabinet door (`t` seeks the 0.8 s opening), close the left door (`t` seeks the 0.75 s closing), toggle the kitchen door — it opens and HOLDS at 90° (`t` seeks the 1.5 s opening), close it (`t` seeks the 2.25 s spring return) |
-| `__interactPose("sit-seated" \| "pour-mid" \| "pour-full" \| "door-open" \| "drink-sip" \| "cabinet-open" \| "kitchen-door-open" \| "kitchen-door-back")` | state + camera for `tools/shoot.mjs` |
-| `__interactions` | the live object: `.sit.state`, `.pour.state`, `.pour.fill`, `.door.progress`, `.door.angleDeg`, `.drink.state`, `.cabinet[0..1].{state,angleDeg}`, `.kitchenDoor.{state,busy,angleDeg}`, `.target`, `.audio.state()`, `.startAudio()` |
+| `__interact("blinds-raise" \| "blinds-lower", wi?, t?)` | feat-blinds-f: raise window `wi`'s blind (0–4, default 1) from down / lower it from up; `t` (3rd arg) seeks into the 2.5 s raise / 2.0 s lowering and freezes |
+| `__interactPose("sit-seated" \| "pour-mid" \| "pour-full" \| "door-open" \| "drink-sip" \| "cabinet-open" \| "kitchen-door-open" \| "kitchen-door-back" \| "blinds-down" \| "blinds-mid" \| "blinds-up" \| "blinds-up-exterior")` | state + camera for `tools/shoot.mjs` |
+| `__interactions` | the live object: `.sit.state`, `.pour.state`, `.pour.fill`, `.door.progress`, `.door.angleDeg`, `.drink.state`, `.cabinet[0..1].{state,angleDeg}`, `.kitchenDoor.{state,busy,angleDeg}`, `.blinds[0..4].{state,drop,busy}`, `.target`, `.blindTarget`, `.audio.state()`, `.startAudio()` |
 | `__player` | the `FirstPerson` controller (harness feel checks: `.position`, `.camera`, `.setPose`, `.keys` (a `Set` of key codes — add `"KeyW"` / `"ShiftLeft"` / `"Space"` and call `.update(dt)`), `.speed`, `.sprintAmount`, `.inAir`, `.jumpHeight`, `.blocked`) |
 
 Poses (`tools/shoot.mjs --tag=sys7 --poses=sit-seated,pour-mid,pour-full,door-open`,
