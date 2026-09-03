@@ -3544,7 +3544,7 @@ the authored value, so the code path is the pre-tier one.
 | `high` | 1.0 | 4096² | PCSS | transmission ×0.5 | 16 | 3500 | on / MSAA4 | on | 0.8 / 110 | ≤ 2048 | on |
 | `medium` | 0.85 | 2048² | PCSS | transmission ×0.25 | 12 | 2000 | on / MSAA4 | on | 0.5 / 90 | ≤ 1024 | on |
 | `low` | 0.65 | 1024² | 4-tap PCF | alpha | 8 | 800 | off / none | off | 0.25 / 70 | ≤ 512 | off |
-| `mobile` | 0.5 | 1024² | 4-tap PCF | alpha | 6 | 400 | off / none | off | 0.2 / 60 | ≤ 512 | off |
+| `mobile` | 1.0 (CSS px; a phone at 0.5 was 206 px wide) | 1024² | 4-tap PCF | alpha | 6 | 400 | off / none | off | 0.2 / 60 | ≤ 512 | off |
 
 **Auto-pick** (`classify`): touch-primary or mobile UA / no WebGL2 / SwiftShader → `mobile`;
 renderer string moves the guess down (entry RTX → high, GTX → high/medium, Intel Iris/Xe →
@@ -3565,11 +3565,27 @@ half drags yaw/pitch, a short tap on the right half dispatches `keydown KeyE` (t
 key); the canvas's `requestPointerLock` is replaced by a resolved promise so the loader's
 forwarded click and FirstPerson's click handler are no-ops rather than rejections.
 
-**Measured** (RTX 4060, 1080p, `BENCH_PORT=6905 node tools/post-bench.mjs --configs="q=ultra;q=medium;q=low" --poses=length,booth,kitchen-line,lot-wide --settle=1500 --samples=3`,
+**Measured** (RTX 4060, 1080p, `BENCH_PORT=6905 node tools/post-bench.mjs --configs="q=ultra;q=high;q=medium;q=low;q=mobile" --poses=length,booth,kitchen-line,lot-wide --settle=1500 --samples=2`,
 GPU shared with two sibling harnesses — minimum of the samples; `ultra` vs `origin/main` at
-`684547a` in a sibling worktree, same session):
+`990cb01` in a sibling worktree, same session):
 
-QUALITY_TABLE_PLACEHOLDER
+| tier (min of 2 samples, total = scene + post ms) | `length` | `booth` | `kitchen-line` | `lot-wide` | calls / tris at `length` |
+|---|---|---|---|---|---|
+| `origin/main` 990cb01 (no tiers) | 16.4 | 15.0 | 14.1 | 9.7 | 579 / 4 599 099 |
+| `ultra` | 15.9 | 14.8 | 13.8 | 9.7 | 579 / 4 599 099 |
+| `high` | 15.1 | 13.9 | 12.8 | 9.6 | 579 / 4 314 005 |
+| `medium` | 9.9 | 9.7 | 9.9 | 7.8 | 579 / 3 885 221 |
+| `low` | 3.9 | 3.0 | 3.9 | 3.0 | 306 / 1 789 358 |
+| `mobile` (DPR cap 1.0 — at 1080p; a phone viewport is ~⅓ the pixels) | 4.5 | 4.0 | 4.7 | 5.6 | 306 / 1 726 264 |
+
+`ultra` − `origin/main` is within the run-to-run spread of the same build (≤ 0.5 ms; the
+`length` shots of both were taken in the same session). `low` sits at 3–4 ms on the 4060 — under
+the ~5 ms proxy for a weak iGPU — with the scene pass at 2.4–3.8 ms: the transmission pass gone
+(306 calls vs 579), the bounce loop and PCSS disc out of every lit fragment, 1024² maps, 0.65×
+pixels. `high` is the same picture as ultra at native pixels (the DPR cap only bites above 1.0).
+Phone emulation (Playwright "Pixel 7", coarse pointer → `mobile (auto)`, `shots/quality-mobile-
+{length,touch}.png`): boots, renders the room in portrait, the stick writes `KeyW` and walks, the
+drag turns 0.5 rad, release clears the keys, no page errors.
 
 `ultra` draws the same calls and triangles as `origin/main` at every pose (579 / 4 599 099 at
 `length`, 389 / 4 264 023 `booth`, 611 / 4 663 259 `kitchen-line`, 390 / 4 151 253 `lot-wide`);

@@ -75,7 +75,7 @@ export const TIERS: Record<Tier, TierSettings> = {
   // Integrated graphics: plain PCF, alpha glass, no bounce loop, no MSAA, 512 textures.
   low: { dprCap: 0.65, shadowMap: 1024, pcss: false, txScale: 0, hazeSteps: 8, dustCount: 800, steamCount: 2, bloom: false, aa: "none", bounce: false, scatterMul: 0.25, scatterRadius: 70, maxTexture: 512, anisotropy: false, clearcoat: false },
   // Phones: low, smaller still.
-  mobile: { dprCap: 0.5, shadowMap: 1024, pcss: false, txScale: 0, hazeSteps: 6, dustCount: 400, steamCount: 2, bloom: false, aa: "none", bounce: false, scatterMul: 0.2, scatterRadius: 60, maxTexture: 512, anisotropy: false, clearcoat: false },
+  mobile: { dprCap: 1.0, shadowMap: 1024, pcss: false, txScale: 0, hazeSteps: 6, dustCount: 400, steamCount: 2, bloom: false, aa: "none", bounce: false, scatterMul: 0.2, scatterRadius: 60, maxTexture: 512, anisotropy: false, clearcoat: false },
 };
 
 const STORAGE_KEY = "morning-diner.q";
