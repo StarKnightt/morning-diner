@@ -39,6 +39,8 @@ export interface BounceParams {
   /** Glass transmittance and the blinds' beam transmittance (open fraction). */
   glass: number;
   slatOpen: number;
+  /** Rev 7: the sun's chroma at unit luminance — the bounce is as warm as the beam. */
+  sunColor?: THREE.Vector3;
 }
 
 // Linear albedos. Floor: the checker (procedural/textures.ts) is off-white sRGB 220 (0.72) and
@@ -60,29 +62,43 @@ export function bounceQuads(p: BounceParams): BounceQuad[] {
   const zF = ROOM.zFront;
   // Illuminance on a plane of normal n from the beam: E = sunLux · glass · open · max(0, n·s).
   const E = (n: THREE.Vector3, open = p.slatOpen) => p.sunLux * p.glass * open * Math.max(0, n.dot(s));
-  const rad = (Elux: number, rho: THREE.Vector3) => rho.clone().multiplyScalar(Elux / Math.PI);
-  const UP = new THREE.Vector3(0, 1, 0), PX = new THREE.Vector3(1, 0, 0);
+  const tint = p.sunColor ?? new THREE.Vector3(1, 1, 1);
+  const rad = (Elux: number, rho: THREE.Vector3) => rho.clone().multiply(tint).multiplyScalar(Elux / Math.PI);
+  const UP = new THREE.Vector3(0, 1, 0), PX = new THREE.Vector3(1, 0, 0), PZ = new THREE.Vector3(0, 0, 1);
+  const zBackIn = ROOM.zBack + 0.01, xEndIn = -ROOM.halfX + 0.01;
+  /**
+   * Rev 7 (evening, sun 9° up): a window band [ya..yb] × [xa..xb] traced along −s meets the
+   * FIRST of the floor (y = 0), the kitchen partition (z = zBack) or the −x end wall — at 9°
+   * the beam from the upper half of every window crosses the whole room and lands on the
+   * partition, the back bar and the counter, not the floor (t to the floor from the head:
+   * 13 m; to the partition: 7.5 m). The plane is chosen by the band's centre ray, every
+   * corner is projected onto it and clamped into the room box. Morning (35°) reproduces the
+   * old floor / wall-patch split exactly (the wall test was `tWall < 0.6·tFloor`).
+   */
+  const landQuad = (xa: number, ya: number, xb: number, yb: number, yTop: number, name: string, open = p.slatOpen) => {
+    ya = THREE.MathUtils.clamp(ya, yLo, yTop); yb = THREE.MathUtils.clamp(yb, yLo, yTop);
+    if (ya >= yTop - 0.02 && yb >= yTop - 0.02) return;
+    const yc = (ya + yb + 2 * yTop) / 4, xc = (xa + xb) / 2;
+    const tF = yc / s.y, tB = (zF - zBackIn) / s.z, tW = (xc - xEndIn) / s.x;
+    const plane = tF <= tB && tF <= tW ? "floor" : tB <= tW ? "back" : "end";
+    const corner = (x: number, y: number) => {
+      const t = plane === "floor" ? y / s.y : plane === "back" ? tB : (x - xEndIn) / s.x;
+      const q = along(new THREE.Vector3(x, y, zF), s, t);
+      q.x = THREE.MathUtils.clamp(q.x, xEndIn, ROOM.halfX - 0.01);
+      q.y = THREE.MathUtils.clamp(q.y, 0, yTop);
+      q.z = THREE.MathUtils.clamp(q.z, zBackIn, zF - 0.01);
+      return q;
+    };
+    const v: [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3] = [corner(xa, ya), corner(xb, yb), corner(xb, yTop), corner(xa, yTop)];
+    const radiance = plane === "floor" ? rad(E(UP, open), RHO_FLOOR) : plane === "back" ? rad(E(PZ, open), RHO_WALL) : rad(E(PX, open), RHO_WALL);
+    quads.push({ name: `${name}-${plane}`, v, radiance });
+  };
   // Beam parameter t at which a window point of height y reaches height yTarget, or plane z.
   const tToY = (y: number, yTarget: number) => (y - yTarget) / s.y;
   const tToZ = (zTarget: number) => (zF - zTarget) / s.z;
 
   WINDOW.centersX.forEach((cx, wi) => {
     const x0 = cx - openW / 2, x1 = cx + openW / 2;
-    const tWall = (x0 + ROOM.halfX) / s.x; // the −x edge of the beam meets the end wall
-    if (tWall < tToY(yHi, 0) * 0.6) {
-      // Window 0: most of the beam meets the −x end wall before the floor (Lighting.ts rev 2
-      // note). Band on the wall: from where the beam's low edge lands to where its top does.
-      const tA = (x0 + ROOM.halfX) / s.x, tB = (x1 + ROOM.halfX) / s.x;
-      const xw = -ROOM.halfX + 0.01;
-      const zA = zF - s.z * tA, zB = zF - s.z * tB;
-      const yTop = Math.min(yHi - s.y * tA, 1.6), yBot = 0.0;
-      quads.push({
-        name: `wall-patch-${wi}`,
-        v: [new THREE.Vector3(xw, yBot, zA), new THREE.Vector3(xw, yBot, zB), new THREE.Vector3(xw, yTop, zB), new THREE.Vector3(xw, yTop, zA)],
-        radiance: rad(E(PX), RHO_WALL),
-      });
-      return;
-    }
     // Aisle floor: the part of the beam that clears the booth before y = 0 — over the table
     // top (BOOTH.table.top at the table's aisle edge) and, for the rays that are still inside
     // the booth when they reach it, over the −x bench's back (BOOTH.back.top at x = cx −
@@ -98,18 +114,19 @@ export function bounceQuads(p: BounceParams): BounceQuad[] {
     const xBench = cx - BOOTH.back.frontX;
     const uSplit = THREE.MathUtils.clamp(s.x * tAisle - BOOTH.back.frontX, -openW / 2, openW / 2); // window offset past which the ray leaves the booth before the bench plane
     const yBench = (xw: number) => BOOTH.back.top + (s.y / s.x) * (xw - xBench);
-    const floorQuad = (xa: number, ya: number, xb: number, yb: number, name: string) => {
-      ya = THREE.MathUtils.clamp(ya, yLo, yHi); yb = THREE.MathUtils.clamp(yb, yLo, yHi);
-      if (ya >= yHi - 0.02 && yb >= yHi - 0.02) return;
-      const a = along(new THREE.Vector3(xa, ya, zF), s, tToY(ya, 0));
-      const b = along(new THREE.Vector3(xb, yb, zF), s, tToY(yb, 0));
-      const c = along(new THREE.Vector3(xb, yHi, zF), s, tToY(yHi, 0));
-      const d = along(new THREE.Vector3(xa, yHi, zF), s, tToY(yHi, 0));
-      quads.push({ name, v: [a, b, c, d], radiance: rad(E(UP), RHO_FLOOR) });
-    };
     const xs = cx + uSplit;
-    floorQuad(x0, Math.max(yTable, yBench(x0)), xs, Math.max(yTable, yBench(xs)), `floor-${wi}a`);
-    if (xs < x1 - 0.02) floorQuad(xs, yTable, x1, yTable, `floor-${wi}b`);
+    // Three height bands per strip so a beam that lands half on the floor and half on the
+    // partition gets a quad on each (rev 7).
+    const bands = (xa: number, ya: number, xb: number, yb: number, name: string) => {
+      const yFrom = Math.min(ya, yb);
+      for (let k = 0; k < 3; k++) {
+        const fa = k / 3, fb = (k + 1) / 3;
+        const yTop = THREE.MathUtils.lerp(yFrom, yHi, fb);
+        landQuad(xa, Math.max(ya, THREE.MathUtils.lerp(yFrom, yHi, fa)), xb, Math.max(yb, THREE.MathUtils.lerp(yFrom, yHi, fa)), yTop, `${name}${k}`);
+      }
+    };
+    bands(x0, Math.max(yTable, yBench(x0)), xs, Math.max(yTable, yBench(xs)), `floor-${wi}a`);
+    if (xs < x1 - 0.02) bands(xs, yTable, x1, yTable, `floor-${wi}b`);
     // Booth zone: the low part of the beam lands on the table top and the seats. One
     // horizontal patch at the table height over the booth's depth, laminate + vinyl mix.
     {
@@ -139,16 +156,15 @@ export function bounceQuads(p: BounceParams): BounceQuad[] {
       });
     }
   });
-  // The door leaf's clear glass, no blinds (Lighting.ts rev 3 note): 0.69 × 1.69 m, lands on
-  // the vestibule floor 0.4–2.8 m inside the wall.
+  // The door leaf's clear glass, no blinds (Lighting.ts rev 3 note): 0.69 × 1.69 m. Rev 7:
+  // traced like the windows (at 9° its upper half lands on the partition, not the floor).
   {
     const gw = 0.692, gy0 = 0.28, gy1 = 0.28 + 1.692;
     const x0 = DOOR.centerX - gw / 2, x1 = DOOR.centerX + gw / 2;
-    const a = along(new THREE.Vector3(x0, gy0, zF), s, tToY(gy0, 0));
-    const b = along(new THREE.Vector3(x1, gy0, zF), s, tToY(gy0, 0));
-    const c = along(new THREE.Vector3(x1, gy1, zF), s, tToY(gy1, 0));
-    const d = along(new THREE.Vector3(x0, gy1, zF), s, tToY(gy1, 0));
-    quads.push({ name: "door-floor", v: [a, b, c, d], radiance: rad(E(UP, 1), RHO_FLOOR) });
+    for (let k = 0; k < 3; k++) {
+      const ya = THREE.MathUtils.lerp(gy0, gy1, k / 3), yb = THREE.MathUtils.lerp(gy0, gy1, (k + 1) / 3);
+      landQuad(x0, Math.max(yLo, ya), x1, Math.max(yLo, ya), Math.min(yHi, yb), `door${k}`, 1);
+    }
   }
   return quads;
 }

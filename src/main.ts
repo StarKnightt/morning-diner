@@ -55,7 +55,34 @@ configureRenderer(renderer);
   else if (tm === "agx") renderer.toneMapping = THREE.AgXToneMapping;
   else if (tm === "neutral") renderer.toneMapping = THREE.NeutralToneMapping;
   else if (tm === "camera") renderer.toneMapping = THREE.CustomToneMapping;
-  if (params.has("ev")) renderer.toneMappingExposure *= Math.pow(2, Number(params.get("ev")));
+  // Exposure dial (rev 7): `?ev=<stops>` (default 0) or the last value the player set with
+  // `[` / `]` (±0.25 EV, persisted in localStorage `morning-diner.ev`, shown as a toast).
+  const baseExposure = renderer.toneMappingExposure;
+  const EV_KEY = "morning-diner.ev";
+  let ev = params.has("ev") ? Number(params.get("ev")) : Number(localStorage.getItem(EV_KEY) ?? 0);
+  if (!Number.isFinite(ev)) ev = 0;
+  const applyEv = () => { renderer.toneMappingExposure = baseExposure * Math.pow(2, ev); };
+  applyEv();
+  let toast: HTMLDivElement | null = null, toastTimer = 0;
+  const showEv = () => {
+    if (!toast) {
+      toast = document.createElement("div");
+      toast.style.cssText = "position:fixed;left:50%;bottom:12%;transform:translateX(-50%);padding:6px 12px;border-radius:6px;background:rgba(0,0,0,.55);color:#fff;font:13px/1.2 system-ui,sans-serif;letter-spacing:.04em;pointer-events:none;opacity:0;transition:opacity .2s;z-index:20";
+      document.body.appendChild(toast);
+    }
+    toast.textContent = `EV ${ev >= 0 ? "+" : "−"}${Math.abs(ev).toFixed(2)}`;
+    toast.style.opacity = "1";
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => { if (toast) toast.style.opacity = "0"; }, 1200);
+  };
+  window.addEventListener("keydown", (e) => {
+    if (e.code !== "BracketLeft" && e.code !== "BracketRight") return;
+    ev = Math.round((ev + (e.code === "BracketRight" ? 0.25 : -0.25)) * 4) / 4;
+    ev = Math.max(-4, Math.min(4, ev));
+    localStorage.setItem(EV_KEY, String(ev));
+    applyEv();
+    showEv();
+  });
 }
 document.body.appendChild(renderer.domElement);
 

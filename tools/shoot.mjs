@@ -105,6 +105,11 @@ const POSES = {
   "fix-pole-lot": { x: 18.4, y: 1.62, z: 18.9, yaw: 60, pitch: 10 },
   // Crouched 1.6 m from the pier: base plate, anchor bolts, shoe, rust bloom, handhole cover.
   "fix-pole-base": { x: 6.6, y: 1.1, z: 10.2, yaw: 135, pitch: -16 },
+  // Signage (Signage.ts) — from the lot, 8–12 m: the pylon at the entrance gap, the parapet
+  // letters over the facade, the door's enamel panels. Shoot with --tag=sign.
+  "sign-pylon": { x: 10.0, y: 1.62, z: 9.0, yaw: 140, pitch: 12 },
+  "sign-facade": { x: 1.6, y: 1.62, z: 13.0, yaw: 0, pitch: 6 },
+  "sign-door": { x: 5.6, y: 1.62, z: 11.5, yaw: 0, pitch: 2 },
   // System 7 — interactions. These call window.__interactPose(name) (src/interactions/debug.ts),
   // which resets every interaction, seeks the named one to a fixed time, freezes the animation
   // clocks and places the camera itself (the seated pose IS the camera).
