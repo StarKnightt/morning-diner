@@ -41,6 +41,7 @@
  * since the MSAA scene depth is being written while these draw.
  */
 import * as THREE from "three";
+import { BLIND_DROP } from "../scene/slatShadow";
 import { apertureGlsl, apertureUniforms, MAX_APERTURES, setSunUniforms, shadowGlsl, sunRaysOf, type ApertureUniforms, type SunLight, type SunRays } from "./beams";
 
 export interface SteamParams {
@@ -386,6 +387,7 @@ export class SteamEmitter {
         uShadowMap: { value: null },
         uShadowMatrix: { value: new THREE.Matrix4() },
         uShadowBias: { value: 0 },
+        uBlindDrop: BLIND_DROP, // feat-blinds-f: shared per-window raise state (slatShadow.ts)
       },
       transparent: true,
       depthWrite: false,

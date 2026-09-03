@@ -18,8 +18,10 @@ const STYLE = `
 export class Prompt {
   private readonly el: HTMLDivElement;
   private readonly text: Text;
+  private readonly keyEl: HTMLSpanElement;
   private shown = false;
   private current = "";
+  private currentKey: string;
 
   /** `instant` drops the fade (the capture harness wants deterministic frames). */
   constructor(key = "E", instant = false) {
@@ -36,19 +38,25 @@ export class Prompt {
     const k = document.createElement("span");
     k.className = "k";
     k.textContent = key;
+    this.keyEl = k;
+    this.currentKey = key;
     this.text = document.createTextNode("");
     this.el.append(k, this.text);
     document.body.appendChild(this.el);
   }
 
-  /** Show `label` (e.g. "Sit"), or hide when null. Cheap to call every frame. */
-  set(label: string | null): void {
+  /** Show `label` (e.g. "Sit") under key glyph `key` (default "E"; "F" for the blinds), or hide when null. Cheap to call every frame. */
+  set(label: string | null, key = "E"): void {
     if (label === null) {
       if (this.shown) {
         this.shown = false;
         this.el.classList.remove("on");
       }
       return;
+    }
+    if (key !== this.currentKey) {
+      this.currentKey = key;
+      this.keyEl.textContent = key;
     }
     if (label !== this.current) {
       this.current = label;

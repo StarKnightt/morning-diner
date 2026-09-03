@@ -2444,9 +2444,12 @@ src/audio/wiring.ts   createDinerAudio() with the warmer at the brewer's lower p
                  + a quiet 700 Hz pane shiver, at the strike jamb through the door bus
 ```
 
-Controls: E (F, or click under pointer lock) on the highlighted target. Reach:
+Controls: E (or click under pointer lock) on the highlighted target. Reach:
 benches 1.4 m, stools 2.0 m, mug 1.25 m, door 1.4 m, cabinet doors 1.5 m, kitchen door 1.6 m (System 9);
-look cone 22–30° half-angle.
+look cone 22–30° half-angle. **F** (feat-blinds-f) raises / lowers the venetian blind of the
+window being looked at (reach 2.5 m, 22° cone, prompt "F — Raise blinds" / "Lower blinds");
+F is no longer an E alias and does nothing when no window is in the cone. See "Fix — F
+raises the blinds" below.
 
 **Counter stools (`feat-stool-sit`, frames `shots/fix-stool-{approach,seated,seated-look-left}.png`).**
 "I can't sit on these stools": only the benches had a seat. `Sit.ts` is now one state machine over
@@ -2476,7 +2479,7 @@ System 9 keys (`src/player/FirstPerson.ts`, feature 5): **WASD / arrows** walk 1
 head-bob 1.8 → 2.4 Hz phase and 1.4 → 2.2 cm p-p with speed); **Space** a hop (0.32 m apex,
 g = 9.81, 0.51 s in the air, 2 cm landing dip over 0.15 s + `sfx.footfall`; one hop per
 press, no bunny-hop on a held key); **E** the prompt action (interact / sit / pour / open —
-"Stand" when seated); **Q** stand up. Shift and Space are refused while seated (controller
+"Stand" when seated); **F** raise / lower the looked-at window's blind; **Q** stand up. Shift and Space are refused while seated (controller
 disabled by Sit) and mid-interaction (`player.blocked()`: pouring, drinking, or standing in the
 door swing while the leaf cycles); a sprint in progress blends out. The hop and the bob are camera
 offsets only — `position.y`, the colliders and `setPose()` never see them, and both are
@@ -2492,8 +2495,9 @@ Debug / capture API (`src/interactions/debug.ts`, on `window`):
 | `__interact("look", yawDeg, {pitch?})` | seated only: turn the look `yawDeg` off the seat heading (+ = left) and snap the stool swivel to it |
 | `__interact("stand" \| "resume" \| "reset")` | stand up / unfreeze / everything back to rest |
 | `__interact("drink" \| "cabinet" \| "cabinet-right" \| "cabinet-close" \| "kitchen-door" \| "kitchen-door-close", t?)` | System 9: drink (1.6 s; a seek fills the mug first), toggle the left / right cabinet door (`t` seeks the 0.8 s opening), close the left door (`t` seeks the 0.75 s closing), toggle the kitchen door — it opens and HOLDS at 90° (`t` seeks the 1.5 s opening), close it (`t` seeks the 2.25 s spring return) |
-| `__interactPose("sit-seated" \| "stool-approach" \| "stool-seated" \| "stool-seated-look-left" \| "pour-mid" \| "pour-full" \| "door-open" \| "drink-sip" \| "cabinet-open" \| "kitchen-door-open" \| "kitchen-door-back")` | state + camera for `tools/shoot.mjs` |
-| `__interactions` | the live object: `.sit.state`, `.pour.state`, `.pour.fill`, `.door.progress`, `.door.angleDeg`, `.drink.state`, `.cabinet[0..1].{state,angleDeg}`, `.kitchenDoor.{state,busy,angleDeg}`, `.target`, `.audio.state()`, `.startAudio()` |
+| `__interact("blinds-raise" \| "blinds-lower", wi?, t?)` | feat-blinds-f: raise window `wi`'s blind (0–4, default 1) from down / lower it from up; `t` (3rd arg) seeks into the 2.5 s raise / 2.0 s lowering and freezes |
+| `__interactPose("sit-seated" \| "stool-approach" \| "stool-seated" \| "stool-seated-look-left" \| "pour-mid" \| "pour-full" \| "door-open" \| "drink-sip" \| "cabinet-open" \| "kitchen-door-open" \| "kitchen-door-back" \| "blinds-down" \| "blinds-mid" \| "blinds-up" \| "blinds-up-exterior")` | state + camera for `tools/shoot.mjs` |
+| `__interactions` | the live object: `.sit.state`, `.pour.state`, `.pour.fill`, `.door.progress`, `.door.angleDeg`, `.drink.state`, `.cabinet[0..1].{state,angleDeg}`, `.kitchenDoor.{state,busy,angleDeg}`, `.blinds[0..4].{state,drop,busy}`, `.target`, `.blindTarget`, `.audio.state()`, `.startAudio()` |
 | `__player` | the `FirstPerson` controller (harness feel checks: `.position`, `.camera`, `.setPose`, `.keys` (a `Set` of key codes — add `"KeyW"` / `"ShiftLeft"` / `"Space"` and call `.update(dt)`), `.speed`, `.sprintAmount`, `.inAir`, `.jumpHeight`, `.blocked`) |
 
 Poses (`tools/shoot.mjs --tag=sys7 --poses=sit-seated,pour-mid,pour-full,door-open`,
@@ -3269,6 +3273,60 @@ were four), ≈ 5.8 k triangles per pole. Frames: `fix-pole-{before,after}-looku
 user's pose, 3 m out on the aisle), `fix-pole-{before,after}-lot.png` (15 m), and
 `fix-pole-after-base.png` (crouched at the pier: plate, bolts, shoe, rust, handhole). Poses
 `fix-pole-lookup`, `fix-pole-lot`, `fix-pole-base` are in `shoot.mjs`.
+
+## Fix — F raises the blinds (`feat-blinds-f`, `shots/fix-blinds-{down,mid,up,up-exterior}.png`)
+
+**F** while looking at a window (reach 2.5 m, 22° cone, `src/interactions/Blinds.ts`) raises that
+window's venetian blind — 2.5 s, sine ease in/out with a 9 mm bump against the headrail — and
+F again lowers it (2.0 s, gravity ease-in, the cord lock brakes the last 15 cm, a 5 mm seat
+wobble). Prompt "F — Raise blinds" / "Lower blinds" (`Prompt.set(label, key)`); the E hint
+wins when both are in reach except when seated (the booth-window case). F is no longer an E alias.
+
+**Model (`scene/Blinds.ts` `BlindRig.setDrop`).** Per window the slats are one merged mesh; the
+rig keeps the rest positions / normals and the vertex range of every slat and, at drop `d`
+(1 down … 0 up), moves the bottom rail (its own `Group`, casts) to `yRail0 + (1 − d)·travel`
+and lifts slat k to `max(rest, stackBase + (N − 1 − k)·1.4 mm)` — the real thing: slats stack
+from the bottom onto the rising rail and flatten (tilt → 0.3×, rotated about the slat's centre
+line, normals too) over their first centimetre of lift; the rungs ride with their slats (their own
+mesh per window, same ranges); the ladder / lift cords hang from the headrail in a `Group` whose
+`scale.y` shortens them. Fully raised: a 74 × 1.4 mm = 10 cm stack + rail under the headrail.
+**Pull cords + tassel stay static** (they would lengthen by the raise; skipped). Bounds are set
+once for the whole travel (no per-frame recompute).
+
+**Analytic stripe term (`slatShadow.ts`).** `uniform float uBlindDrop[SLAT_N]` — the shared
+`BLIND_DROP` Float32Array, registered on the lit `ShaderLib` entries by `installBlindDropUniform`
+(three's `cloneUniforms` passes a typed array by reference, so every lit program and the post
+shaders — `PostPipeline` haze, `Dust`, `Steam` add it to their own uniforms — read the one array).
+Gating: the hanging region ends at `yLow' = mix(top, yLow, drop)`, under it the growing stack +
+rail are opaque (`SLAT_STACK_H · (1 − drop)`) and the glass below is clear (term 1 → full sun
+patch); over the last 12 % of the raise the stripes fade to 1. Written only from `setDrop`, i.e.
+during the animation; at rest the term is byte-identical to rev 6 (`fix-blinds-down` = the
+`stripes`-side pattern). Shadow-once: `consumeShadowDirty()` every 0.3 s of travel and once at
+rest → `invalidateShadows()`.
+
+**Sound (`audio/sfx/Openables.ts`).** `blindRustle(at, dur)`: pink-noise cord / slat rustle
+1.2–3 kHz with an ~11/s ratchet-tick train (raise 1.6 s, run-down 1.0 s); `blindClatter(at)`:
+8–12 thin 3–6 kHz aluminium clicks over 0.25 s, densest first, over the rail's thud — all
+≈ −30 dBFS at 1 m, on the openables bus.
+
+**Verification.** `tsc` clean; `fix-blinds-down` unchanged from rest; `fix-blinds-up`: stripes gone,
+one full sun patch on the table, clear glass; `fix-blinds-up-exterior`: interior visible through
+the clear pane, tassel / pull cords in place. Draw calls 267 at the pose, down and mid alike.
+Idle frame time p50 6.1 ms before / after (probe; the machine was shared with three other
+harnesses, so the p90 spikes during travel — 200 ms — are not attributable).
+
+**KNOWN DEFECT (unresolved at the deadline — first thing to fix).** In the raised and mid states
+the moved geometry does not draw: `fix-blinds-mid` renders like `fix-blinds-up` (no rail
+mid-window, no upper slats, no headrail stack), although the CPU state is right — probe:
+`blind-slats-1` position y-range 1.668–2.535 at drop 0.5 (upper half hanging), rail group at
++0.756 m, no NaNs, `frustumCulled` off and `updateMatrixWorld` forced made no difference, draw
+calls identical, `?post=0` identical. The analytic term, prompt, input, SFX, seek API and shadow
+bookkeeping all behave; the visual result is "the blind vanishes / reappears" instead of
+stacking. Suspects not yet checked: an `updateRanges` / attribute upload path in three r185 for a
+non-indexed 140 k-vertex geometry; a depth interaction with the glazing leaf once the rail group
+leaves its rest transform; something in `Diner` that snapshots the scene at boot. Reproduce with
+`node tools/shoot.mjs --tag=fix --poses=blinds-mid --no-build --port=…` or the `__interactPose`
+calls above.
 
 ## System status
 
