@@ -55,19 +55,20 @@ function poleMap(): THREE.CanvasTexture {
   const a1 = rnd() * 6.28, a2 = rnd() * 6.28, a3 = rnd() * 6.28;
   for (let x = 0; x < W; x++) {
     const u = (x / W) * Math.PI * 2;
-    col[x] = 0.035 * Math.sin(u * 3 + a1) + 0.02 * Math.sin(u * 7 + a2) + 0.012 * Math.sin(u * 17 + a3);
+    col[x] = 0.05 * Math.sin(u * 3 + a1) + 0.03 * Math.sin(u * 7 + a2) + 0.02 * Math.sin(u * 17 + a3);
     rustLen[x] = 0.045 + 0.02 * Math.sin(u * 5 + a2) + 0.015 * Math.sin(u * 13 + a1);
   }
   for (let k = 0; k < 14; k++) {
-    const x0 = Math.floor(rnd() * W), w = 1 + Math.floor(rnd() * 3), amp = 0.03 + rnd() * 0.05;
+    const x0 = Math.floor(rnd() * W), w = 1 + Math.floor(rnd() * 4), amp = 0.05 + rnd() * 0.08;
     for (let i = 0; i < w; i++) col[(x0 + i) % W] -= amp;
     rustLen[x0 % W] += 0.03 + rnd() * 0.05; // the streaks carry rust further up
   }
   for (let y = 0; y < H; y++) {
     const v = 1 - y / H; // canvas row 0 is the pole top (CanvasTexture flipY)
     for (let x = 0; x < W; x++) {
-      const grain = (rnd() - 0.5) * 0.03;
-      let r = 0.80 + col[x] + grain, g = 0.81 + col[x] + grain, b = 0.80 + col[x] * 0.9 + grain;
+      // Galvanised grey-white: albedo ≈ 0.58 (a white pole in desert sun clips at 0.8).
+      const grain = (rnd() - 0.5) * 0.04;
+      let r = 0.64 + col[x] + grain, g = 0.65 + col[x] + grain, b = 0.645 + col[x] * 0.9 + grain;
       // Weathering: chalkier / lighter toward the top, a touch of grime low down.
       const grime = Math.max(0, 0.14 - v) * 0.5;
       r -= grime; g -= grime; b -= grime * 0.9;
@@ -91,7 +92,7 @@ function poleMap(): THREE.CanvasTexture {
 }
 
 export function makeLotLightMats(pier: THREE.Material, grout: THREE.Material): LotLightMats {
-  const paint = new THREE.MeshStandardMaterial({ map: poleMap(), color: 0xffffff, roughness: 0.42, metalness: 0.22 });
+  const paint = new THREE.MeshStandardMaterial({ map: poleMap(), color: 0xffffff, roughness: 0.38, metalness: 0.3 });
   const galv = new THREE.MeshStandardMaterial({ color: 0x9a9d9c, roughness: 0.5, metalness: 0.75 });
   const steel = new THREE.MeshStandardMaterial({ color: 0x4a4c4e, roughness: 0.55, metalness: 0.8 });
   const bronze = new THREE.MeshStandardMaterial({ color: 0x2d261f, roughness: 0.48, metalness: 0.35 });
@@ -121,7 +122,7 @@ function taperedTube(curve: THREE.Curve<THREE.Vector3>, tubular: number, radial:
       const nx = c * N.x + s * B.x, ny = c * N.y + s * B.y, nz = c * N.z + s * B.z;
       pos.push(P.x + r * nx, P.y + r * ny, P.z + r * nz);
       nor.push(nx, ny, nz);
-      uv.push(t, j / radial);
+      uv.push(j / radial, 0.2 + 0.75 * t); // u around (the paint's streaks run along the arm), v clear of the rust band
     }
   }
   for (let i = 0; i < tubular; i++)
