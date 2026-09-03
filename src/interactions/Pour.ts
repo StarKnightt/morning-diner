@@ -139,8 +139,11 @@ class MugSteam {
         shearScale: 0.8,
         release: 0.016,
         meander: 0.02,
+        curl: 0.003,
         burst: 0.85,
-        alpha: 0.22,
+        // Peak ≈ 0.12 in shade: a strand over the backsplash must stay well under the mug glaze
+        // (steam rev 3 target ≤ 35 % of white ceramic in the same light).
+        alpha: 0.13,
         strength: 0,
         wind: [0.008, -0.003],
         fadePlane: new THREE.Vector4(0, 0, 1, -ROOM.zBack),
@@ -494,6 +497,11 @@ export class PourInteraction {
   /** The rim steam source's world velocity (m/s); Drink.ts sets it so the wisps trail the carried mug. */
   get steamVelocity(): THREE.Vector3 {
     return this.steam.emitter.velocity;
+  }
+
+  /** The rim steam source's world acceleration (m/s²); a jerked mug tears its wake faster. */
+  get steamAcceleration(): THREE.Vector3 {
+    return this.steam.emitter.acceleration;
   }
 
   /** Mug rim centre at rest (world). */

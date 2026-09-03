@@ -146,7 +146,10 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
           alpha: 0.14,
           burst: 0.9,
           shear: 0.05,
-          meander: 0.018,
+          meander: 0.024,
+          // Under the brew basket the draught twists the laminar root; the strands bow apart.
+          curl: 0.008,
+          release: 0.024,
           // Out of the front gap under the funnel and forward past the hood lip (z −2.25): 9 cm/s of +z.
           wind: [0.004, 0.09],
           // The black brewer tower stands behind the wisp from the aisle: the fixed dark-backdrop boost.

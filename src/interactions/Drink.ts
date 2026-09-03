@@ -153,6 +153,9 @@ export class DrinkInteraction {
   private readonly rimOff = new THREE.Vector3();
   private readonly rimNow = new THREE.Vector3();
   private readonly rimNext = new THREE.Vector3();
+  private readonly prevP = new THREE.Vector3();
+  private readonly prevQ = new THREE.Quaternion();
+  private readonly rimPrev = new THREE.Vector3();
   private readonly axisY = new THREE.Vector3(0, 1, 0);
   private readonly head = [0, 0, 0];
 
@@ -262,6 +265,7 @@ export class DrinkInteraction {
     this.pour.liquid.quaternion.identity();
     this.pour.steamObject.position.copy(this.steamRest);
     this.pour.steamVelocity.set(0, 0, 0);
+    this.pour.steamAcceleration.set(0, 0, 0);
     this.player.lean.pitch = 0;
     this.player.lean.roll = 0;
     this.player.lean.yaw = 0;
@@ -303,6 +307,15 @@ export class DrinkInteraction {
     this.poseAt(t + VEL_DT, this.nextP, this.nextQ);
     this.rimNext.copy(this.rimOff).applyQuaternion(this.nextQ).add(this.nextP);
     this.pour.steamVelocity.subVectors(this.rimNext, this.rimNow).multiplyScalar(1 / VEL_DT);
+    // Acceleration from the same three samples (central second difference): the wake is torn by
+    // jerks as well as by speed, so the lift's start and the set-down show a smear, not a comb.
+    this.poseAt(Math.max(0, t - VEL_DT), this.prevP, this.prevQ);
+    this.rimPrev.copy(this.rimOff).applyQuaternion(this.prevQ).add(this.prevP);
+    this.pour.steamAcceleration
+      .copy(this.rimNext)
+      .addScaledVector(this.rimNow, -2)
+      .add(this.rimPrev)
+      .multiplyScalar(1 / (VEL_DT * VEL_DT));
     const parent = this.mug.parent;
     this.mug.quaternion.copy(this.worldQ);
     if (parent) {

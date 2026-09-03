@@ -62,6 +62,8 @@ export interface SteamParams {
   release: number;
   /** Turbulent meander amplitude at the top of the strand, m (0 at the source). */
   meander: number;
+  /** Root curl amplitude, m: air moving past the source twists the laminar part a little. */
+  curl: number;
   /** 0 = continuous strands, 1 = fully intermittent puffs (each strand emits ~half the time). */
   burst: number;
   /** Alpha multiplier; 0 = off. */
@@ -95,6 +97,7 @@ export function defaultSteamParams(): SteamParams {
     shearScale: 0.8,
     release: 0.012,
     meander: 0.012,
+    curl: 0.003,
     burst: 0.85,
     strength: 0.35,
     color: new THREE.Color(0.93, 0.95, 1.0),
@@ -116,7 +119,7 @@ const vertexShader = /* glsl */ `
   attribute vec4 seed;      // per strand: phase, release angle, size jitter, noise offset
   attribute float along;    // 0 at the surface … 1 at the top
   attribute float side;     // −1 / +1 across the ribbon
-  uniform float uTime, uLife, uRise, uRadius, uShear, uShearScale, uRelease, uMeander, uBurst;
+  uniform float uTime, uLife, uRise, uRadius, uShear, uShearScale, uRelease, uMeander, uBurst, uCurl, uTear;
   uniform vec2 uWidth, uWind;
   uniform vec3 uSrcVel;
   uniform vec4 uFadePlane;
@@ -162,16 +165,33 @@ const vertexShader = /* glsl */ `
     vec2 air = roomAir(src.xz, uTime - 0.5 * age) + uWind;
     // The strand leaves the surface leaning a little, and the lean wanders.
     vec2 rel = uRelease * vec2(sin(tau * 0.9 + seed.x * 6.2831853), cos(tau * 0.7 + seed.y * 4.0));
+    // The whole strand bows: a slow per-strand bend growing with age squared (curvature radius
+    // ~25 cm at the top), its direction wandering, so no strand is straight over more than a
+    // few centimetres and neighbours bow different ways.
+    vec2 bend = uRelease * 3.0 * vec2(sin(tau * 0.5 + seed.z * 6.2831853), cos(tau * 0.6 + seed.w * 6.2831853)) * age * age / uLife;
     // Turbulent meander: none at the surface (laminar), growing past the mid-height.
     float g = pow(s, 1.7) * uMeander;
     // Wavelengths stay well above the ribbon width (≈ 9 and 5 cm along a 1.4 s strand) so the
     // centreline never turns sharper than the strip can follow.
     vec2 mea = g * vec2(sin(tau * 4.7 + seed.w * 9.0) + 0.3 * sin(tau * 9.1 + seed.z * 5.0),
                         cos(tau * 4.1 + seed.x * 7.0) + 0.3 * cos(tau * 8.3 + seed.y * 3.0));
-    // A carried source: the parcel stays where the source was when it left.
-    vec3 p = src - uSrcVel * age;
+    // Root curl: air moving past the source (a draught under the brew basket) already twists the
+    // laminar part a little.
+    mea += uCurl * smoothstep(0.0, 0.3, s) * vec2(sin(tau * 5.3 + seed.x * 6.2831853), cos(tau * 4.3 + seed.w * 6.2831853));
+    // A carried source: the parcel stays (mostly) where the source was when it left. Each strand
+    // lags a different fraction (the rim's boundary layer entrains some), and the wake behind a
+    // moving rim is a vortex street, so the trail curls sideways in proportion to its length —
+    // never a comb of straight parallel rays.
+    float vl = length(uSrcVel);
+    vec3 vdir = uSrcVel / max(vl, 1e-4);
+    vec3 perpA = normalize(cross(vdir, abs(vdir.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)) + vec3(1e-5));
+    vec3 perpB = cross(vdir, perpA);
+    float lag = 0.55 + 0.45 * fract(seed.w * 5.3 + seed.x * 2.1);
+    float d = vl * age * lag;
+    vec3 wake = -vdir * d + (perpA * sin(tau * 9.0 + seed.x * 6.2831853) + perpB * cos(tau * 7.0 + seed.y * 6.2831853)) * d * 0.35;
+    vec3 p = src + wake;
     p.y += h;
-    p.xz += (air + rel) * age + mea;
+    p.xz += (air + rel) * age + bend + mea;
     return p;
   }
 
@@ -195,23 +215,29 @@ const vertexShader = /* glsl */ `
     sideV = sl > 1e-6 ? sideV / sl : camRight;
     // Keep the strip's handedness along the strand (a flipped row folds the quad into a bow-tie).
     if (dot(sideV, camRight) < 0.0) sideV = -sideV;
+    float age = s * uLife;
+    float tau = uTime - age;
     float wj = 0.8 + 0.4 * seed.z;
-    float w = mix(uWidth.x, uWidth.y, s) * wj;
+    // Width jitter along the strand (±40 %, riding with the parcel): knots and necks, and the
+    // mass-conserving thinning below makes the necks fainter and the knots denser.
+    float wjit = 1.0 + 0.4 * sin(tau * 6.1 + seed.w * 6.2831853);
+    float w = mix(uWidth.x, uWidth.y, s) * wj * wjit;
     vec3 wp = p + sideV * (0.5 * w * side);
     gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
 
-    float age = s * uLife;
-    float tau = uTime - age;
-    // Along the strand: 0 at the surface (the rim crossing fades, it is never cut), peak a few
-    // centimetres up, exactly 0 at the top; the vapour that widens by diffusion thins with it.
-    float env = smoothstep(0.0, 0.14, s) * pow(1.0 - smoothstep(0.25, 1.0, s), 1.3);
-    env *= pow(uWidth.x * wj / max(1e-4, w), 0.5);
+    // Along the strand: 0 at the surface (the rim crossing fades, it is never cut), peak 4–5 cm
+    // up, exactly 0 at the top; the vapour that widens by diffusion thins with it (strongly: the
+    // widened upper half must read clearly fainter than the root).
+    float env = smoothstep(0.0, 0.2, s) * pow(1.0 - smoothstep(0.25, 1.0, s), 1.3);
+    env *= pow(uWidth.x * wj / max(1e-4, w), 0.8);
     env *= burst(tau);
     // Strands differ: some are faint, one or two carry the plume.
     env *= 0.5 + 0.5 * fract(seed.z * 3.7 + seed.w * 1.3);
-    // A source on the move (the carried mug) sweeps its own wake apart: parcels left more than a
-    // few centimetres behind have been torn up by the motion and are gone.
-    env *= exp(-length(uSrcVel) * age / 0.05);
+    // A source on the move (the carried mug) sweeps its own wake apart: parcels left behind have
+    // been torn up by the motion (speed and acceleration, uTear from the CPU) and the visible
+    // trail never exceeds ~15 cm whatever the speed.
+    float d = length(uSrcVel) * age * (0.55 + 0.45 * fract(seed.w * 5.3 + seed.x * 2.1));
+    env *= exp(-uTear * age) * (1.0 - smoothstep(0.09, 0.15, d));
     // Soft fade toward a world plane (the back wall): nothing slices geometry.
     if (uFadeWidth > 0.0) env *= smoothstep(0.0, uFadeWidth, dot(uFadePlane.xyz, p) + uFadePlane.w);
 
@@ -258,19 +284,25 @@ const fragmentShader = /* glsl */ `
     float n1 = vnoise(q) * 0.6 + vnoise(q * 2.1 + 3.3) * 0.4;
     float n2 = vnoise(vec2(vU * 0.5 + vSeed + 7.0, vTau * 2.0));
     float n3 = vnoise(vec2(vSeed + 21.0, vTau * 1.3));
-    // Ragged edge: the half-width wobbles ±30 % along the strand, and the core drifts off-centre
+    // Ragged edge: the half-width wobbles ±40 % along the strand, and the core drifts off-centre
     // (a little: pushed further it piles against the quad-edge window and draws a straight side).
-    float edge = 0.55 + 0.45 * n2;
+    float edge = 0.5 + 0.5 * n2;
     float u = abs(vU - 0.2 * (n3 - 0.5)) / edge;
     // Soft Gaussian across the ribbon, always closed before the quad edge (|vU| = 1) so no row
     // ever shows a hard cut. No radial term anywhere.
     float across = exp(-u * u * 3.0) * (1.0 - smoothstep(0.5, 0.9, abs(vU)));
-    // Past mid-height the widened sheet is really two or three filaments with clear air between:
-    // an across-strand noise that rides up with the parcel splits it (never at the laminar root).
-    float fil = smoothstep(0.25, 0.75, vnoise(vec2(vU * 2.5 + vSeed * 3.0, vTau * 3.5 + 11.0)));
-    float split = mix(1.0, 0.25 + 0.75 * fil, smoothstep(0.25, 0.8, vS));
-    // The strand thins to threads in places; the modulation never cuts a hole (≥ 0.3).
-    float a = across * split * vEnv * (0.35 + 0.65 * smoothstep(0.15, 0.85, n1)) * (0.6 + 0.8 * n3);
+    // Past mid-height the widened sheet is really two or three filaments with clear air between.
+    // The across coordinate is scaled by height (lanes fan apart, never parallel), shifted by a
+    // parcel-anchored warp, and thresholded from two incommensurate octaves (lanes of unequal
+    // width and spacing that form and vanish as they ride up). Never at the laminar root.
+    float warp = vnoise(vec2(vSeed + 5.0, vTau * 1.7)) - 0.5;
+    float uu = vU * (1.6 + 1.4 * vS) + 1.2 * warp;
+    float fn = 0.65 * vnoise(vec2(uu + vSeed * 3.0, vTau * 3.5 + 11.0)) + 0.35 * vnoise(vec2(uu * 2.3 + 9.0, vTau * 5.0));
+    float fil = smoothstep(0.3, 0.7, fn);
+    float split = mix(1.0, 0.15 + 0.85 * fil, smoothstep(0.2, 0.75, vS));
+    // Dense knots and clear gaps along the strand: the modulation floor is 0.1, so a strand
+    // breaks into pieces (it still never cuts to exactly nothing).
+    float a = across * split * vEnv * (0.1 + 0.9 * smoothstep(0.2, 0.8, n1)) * (0.55 + 0.45 * n3);
     // Sun-beam test per fragment; the slat-averaged compare (three taps over one slat pitch)
     // stands in for the vapour's ~2 cm depth, so a stripe brightens a soft band, not a knife edge.
     float lit = 0.0;
@@ -295,6 +327,8 @@ export class SteamEmitter {
   readonly params: SteamParams;
   /** World velocity of the source (m/s); older parcels trail behind a moving source. */
   readonly velocity = new THREE.Vector3();
+  /** World acceleration of the source (m/s²); a jerked source tears its wake apart faster. */
+  readonly acceleration = new THREE.Vector3();
   /** Alpha multiplier (0 = off). Same as params.strength. */
   get strength(): number {
     return this.params.strength;
@@ -331,6 +365,8 @@ export class SteamEmitter {
         uRelease: { value: 0 },
         uMeander: { value: 0 },
         uBurst: { value: 0 },
+        uCurl: { value: 0 },
+        uTear: { value: 0 },
         uWidth: { value: new THREE.Vector2() },
         uWind: { value: new THREE.Vector2() },
         uSrcVel: { value: new THREE.Vector3() },
@@ -424,6 +460,9 @@ export class SteamEmitter {
     u.uRelease.value = p.release;
     u.uMeander.value = p.meander;
     u.uBurst.value = p.burst;
+    u.uCurl.value = p.curl;
+    // Wake tear rate (1/s): a rim moving at 0.3 m/s shreds a parcel in ~0.2 s, a 3 m/s² jerk in ~0.5 s.
+    u.uTear.value = this.velocity.length() / 0.06 + Math.min(6, this.acceleration.length()) / 1.5;
     (u.uWidth.value as THREE.Vector2).set(p.width[0], p.width[1]);
     (u.uWind.value as THREE.Vector2).set(p.wind[0], p.wind[1]);
     (u.uSrcVel.value as THREE.Vector3).copy(this.velocity);
