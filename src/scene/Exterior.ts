@@ -1666,7 +1666,10 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
   // whole panel (≈ 4,500 nits; ablation in BUILD.md). A solid maroon under clearcoat is a pigment
   // layer with little gloss of its own: specularIntensity 0.1, roughness 0.7; the clearcoat is a
   // slightly hazed 0.1 (a mirror of the sky, the sun's lobe only where the mirror direction hits it).
-  const maroonPaint = skyFill(new THREE.MeshPhysicalMaterial({ color: 0x3a1014, map: dustM.map, roughnessMap: dustM.roughnessMap, roughness: 0.7, metalness: 0, specularIntensity: 0.1, clearcoat: 0.7, clearcoatRoughness: 0.1, envMapIntensity: 1 }), 0.2);
+  // Re-measured at 0.1: roof 2,350 nits against 2,250 of sky behind it — the base lobe still
+  // added ≈ 800 nits of sky. Under a clearcoat of the same index the pigment/clear interface
+  // reflects almost nothing (n 1.5 → 1.5), so 0.05: roof ≈ 1,950, 0.2 EV under the sky.
+  const maroonPaint = skyFill(new THREE.MeshPhysicalMaterial({ color: 0x3a1014, map: dustM.map, roughnessMap: dustM.roughnessMap, roughness: 0.7, metalness: 0, specularIntensity: 0.05, clearcoat: 0.7, clearcoatRoughness: 0.1, envMapIntensity: 1 }), 0.2);
   const grilleP = ext.grilleTexture(512, 8, 2, false, 3332), grilleS = ext.grilleTexture(512, 24, 6, true, 3333);
   const grillePickup = new THREE.MeshStandardMaterial({ map: grilleP.map, roughnessMap: grilleP.roughnessMap, roughness: 1, metalness: 0.6 });
   const grilleSedan = new THREE.MeshStandardMaterial({ map: grilleS.map, roughnessMap: grilleS.roughnessMap, roughness: 1, metalness: 0.8 });

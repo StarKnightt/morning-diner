@@ -126,8 +126,9 @@ export function defaultSettings(): PostSettings {
       // System 4 rev 4: every mote is a soft disc ≥ 3 px (the PSF of a 30–50 µm flake at f/5.6
       // never lands on one pixel) and the peak is capped near +1 EV over the beam it floats in.
       // Rev 3's 1-px points at intensity 0.4 read as 1–2 px fireflies (+2 … +3 EV) on the
-      // shaded walls behind the beams in `door` and `length` (both critics).
-      intensity: 0.02,
+      // shaded walls behind the beams in `door` and `length` (both critics). Measured at
+      // 0.02: the brightest mote over the `door` wall peaked at +0.95 EV (163 on 119).
+      intensity: 0.015,
       sizeMin: 3.0,
       sizeMax: 4.5,
       bokeh: 3.0,

@@ -52,8 +52,9 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
     // rev 1's dark groove read as a black hairline). Satin aluminium H-strip: shares the
     // T-mould's bucket rather than adding one.
     for (let sx = xMin + 3.6; sx < xMax; sx += 3.6) b.box(pal.formicaEdgeBrushed, [sx - 0.0004, height - 0.002, dieBack + 0.02], [sx + 0.0004, height + 0.0003, topFrontZ - 0.03]);
-    // 100 mm stainless backsplash lip along the service edge of the top
-    b.rbox(pal.stainless, [xMin, height - 0.004, dieBack - 0.006], [xMax + 0.006, height + 0.1, dieBack + 0.014], 0.003);
+    // 100 mm stainless backsplash lip along the service edge of the top (System 4 rev 4:
+    // satin `stainlessLip`, a palette member so it takes the metals' sun-on probe).
+    b.rbox(pal.stainlessLip, [xMin, height - 0.004, dieBack - 0.006], [xMax + 0.006, height + 0.1, dieBack + 0.014], 0.003);
 
     // Die (woodgrain laminate, metric UVs) with a 100 mm recessed toe kick faced in cove base, main run and L-return.
     const kickH = COUNTER.kickHeight, kickIn = COUNTER.kickRecess;

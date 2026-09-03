@@ -114,6 +114,8 @@ export interface Palette {
   baseboardWorn: THREE.MeshStandardMaterial;
   /** Door kick plate: satin (0.45) brushed stainless, lighter than the brewer trim (derived from `stainlessCool`). */
   kickPlate: THREE.MeshPhysicalMaterial;
+  /** Counter backsplash lip: satin (0.5) brushed stainless in the `stainless` colour (derived from `kickPlate`; System 4 rev 4). */
+  stainlessLip: THREE.MeshPhysicalMaterial;
   /** Cast pedestal bells: dark metal with a grey dust film and kick marks over the bottom 30 mm (derived from `darkMetal`). */
   castBaseDusty: THREE.MeshStandardMaterial;
   /** Door/window dressing atlas: OPEN sign, hours, PUSH, card sticker, film edge. */
@@ -121,7 +123,7 @@ export interface Palette {
 }
 
 /** Palette fields that are derived from tuned base materials after the env-intensity pass. */
-type DerivedKey = "tbarPainted" | "formicaCounterWorn" | "formicaEdgeBrushed" | "chromeScuffed" | "chromeBar" | "stainlessTouched" | "glassCarafe" | "baseboardWorn" | "vinylRedWeltCracked" | "kickPlate" | "castBaseDusty";
+type DerivedKey = "tbarPainted" | "formicaCounterWorn" | "formicaEdgeBrushed" | "chromeScuffed" | "chromeBar" | "stainlessTouched" | "glassCarafe" | "baseboardWorn" | "vinylRedWeltCracked" | "kickPlate" | "stainlessLip" | "castBaseDusty";
 
 export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palette {
   const aniso = Math.min(8, maxAnisotropy);
@@ -650,6 +652,11 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   kickPlate.color.setRGB(0.74, 0.77, 0.8, THREE.LinearSRGBColorSpace);
   kickPlate.anisotropy = 0.7;
   kickPlate.anisotropyRotation = Math.PI / 2;
+  // Counter backsplash lip (System 4 rev 4): the kick plate's satin finish in the darker
+  // `stainless` colour. At 0.34 the lip's dining-side face was a 6 m mirror of the sunlit
+  // blinds from the one-point probe — a clipped white streak the critics read as a neon tube.
+  const stainlessLip = kickPlate.clone();
+  stainlessLip.color.copy(palette.stainless.color);
   // Pedestal bells at floor contact (rev 2): the LatheGeometry's v runs up the profile, the
   // rim and shoulder are v ≲ 0.2. A 64 × 64 DataTexture (no worker) carries the cast's own
   // colour with a grey dust film and mop splash over the bottom, patchy around the base, and
@@ -715,5 +722,5 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
   // upward with drips (additive param on the existing material).
   palette.coffeeStain.alphaMap = tex.tideLineAlpha(512, 65);
 
-  return { ...palette, formicaEdgeBrushed, chromeScuffed, chromeBar, stainlessTouched, glassCarafe, formicaCounterWorn, tbarPainted, baseboardWorn, vinylRedWeltCracked, kickPlate, castBaseDusty };
+  return { ...palette, formicaEdgeBrushed, chromeScuffed, chromeBar, stainlessTouched, glassCarafe, formicaCounterWorn, tbarPainted, baseboardWorn, vinylRedWeltCracked, kickPlate, stainlessLip, castBaseDusty };
 }

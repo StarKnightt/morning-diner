@@ -399,6 +399,7 @@ export interface LightingResult {
 export function configureRenderer(renderer: THREE.WebGLRenderer): void {
   installCameraToneMapping();
   installSunSplit();
+  installBounceDiffuseOnly();
   installSpecularAA();
   renderer.toneMapping = TONE_MAPPING;
   renderer.toneMappingExposure = EXPOSURE;
@@ -789,6 +790,37 @@ function installSunSplit(): void {
 		#endif`);
 }
 
+/** SpotLight.distance value that marks a bounce stand-in as diffuse-only (buildLighting). */
+const BOUNCE_DIFFUSE_ONLY_DISTANCE = 100;
+
+/**
+ * Bounce stand-ins are diffuse-only (rev 4). The per-booth / door / vinyl bounce spots
+ * (`lambertSpot`) are point sources standing for square-metre Lambertian patches; a point
+ * has the patch's far-field irradiance but a specular image ~10⁴× too concentrated, so every
+ * glossy surface within a few metres carried a hot highlight of the "floor" — the counter's
+ * stainless lip clipped along 6 m (14,700 nits; 900 with the specular off). The patch's true
+ * specular image is in the sun-on probe the metals sample. Marker: `spotLight.distance >
+ * 50` (BOUNCE_DIFFUSE_ONLY_DISTANCE); such a spot adds its Lambert term and is zeroed before
+ * RE_Direct. Spot lights only; every lit material struct carries `diffuseColor`.
+ */
+function installBounceDiffuseOnly(): void {
+  const chunk = THREE.ShaderChunk.lights_fragment_begin;
+  const spotBlock = chunk.indexOf("#if ( NUM_SPOT_LIGHTS > 0 ) && defined( RE_Direct )");
+  const reDirect = "RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );";
+  const at = spotBlock < 0 ? -1 : chunk.indexOf(reDirect, spotBlock);
+  if (at < 0) {
+    console.warn("[lighting] lights_fragment_begin layout changed; bounce diffuse-only not installed");
+    return;
+  }
+  THREE.ShaderChunk.lights_fragment_begin = chunk.slice(0, at) + /* glsl */ `if ( spotLight.distance > 50.0 ) {
+			// bounce stand-in (src/scene/Lighting.ts installBounceDiffuseOnly): Lambert term only
+			reflectedLight.directDiffuse += saturate( dot( geometryNormal, directLight.direction ) ) * directLight.color * BRDF_Lambert( material.diffuseColor );
+			directLight.color = vec3( 0.0 );
+			directLight.visible = false;
+		}
+		` + chunk.slice(at);
+}
+
 /**
  * Geometric specular anti-aliasing (Tokuyoshi & Kaplanyan 2019, "Improved Geometric
  * Specular Antialiasing"): the roughness of every standard/physical material is widened by
@@ -1159,6 +1191,15 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
     }
   }
 
+  // Diffuse-only marker (rev 4, see installBounceDiffuseOnly): the bounce stand-ins are
+  // point sources for 1–3 m² Lambertian patches. Their DIFFUSE far field is right; their
+  // specular is not — a 25,000 lm point 1.5 m from the counter's stainless lip put a
+  // 14,700-nit highlight along its whole length (the critics' "neon tube"), where the
+  // real patch's image is a broad 2,000-nit smear that the metals already get from the
+  // sun-on probe. `distance` 100 m is the flag the shader reads (cutoff attenuation at
+  // 3 m: 1 − (3/100)⁴ → 1.0000); no other spot in the scene sets a distance above 50.
+  for (const l of bounces) l.distance = BOUNCE_DIFFUSE_ONLY_DISTANCE;
+
   /* ---------------- heat lamps over the pass-through shelf ---------------- */
   // Two 250 W red R40 heat lamps (Shell.ts: shades at pass.a0 + 0.35 and pass.a1 − 0.35,
   // 0.45 m over the shelf, 120 mm behind the wall). A clear 250 W R40 is ≈ 4,000 lm; the
@@ -1245,7 +1286,13 @@ function scaleHorizonRings(scene: THREE.Scene): void {
   // the dome's 0.905) and read 0.3 EV under the sky through the door glass; a range 30 km
   // off on a clear morning sits 0.7–1 EV under the sky behind it, so the far ring takes
   // 0.65× (the mid ring already lands −0.8 EV, the near ring is sunlit ground).
-  const ringScale: Record<string, number> = { horizon: 1, "horizon-mid": 1, "horizon-far": 0.65 };
+  // Rev 4. Measured through the door glass (HDR probe): the NEAR ring, which is what the door
+  // frames, sat at 1,870 nits against the mid ring's 2,130 behind it — 0.2 EV apart, and the
+  // rev 4 camera's shoulder squeezed that to 0.05 EV on the display: no horizon. At 8 AM the
+  // ranges are due east, BACKLIT: the faces we see are their shaded west slopes, rock 0.3 under
+  // 15 klux of sky ≈ 1,400 nits plus haze, so every ring must sit under the sky and the nearer
+  // (less hazed) ring lowest: near 0.55× (−0.85 EV), mid 0.7× (−0.5), far 0.75× (−0.4).
+  const ringScale: Record<string, number> = { horizon: 0.55, "horizon-mid": 0.7, "horizon-far": 0.75 };
   for (const name of ["horizon", "horizon-mid", "horizon-far"]) {
     const mesh = scene.getObjectByName(name) as THREE.Mesh | undefined;
     if (!mesh) continue;
