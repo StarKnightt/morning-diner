@@ -174,7 +174,7 @@ export function buildRear(diner: THREE.Group, pal: Palette, bank?: TextureBank):
   const propane = outdoor(new THREE.MeshStandardMaterial({ color: 0xd8d4c8, roughness: 0.5, metalness: 0.2 }), "propaneTank");
   const scooterRed = outdoor(new THREE.MeshStandardMaterial({ color: 0x8a1f1a, roughness: 0.4, metalness: 0.3 }), "scooter");
   const tyre = outdoor(new THREE.MeshStandardMaterial({ color: 0x1a1a19, roughness: 0.9, metalness: 0 }), "scooterTyre");
-  const patch = outdoor(new THREE.MeshStandardMaterial({ color: 0xcfc6b3, roughness: 0.95, metalness: 0 }), "stuccoPatch");
+  const patch = outdoor(new THREE.MeshStandardMaterial({ color: 0xbdb3a0, roughness: 0.95, metalness: 0 }), "stuccoPatch");
   const kp = tex.kickPlateWear(512, 128, 0.9, 0.2, 131, 0.5);
   const kick = outdoor(new THREE.MeshStandardMaterial({ map: kp.map, roughnessMap: kp.roughnessMap, roughness: 1, metalness: 0.9 }), "kickRear");
   const stain = (alpha: THREE.Texture, opacity: number, color = 0x14110d) => {
@@ -659,7 +659,7 @@ export function buildRear(diner: THREE.Group, pal: Palette, bank?: TextureBank):
       for (const [x, z] of [[px0, pz0], [px1, pz0], [px0, pz1], [px1, pz1]]) b.rbox(cage, [x - 0.015, py0, z - 0.015], [x + 0.015, py1, z + 0.015], 0.003);
       b.rbox(cage, [px0, py1 - 0.03, pz0], [px1, py1, pz1], 0.003);
       b.rbox(cage, [px0, py0 + 0.03, pz0], [px1, py0 + 0.06, pz1], 0.003);
-      const meshMat = new THREE.MeshStandardMaterial({ color: 0xb9bcbc, roughness: 0.5, metalness: 0.6, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide });
+      const meshMat = new THREE.MeshStandardMaterial({ color: 0x6f7372, roughness: 0.5, metalness: 0.6, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide });
       meshMat.userData.noCast = true; outdoor(meshMat, "cageMesh");
       for (const [a, c] of [[[px0, py0 + 0.06, pz0], [px1, py1 - 0.03, pz0 + 0.001]], [[px0, py0 + 0.06, pz1], [px1, py1 - 0.03, pz1 + 0.001]], [[px0, py0 + 0.06, pz0], [px0 + 0.001, py1 - 0.03, pz1]], [[px1, py0 + 0.06, pz0], [px1 + 0.001, py1 - 0.03, pz1]]] as Array<[V3, V3]>) b.box(meshMat, a, c);
       for (let i = 0; i < 4; i++) {

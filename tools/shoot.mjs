@@ -118,7 +118,7 @@ const POSES = {
   // fix-rear — the enclosed kitchen box from the lot side, ~8 m off: rear quarter (from the −x
   // rear corner), straight on to the back wall, and the −x side; `fix-side` is the user's pose:
   // standing off the −x end looking down the long side wall toward the storefront.
-  "fix-rear-quarter": { x: -12.0, y: 1.62, z: -12.5, yaw: 234, pitch: 4 },
+  "fix-rear-quarter": { x: -14.5, y: 1.62, z: -15.0, yaw: 232, pitch: 3 },
   "fix-rear-back": { x: -1.5, y: 1.62, z: -15.5, yaw: 180, pitch: 4 },
   "fix-rear-side": { x: -14.0, y: 1.62, z: -6.0, yaw: 272, pitch: 4 },
   "fix-side": { x: -15.5, y: 1.62, z: -0.5, yaw: 262, pitch: 3 },

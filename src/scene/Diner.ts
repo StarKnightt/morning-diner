@@ -93,8 +93,10 @@ export class Diner {
     const exterior = buildExterior(this.group, this.palette, sunDirection(), this.bank);
     // fix-rear: the enclosed kitchen box, its rear / side dressing and the rooftop (Rear.ts).
     // Interior sun split like the shell's outer skins; its materials take the lot probe below.
+    const tRear = performance.now();
     const rear = buildRear(this.group, this.palette, this.bank);
     this.colliders.push(...rear.colliders);
+    if (new URLSearchParams(location.search).has("debug")) console.warn(`[rear] built in ${(performance.now() - tRear).toFixed(0)} ms`);
     // System 4: baked contact occlusion along every base line (nothing else in the rig
     // shadows those regions) and, rev 2, under the mugs and saucers. Casts nothing, so it
     // stays out of the shadow-mask lists.
