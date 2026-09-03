@@ -14,6 +14,7 @@ import { issueCompile, waitForPrograms } from "../core/compile";
 import { createPalette, type Palette } from "../core/materials";
 import type { Collider } from "../core/merge";
 import type { TextureBank } from "../core/textureBank";
+import { buildBackCounter } from "./BackCounter";
 import { buildBlinds } from "./Blinds";
 import { buildBooths } from "./Booths";
 import { buildCeiling } from "./Ceiling";
@@ -79,6 +80,7 @@ export class Diner {
     const booths = buildBooths(this.group, this.palette);
     await hooks.stage("Upholstering the booths", 2 / 8);
     const counter = buildCounter(this.group, this.palette);
+    const backCounter = buildBackCounter(this.group, this.palette); // fix-backcounter: the work side's under-counter run + service props
     await hooks.stage("Building the counter", 3 / 8);
     const ceiling = buildCeiling(this.group, this.palette);
     await hooks.stage("Hanging the ceiling", 4 / 8);
@@ -98,7 +100,7 @@ export class Diner {
     this.pourMugShadow = props.pourMugShadow;
     this.coffeePot = props.coffeePot;
     this.fanRotor = ceiling.fanRotor;
-    this.colliders.push(...shell.colliders, ...booths.colliders, ...counter.colliders);
+    this.colliders.push(...shell.colliders, ...booths.colliders, ...counter.colliders, ...backCounter.colliders);
 
     scene.add(this.group);
     const lights = buildLighting(scene);
