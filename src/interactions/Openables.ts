@@ -95,13 +95,18 @@ export class CabinetDoorInteraction {
   private t = -1;
   private settled = false;
 
-  constructor(readonly leaf: HingedLeaf, readonly name: string, private readonly audio: CabinetAudio, label: string) {
+  /**
+   * `pick`: how far (m) and how far off the look axis (°) the door's focus may be. The upper wall
+   * cabinets take 2.2 m / 28° — their focus is ~1.75 m up, so a standing player in the aisle
+   * looking up at them is 1.5–2 m away (fix-cabinets: the 1.5 m default never reached them).
+   */
+  constructor(readonly leaf: HingedLeaf, readonly name: string, private readonly audio: CabinetAudio, label: string, pick: { reach: number; halfAngleDeg: number } = { reach: 1.5, halfAngleDeg: 24 }) {
     this.interactable = {
       name,
       label: () => (this.state === "open" ? `Close ${label}` : `Open ${label}`),
       focus: (out) => out.copy(this.leaf.focus),
-      reach: 1.5,
-      halfAngleDeg: 24,
+      reach: pick.reach,
+      halfAngleDeg: pick.halfAngleDeg,
       available: () => this.state === "closed" || this.state === "open",
       interact: () => this.toggle(),
     };

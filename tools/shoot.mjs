@@ -136,6 +136,10 @@ const POSES = {
   // System 9 — openables at rest and open (Openables.ts; the open poses go through __interactPose).
   "sys9-cabinet": { x: -1.55, y: 1.35, z: -0.7, yaw: 8, pitch: -30 },
   "sys9-cabinet-open": { interact: "cabinet-open" },
+  // fix-cabinets — every cabinet door openable: the upper run shut / open, the under-counter pair open.
+  "cabinets-closed": { interact: "cabinets-closed" },
+  "cabinets-open-upper": { interact: "cabinets-open-upper" },
+  "cabinets-open-lower": { interact: "cabinets-open-lower" },
   "sys9-kitchen-door": { x: -4.6, y: 1.5, z: -1.3, yaw: 23, pitch: -18 },
   "sys9-kitchen-door-open": { interact: "kitchen-door-open" },
   "sys9-kitchen-door-back": { interact: "kitchen-door-back" },

@@ -3197,6 +3197,33 @@ grain and motes). Known residue: Lighting's LOD compensation is baked for k = 2,
 the door handprints frost ~0.8 mip less from outside than inside — invisible at 6 m. If the
 full-size buffer is wanted everywhere instead, that is Lighting's `txScale` (3.4 vs 0.5 ms).
 
+## Fix — "I can't open these cabinets" (`fix-cabinets`, `shots/fix-cabinets-{closed,open-upper,open-lower}.png`)
+
+The user stood under the +x run of upper wall cabinets (four doors, chrome pulls) and got no
+prompt. Cause: System 9 only ever hinged the two under-counter doors (`BACK_BAR.cabinet`);
+the nine upper doors in `CABINETS.runs` were static laminate slabs merged into `Counter.ts`'s
+buckets over a solid dark carcass box — not registered as openables at all. A second, latent
+cause: `CabinetDoorInteraction`'s pick was 1.5 m / 24°, and an upper door's focus is ~1.75 m up,
+1.5–2 m from a standing player's eye in the aisle, so even a registered leaf would have been
+out of reach.
+
+- `Counter.ts` keeps only the runs' end panels, light rail and soffit. `Openables.ts`
+  `buildUpperCabinets` builds each run as an open carcass (top, bottom, back, a partition every
+  two doors, two shelves) into the static buckets, stocks each bay from four variants (stacked
+  plates, nested bowls, glass tumblers, mugs with handles, cereal / tea / sugar boxes with
+  faded atlas `label` / `canLabel` bands, a paper towel roll) and hinges the doors:
+  `leafGeometry` (shared slab + wire pull + two Euro cups, vertex-alpha chrome) at alternating
+  edges so the pulls pair; ONE baked mesh for all nine (`bakedLeaves`, factored out of the
+  under-counter pair). Names `upper-cabinet-<run>-<k>` (run 0 = -x, five doors; run 1 = +x, four).
+- The under-counter bay gains a saucepan with its lid and a bag of flour (the brief's "lower"
+  stock; the saucers, towel roll, filter box and spray bottle stay).
+- `interactions/Openables.ts`: the pick is a constructor option; upper doors 2.2 m / 28°.
+  `index.ts`: `upperCabinets: CabinetDoorInteraction[]` updated and settle-checked with the pair
+  (shadow-once). `debug.ts`: `__interact("upper-cabinet-<run>-<k>", t?)`, `__interact("upper-cabinets", t?)`
+  (all nine), poses `cabinets-{closed,open-upper,open-lower}` (also in `shoot.mjs`).
+- Draw calls: ready 187 (the door mesh +1; the stock rides the existing ceramic / glassClear /
+  napkin / stainless / atlas buckets). All eleven cabinet doors toggle with the cabinet catch cue.
+
 ## Fix — the lot light standards read as toys (`fix-pole`, `src/scene/LotLight.ts`, `shots/fix-pole-*.png`)
 
 Reported looking up at a pole from the drive aisle (`shots/fix-pole-before-lookup.png`): a
