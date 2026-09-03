@@ -962,20 +962,37 @@ function assignSunSplit(root: THREE.Object3D, exteriorMaterials: THREE.Material[
 export function installLotGroundFill(mat: THREE.Material): void {
   const dir = new THREE.Vector3(0, -0.6, 0.8).normalize();
   const fill = new THREE.Color().setRGB(255 / 255, 230 / 255, 195 / 255, THREE.SRGBColorSpace).multiplyScalar(nits(4000));
+  // Rev 6.1 (facade critics): seen from the LOT the same undersides are the whole blind. Their
+  // real illuminance there is the sunlit face of the slat below (n·s 0.25 → 22 klux on an
+  // alabaster slat = 5,300 nits, filling ≈ half the underside's hemisphere 22 mm away: ≈ 8,300
+  // lux) plus the sunlit apron (5,000 nits × 0.3 → 4,700) and the low sky (4,500 × 0.2 → 2,800):
+  // ≈ 16–20 klux on the underside (a hemisphere integral, not a cosine lobe: the term below
+  // is gated on facing the lot, not scaled by it). Measured at `ext-facade`: slat pixels 72 →
+  // 150 (peaks), the stucco 199; the undersides cannot honestly reach the sunlit wall. The interior
+  // frames are frozen (rev 6 passed with the 4,000-lux undersides: `sit-seated`, `length`), so
+  // the extra 11,000 lux fades in with the CAMERA's z across the window wall — a view-dependent
+  // term, stated as such in BUILD.md; the player crossing the door sees the blinds' undersides
+  // brighten over 0.6 m of walk while looking at the door, not the blinds.
+  const fillOut = new THREE.Color().setRGB(255 / 255, 236 / 255, 210 / 255, THREE.SRGBColorSpace).multiplyScalar(nits(16000));
+  const zBlend = new THREE.Vector2(ROOM.zFront - 0.2, ROOM.zFront + 0.4);
   const prev = mat.onBeforeCompile;
   mat.onBeforeCompile = function (shader, renderer) {
     prev.call(this, shader, renderer);
     shader.uniforms.uLotFill = { value: fill };
+    shader.uniforms.uLotFillOut = { value: fillOut };
     shader.uniforms.uLotFillDir = { value: dir };
+    shader.uniforms.uLotFillZ = { value: zBlend };
     shader.fragmentShader = shader.fragmentShader
-      .replace("#include <common>", "#include <common>\nuniform vec3 uLotFill; uniform vec3 uLotFillDir;")
+      .replace("#include <common>", "#include <common>\nuniform vec3 uLotFill; uniform vec3 uLotFillOut; uniform vec3 uLotFillDir; uniform vec2 uLotFillZ;")
       .replace("#include <lights_fragment_end>", `#include <lights_fragment_end>
 	{
 		vec3 fillDirView = normalize( ( viewMatrix * vec4( uLotFillDir, 0.0 ) ).xyz );
-		reflectedLight.indirectDiffuse += BRDF_Lambert( diffuseColor.rgb ) * uLotFill * max( 0.0, dot( normal, fillDirView ) );
+		float lotCos = dot( normal, fillDirView );
+		vec3 lotE = uLotFill * max( 0.0, lotCos ) + uLotFillOut * smoothstep( -0.2, 0.3, lotCos ) * smoothstep( uLotFillZ.x, uLotFillZ.y, cameraPosition.z );
+		reflectedLight.indirectDiffuse += BRDF_Lambert( diffuseColor.rgb ) * lotE;
 	}`);
   };
-  (mat as THREE.Material & { customProgramCacheKey: () => string }).customProgramCacheKey = () => "lotfill";
+  (mat as THREE.Material & { customProgramCacheKey: () => string }).customProgramCacheKey = () => "lotfill61";
 }
 
 export function installShadowMasks(renderer: THREE.WebGLRenderer, root: THREE.Object3D, lights: LightingResult, exteriorMaterials: THREE.Material[] = []): void {

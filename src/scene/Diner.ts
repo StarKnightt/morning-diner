@@ -181,6 +181,23 @@ export class Diner {
       metalMats.push(this.palette.glassReflectIn, this.palette.glassDoorReflectIn);
       exteriorMats.add(this.palette.glassReflectOut);
       exteriorMats.add(this.palette.glassDoorReflectOut);
+      // Rev 6.1 (facade critics): the shell's OUTER skins — stucco (`wallPaintExt`, the outer
+      // half of every wall box and the roof slab) and the concrete base / apron — are built by
+      // Shell.ts inside the room group, so they were taking `scene.environment`, the sun-off
+      // room probe at 0.1: a facade shadow with the room's darkness as its only fill (Y ≈ 46,
+      // 4.3 stops under the sunlit wall, warm) beside lot shadows 2.5 stops down and blue. They
+      // are outdoors; they take the lot probe (sky + sunlit apron) at their own intensity 1.
+      // Sun split unchanged: they still receive the interior spot (the roof's awning band and
+      // the pole shadow are in its map).
+      exteriorMats.add(this.palette.wallPaintExt);
+      exteriorMats.add(this.palette.concrete);
+      // 0.75: the probe sits 8 m out over the sunlit apron and hands a vertical wall more of the
+      // ground's bounce than the strip of apron under the windows delivers; at 1.0 the awning
+      // band measured 2.1 EV under the sunlit stucco, the critics' band is 2.5–3 (the lot's own
+      // shadows in the frame are 2.5). The colour stays the albedo's: sky + sand fill on a
+      // warm-beige stucco is warm-neutral, not blue like the same fill on asphalt.
+      this.palette.wallPaintExt.envMapIntensity = 0.75;
+      this.palette.concrete.envMapIntensity = 0.75;
       const assign = (mats: Iterable<THREE.MeshStandardMaterial>, env: THREE.Texture | null) => {
         for (const m of mats) {
           m.envMap = env;

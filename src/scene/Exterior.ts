@@ -1673,8 +1673,10 @@ export function buildExterior(diner: THREE.Group, pal: Palette, sunDir: THREE.Ve
   // sky reflection (F ≈ 0.06 at the door-glass view angle × 4,500 nits) was 270 nits of blue
   // over 100 nits of red diffuse, so every shaded panel measured B > R (door-glass 125/133/157)
   // and the critics read lilac. Dark maroon paint measures 10–15 % in red; 0x6e141c (linear
-  // 0.155/0.007/0.011) keeps the panel red under the same sky.
-  const maroonPaint = skyFill(new THREE.MeshPhysicalMaterial({ color: 0x6e141c, map: dustM.map, roughnessMap: dustM.roughnessMap, roughness: 0.7, metalness: 0, specularIntensity: 0.05, clearcoat: 0.7, clearcoatRoughness: 0.1, envMapIntensity: 1 }), 0.2);
+  // 0.155/0.007/0.011) keeps the panel red under the same sky. Rev 6.1: 0x6e1a16 (G 0.0093 ≥
+  // B 0.0065) — the albedo itself was B > G, which read raspberry; the clearcoat's sky
+  // reflection still puts B over G on panels that mirror the sky (the hood), by design.
+  const maroonPaint = skyFill(new THREE.MeshPhysicalMaterial({ color: 0x6e1a16, map: dustM.map, roughnessMap: dustM.roughnessMap, roughness: 0.7, metalness: 0, specularIntensity: 0.05, clearcoat: 0.7, clearcoatRoughness: 0.1, envMapIntensity: 1 }), 0.2);
   const grilleP = ext.grilleTexture(512, 8, 2, false, 3332), grilleS = ext.grilleTexture(512, 24, 6, true, 3333);
   const grillePickup = new THREE.MeshStandardMaterial({ map: grilleP.map, roughnessMap: grilleP.roughnessMap, roughness: 1, metalness: 0.6 });
   const grilleSedan = new THREE.MeshStandardMaterial({ map: grilleS.map, roughnessMap: grilleS.roughnessMap, roughness: 1, metalness: 0.8 });
