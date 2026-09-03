@@ -403,8 +403,11 @@ async function main() {
     const tSeq = Date.now();
     for (const t of times) {
       const info = await page.evaluate(
-        ({ s, t, cam }) => {
+        ({ s, t, cam, hidePrompt }) => {
           window.__interact("reset");
+          // System 9 sheets are frame-only evidence: no "E — Close cabinet" hint in the tiles.
+          const prompt = document.querySelector(".mdn-prompt");
+          if (prompt) prompt.style.display = hidePrompt ? "none" : "";
           if (cam) window.__setPose(cam);
           window.__interact(s.interact, t, s.opts ?? {});
           const ix = window.__interactions;
@@ -418,7 +421,7 @@ async function main() {
           if (s.interact === "kitchen-door") return `${ix.kitchenDoor.angleDeg.toFixed(1)}DEG`;
           return "";
         },
-        { s: seq, t, cam: seq.camera },
+        { s: seq, t, cam: seq.camera, hidePrompt: ["drink", "cabinet", "cabinet-close", "kitchen-door"].includes(seq.interact) },
       );
       // Frozen clocks: a few frames so the shadow maps re-render and the prompt settles.
       await page.evaluate(

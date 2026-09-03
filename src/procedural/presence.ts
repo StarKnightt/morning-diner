@@ -1,14 +1,13 @@
 /**
- * System 9 "implied presence" atlas (rev 2) — one canvas set (map with alpha / roughness /
- * normal) for the soft props and the kitchen slice behind the swing door. Regions
+ * System 9 "implied presence" atlas (rev 3) — one canvas set (map with alpha / roughness /
+ * normal) for the prop decals and the kitchen slice behind the swing door. Regions
  * (`PRESENCE_UV`, v up):
  *
- *   cotton      cream cotton canvas at apron scale (the skirt maps 1:1): a barely-there 2 px
- *               twill in the height field, fibre grain, hand-wipe grime, two coffee blots with
- *               a dark ragged tide line and a lighter interior, and the contact shadow the patch
- *               pocket throws on the skirt under its top edge
- *   pocket      the same canvas for the pocket face, hem rows and a stitch line 3 mm in from
- *               the edge, grime at the mouth
+ *   scuff       MULTIPLY map for the kitchen door's rubber scuffs, two 0.9 × 0.45 m bands
+ *               (dining face / kitchen face): bumper arcs, corner scrapes, crumbs, a palm smear
+ *               (rev 1–2's apron cotton lived here; the apron was cut)
+ *   canLabel    a #10 food-service can label: cream paper, red band with white word blocks,
+ *               green produce block, weight line, fine print, paper seam (kitchen shelf)
  *   wallTile    4 × 4 white 4" ceramic wall tiles, cushion edges, grey grout (kitchen slice)
  *   quarry      4 × 4 red 6" quarry floor tiles, dark grout, mottled (kitchen slice)
  *   lipstick    an upper-lip print (two lobes, cupid's bow, lip lines), pink-red, ALPHA —
@@ -36,8 +35,8 @@ export interface PresenceSet {
 
 /** [u0, v0, u1, v1] per region, v up (CanvasTexture flipY). */
 export const PRESENCE_UV = {
-  cotton: [0.0, 0.5, 0.5, 1.0],
-  pocket: [0.5, 0.5, 0.75, 0.75],
+  scuff: [0.0, 0.5, 0.5, 1.0],
+  canLabel: [0.5, 0.5, 0.75, 0.75],
   lipstick: [0.5, 0.75, 0.75, 1.0],
   yolkFilm: [0.75, 0.75, 1.0, 1.0],
   label: [0.75, 0.65625, 1.0, 0.75],
@@ -89,94 +88,193 @@ export function presenceAtlas(size = 1024): PresenceSet {
     img.data[o + 3] = clamp01(a) * 255;
   };
   const rng = makeRng(9009);
-  const fbmA = makeFbm(91, 6, 4), fbmB = makeFbm(92, 24, 3), fbmC = makeFbm(93, 60, 2), grainN = makeFbm(94, 180, 2);
+  const grainN = makeFbm(94, 180, 2);
 
-  /* ---------------- cotton canvas (top-left, R × R) — the skirt maps 1:1 ---------------- */
-  // Pocket footprint on the skirt (t down, s across → u = s, v = 1 − t; canvas y = 1 − v = t).
-  const POCKET = { t0: 0.42, t1: 0.78, s0: 0.2, s1: 0.8 };
-  const cottonPixel = (u: number, v: number, x: number, y: number) => {
-    // Twill: a 2 px diagonal in the height field only (albedo ± 1.5 %) — sub-texel at frame
-    // scale, so the mips average it to a matte surface; fibre grain on top.
-    const twill = 0.5 + 0.5 * Math.sin(((x + y) / 2) * Math.PI);
-    const grain = grainN(u, v) - 0.5;
-    const tone = 0.985 + 0.04 * (fbmA(u, v) - 0.5) + 0.03 * twill * 0.5 + 0.05 * grain;
-    // Grime: hand wipes gather at the pocket line and mid-height.
-    const grime = clamp01((fbmB(u, v) - 0.47) * 2.2) * (0.25 + 0.75 * smooth01((v - 0.15) / 0.5) * (1 - smooth01((v - 0.75) / 0.25))) * 0.2;
-    let r = 0.9 * tone, g = 0.87 * tone, b = 0.79 * tone;
-    r = r * (1 - grime) + 0.44 * grime;
-    g = g * (1 - grime) + 0.37 * grime;
-    b = b * (1 - grime) + 0.28 * grime;
-    let ro = 0.9 + 0.04 * grain + 0.04 * grime;
-    return { r, g, b, ro, h: 0.5 + 0.22 * (twill - 0.5) + 0.06 * grain };
-  };
-  for (let y = 0; y < R; y++)
-    for (let x = 0; x < R; x++) {
-      const u = x / R, v = y / R; // v here is canvas-down (t of the skirt)
-      const p = cottonPixel(u, 1 - v, x, y);
-      let { r, g, b } = p;
-      // Two old coffee blots (45 and 32 mm on the 160 × 340 mm skirt — the tile is 1:1 with it,
-      // so a round blot is 2.1× taller in u than in v): a continuous dark tide line, lighter
-      // mottled interior.
-      for (const [sx, sy, sr, k0] of [[0.3, 0.3, 0.14, 1], [0.58, 0.9, 0.1, 0.8]]) {
-        const rag = 1 + 0.22 * (fbmB(u * 2.5 + 3, v * 2.5) - 0.5) + 0.12 * (fbmC(u * 2, v * 2) - 0.5);
-        const d = (Math.hypot(u - sx, (v - sy) * 2.1) / sr) * rag;
-        if (d < 1.05) {
-          const tide = Math.exp(-Math.pow((d - 0.94) / 0.06, 2)); // the darker tide line
-          const inner = 0.6 + 0.4 * fbmB(u * 9, v * 9 + 7); // the whole interior is tinted
-          const k = (0.2 * inner + 0.14 * tide) * k0 * clamp01((1.05 - d) / 0.07);
-          r = r * (1 - k) + 0.33 * k;
-          g = g * (1 - k) + 0.2 * k;
-          b = b * (1 - k) + 0.1 * k;
-        }
-      }
-      // The pocket's shadow on the skirt: a soft band under its top edge (the mouth gapes and
-      // shows the skirt there) and a faint line down its sides.
-      if (u > POCKET.s0 - 0.01 && u < POCKET.s1 + 0.01 && v > POCKET.t0 - 0.005 && v < POCKET.t1) {
-        const under = Math.exp(-Math.max(0, v - POCKET.t0) / 0.035) * clamp01((v - POCKET.t0 + 0.005) / 0.01);
-        const side = Math.max(Math.exp(-Math.abs(u - POCKET.s0) / 0.008), Math.exp(-Math.abs(u - POCKET.s1) / 0.008));
-        const k = clamp01(0.55 * under + 0.35 * side * clamp01((v - POCKET.t0) / 0.05));
-        r *= 1 - 0.45 * k;
-        g *= 1 - 0.47 * k;
-        b *= 1 - 0.5 * k;
-      }
-      px(x, y, r, g, b);
-      rough[y * S + x] = p.ro;
-      height[y * S + x] = p.h;
-    }
-
-  /* ---------------- pocket face (Q × Q at x R.., y Q..): canvas + hem rows + stitch line ---------------- */
+  /* ---------------- scuff transfer (top-left, R × R): a MULTIPLY map for the kitchen door ---------------- */
+  // 1 where the paint is clean, the rubber transfer's darkening where it is not; two bands of
+  // 0.9 × 0.45 m (1.76 mm/px) — rows 0..R/2 the dining face (busier: carts come through
+  // loaded), rows R/2..R the kitchen face. Motifs, each placed once from the seed: bumper arcs
+  // (a cart corner swinging in), straight corner scrapes at odd angles, crumb clusters where a
+  // bumper hit, a broad faint palm smear. Drawn with the 2D API on a scratch canvas over white.
   {
-    const X0 = R, Y0 = Q;
-    for (let y = 0; y < Q; y++)
-      for (let x = 0; x < Q; x++) {
-        const u = x / Q, v = y / Q;
-        const p = cottonPixel(0.62 + u * 0.3, 0.2 + v * 0.3, x, y);
-        let { r, g, b } = p, h = p.h, ro = p.ro;
-        // Mouth grime (hands): a soft dark band under the top hem.
-        const mouth = 0.14 * Math.exp(-Math.pow((v - 0.09) / 0.06, 2)) * (0.6 + 0.4 * fbmB(u * 3, v * 3 + 5));
-        r = r * (1 - mouth) + 0.4 * mouth;
-        g = g * (1 - mouth) + 0.33 * mouth;
-        b = b * (1 - mouth) + 0.25 * mouth;
-        // Stitch lines: 3 mm in from the sides and bottom, two rows at the top hem — a dashed
-        // dark thread in a slight furrow.
-        const inset = 0.028;
-        const dSide = Math.min(Math.abs(u - inset), Math.abs(u - (1 - inset)));
-        const dBot = Math.abs(v - (1 - inset));
-        const dTop = Math.min(Math.abs(v - 0.02), Math.abs(v - 0.055));
-        const d = Math.min(dSide, dBot, dTop);
-        if (d < 0.006) {
-          const along = d === dSide ? v : u;
-          const dash = (Math.sin(along * Math.PI * 2 * 34) > -0.2 ? 1 : 0.35) * (d === dTop ? 1 : v > 0.05 ? 1 : 0);
-          const k = clamp01(1 - d / 0.006) * 0.55 * dash;
-          r *= 1 - k;
-          g *= 1 - k;
-          b *= 1 - k;
-          h -= 0.25 * k;
-          ro = Math.min(1, ro + 0.05 * k);
+    const sc = canvas(R, R);
+    const c = sc.ctx;
+    c.fillStyle = "#ffffff";
+    c.fillRect(0, 0, R, R);
+    c.lineCap = "round";
+    const rubber = (a: number) => `rgba(38,36,34,${a.toFixed(3)})`;
+    const dolly = (a: number) => `rgba(74,58,44,${a.toFixed(3)})`;
+    const arc = (x: number, y: number, r: number, a0: number, a1: number, w: number, col: string) => {
+      c.strokeStyle = col;
+      c.lineWidth = w;
+      c.beginPath();
+      c.arc(x, y, r, a0, a1);
+      c.stroke();
+    };
+    const scrape = (x: number, y: number, len: number, ang: number, w: number, col: string) => {
+      c.strokeStyle = col;
+      c.lineWidth = w;
+      c.beginPath();
+      c.moveTo(x, y);
+      c.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+      c.stroke();
+    };
+    const crumbs = (x: number, y: number, n: number, spread: number) => {
+      for (let i = 0; i < n; i++) {
+        c.fillStyle = rubber(0.2 + 0.35 * rng());
+        c.beginPath();
+        c.ellipse(x + (rng() - 0.5) * spread, y + (rng() - 0.5) * spread * 0.6, 1 + 2.5 * rng(), 0.8 + 1.5 * rng(), rng() * Math.PI, 0, Math.PI * 2);
+        c.fill();
+      }
+    };
+    // Soft strokes: three passes, wide and faint to narrow and darker — rubber transfer has no
+    // hard edge at 1.8 mm/px.
+    const softArc = (x: number, y: number, r: number, a0: number, a1: number, w: number, a: number, col: (a: number) => string) => {
+      arc(x, y, r, a0, a1, w * 2.4, col(a * 0.22));
+      arc(x, y, r, a0, a1, w * 1.5, col(a * 0.4));
+      arc(x, y, r, a0, a1, w, col(a));
+    };
+    const softScrape = (x: number, y: number, len: number, ang: number, w: number, a: number, col: (a: number) => string) => {
+      scrape(x, y, len, ang, w * 3, col(a * 0.2));
+      scrape(x, y, len, ang, w, col(a));
+    };
+    // A rub: a short thick smear where a bumper slid along the leaf — the commonest mark.
+    const rub = (x: number, y: number, len: number, hh: number, ang: number, a: number, col: (a: number) => string) => {
+      for (const [k, f] of [[2.0, 0.18], [1.4, 0.35], [1.0, 1.0]] as const) {
+        c.fillStyle = col(a * f);
+        c.beginPath();
+        c.ellipse(x, y, (len / 2) * (0.9 + 0.1 * k), (hh / 2) * k, ang, 0, Math.PI * 2);
+        c.fill();
+      }
+    };
+    const band = (y0: number, busy: number) => {
+      const yb = (v: number) => y0 + v * (R / 2); // v 0 top .. 1 bottom of the band
+      // Rubs: 40–130 mm long, 8–20 mm tall, at the bumper's height, a few higher.
+      const nRub = Math.round(busy * (3 + rng() * 2));
+      for (let i = 0; i < nRub; i++) {
+        const x = R * (0.1 + 0.8 * rng()), y = yb(0.45 + 0.45 * rng());
+        rub(x, y, 22 + 50 * rng(), 4.5 + 7 * rng(), (rng() - 0.5) * 0.3, 0.1 + 0.14 * rng(), rng() < 0.25 ? dolly : rubber);
+      }
+      // Bumper arcs: a cart's corner bumper (r ≈ 40–70 mm) swinging in, transfers on the swing.
+      const nArc = Math.round(busy * (2 + rng() * 2));
+      for (let i = 0; i < nArc; i++) {
+        const x = R * (0.15 + 0.7 * rng()), y = yb(0.5 + 0.4 * rng()), r = 22 + 20 * rng();
+        const a0 = Math.PI * (0.9 + 0.3 * rng()), span = 0.5 + 0.9 * rng();
+        softArc(x, y, r, a0, a0 + span, 4 + 6 * rng(), 0.12 + 0.16 * rng(), rubber);
+      }
+      // Corner scrapes: thin lines at 5–25° off horizontal, either way, with a faint halo.
+      const nScr = Math.round(busy * (1 + rng() * 3));
+      for (let i = 0; i < nScr; i++) {
+        const x = R * (0.05 + 0.6 * rng()), y = yb(0.3 + 0.6 * rng());
+        const ang = (rng() < 0.5 ? 1 : -1) * (0.09 + 0.35 * rng());
+        softScrape(x, y, 50 + 150 * rng(), ang, 1.2 + 1.6 * rng(), 0.12 + 0.2 * rng(), rng() < 0.3 ? dolly : rubber);
+      }
+      // A crumb cluster at one hit.
+      if (rng() < 0.7 * busy) crumbs(R * (0.2 + 0.6 * rng()), yb(0.55 + 0.35 * rng()), 4 + Math.floor(rng() * 5), 22 + 20 * rng());
+      // A palm smear high in the band: several faint offset blobs, not a disc.
+      if (rng() < 0.8) {
+        const x = R * (0.55 + 0.3 * rng()), y = yb(0.12 + 0.15 * rng());
+        for (let i = 0; i < 5; i++) {
+          c.fillStyle = rubber(0.025 + 0.02 * rng());
+          c.beginPath();
+          c.ellipse(x + (rng() - 0.5) * 30, y + (rng() - 0.5) * 16, 18 + 22 * rng(), 9 + 9 * rng(), (rng() - 0.5) * 1.2, 0, Math.PI * 2);
+          c.fill();
         }
+      }
+    };
+    band(0, 1.0);
+    band(R / 2, 0.55);
+    const ink = c.getImageData(0, 0, R, R).data;
+    for (let y = 0; y < R; y++)
+      for (let x = 0; x < R; x++) {
+        const o = (y * R + x) * 4;
+        px(x, y, ink[o] / 255, ink[o + 1] / 255, ink[o + 2] / 255);
+        rough[y * S + x] = 0.9;
+        height[y * S + x] = 0.5;
+      }
+  }
+
+  /* ---------------- #10 can label (Q × Q at x R.., y Q..): u round the can, v up the label ---------------- */
+  // A commodity food-service can: cream paper, a red band round the middle carrying the product
+  // name as white word blocks, a green produce block with a red disc (the picture), a black
+  // net-weight line, fine print at the foot, and a 12 mm paper seam. Drawn per pixel, the type
+  // as blocks on a scratch canvas.
+  {
+    const X0 = R, Y0 = Q, W = Q, H = Q;
+    const paperN = makeFbm(96, 12, 3);
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const u = x / W, v = 1 - y / H; // v up
+        const n = paperN(u * 2, v * 2) - 0.5;
+        let r = 0.92 + 0.04 * n, g = 0.88 + 0.04 * n, b = 0.78 + 0.03 * n;
+        // Red band 0.36–0.66 with a thin gold rule at each edge.
+        if (v > 0.36 && v < 0.66) {
+          r = 0.72 + 0.04 * n;
+          g = 0.1;
+          b = 0.08;
+        }
+        if (Math.abs(v - 0.36) < 0.006 || Math.abs(v - 0.66) < 0.006) {
+          r = 0.82;
+          g = 0.66;
+          b = 0.28;
+        }
+        // Produce block on the front (u 0.1–0.42, v 0.68–0.94): green ground, a red disc with a
+        // highlight, a stem.
+        if (u > 0.1 && u < 0.42 && v > 0.68 && v < 0.94) {
+          r = 0.2 + 0.05 * n;
+          g = 0.45 + 0.06 * n;
+          b = 0.16;
+          const d = Math.hypot((u - 0.26) / 0.11, (v - 0.8) / 0.09);
+          if (d < 1) {
+            const hl = Math.exp(-Math.pow(Math.hypot(u - 0.23, v - 0.84) / 0.03, 2));
+            r = 0.8 + 0.2 * hl;
+            g = 0.12 + 0.5 * hl;
+            b = 0.08 + 0.4 * hl;
+          }
+          if (Math.abs(u - 0.26) < 0.008 && v > 0.87 && v < 0.93) {
+            r = 0.25;
+            g = 0.4;
+            b = 0.12;
+          }
+        }
+        // Paper seam (overlap) at u = 0.97: a shade line and a step.
+        const seam = Math.exp(-Math.pow((u - 0.97) / 0.006, 2));
+        r *= 1 - 0.25 * seam;
+        g *= 1 - 0.25 * seam;
+        b *= 1 - 0.25 * seam;
         px(X0 + x, Y0 + y, r, g, b);
-        rough[(Y0 + y) * S + X0 + x] = ro;
-        height[(Y0 + y) * S + X0 + x] = h;
+        rough[(Y0 + y) * S + X0 + x] = 0.55 + 0.05 * n;
+        height[(Y0 + y) * S + X0 + x] = 0.5 - 0.15 * (u > 0.97 ? 1 : 0);
+      }
+    // Type as blocks: the name on the band (twice round, front and back), a weight line, fine print.
+    const sc = canvas(W, H);
+    sc.ctx.clearRect(0, 0, W, H);
+    const word = (x0: number, x1: number, y: number, h: number, a: string, gap: number) => {
+      sc.ctx.fillStyle = a;
+      let x = x0;
+      while (x < x1 - 3) {
+        const w = Math.min(x1 - x, h * (0.9 + rng() * 1.6));
+        sc.ctx.fillRect(x, y, w, h);
+        x += w + gap;
+      }
+    };
+    const Y = (v: number) => H * (1 - v);
+    word(W * 0.08, W * 0.46, Y(0.6), H * 0.09, "rgb(250,244,230)", 5); // CRUSHED TOMATOES
+    word(W * 0.1, W * 0.4, Y(0.47), H * 0.045, "rgb(250,244,230)", 3);
+    word(W * 0.56, W * 0.94, Y(0.6), H * 0.09, "rgb(250,244,230)", 5); // repeated on the back
+    word(W * 0.58, W * 0.88, Y(0.47), H * 0.045, "rgb(250,244,230)", 3);
+    word(W * 0.46, W * 0.9, Y(0.9), H * 0.05, "rgb(40,30,24)", 4); // brand over the band
+    word(W * 0.1, W * 0.5, Y(0.3), H * 0.035, "rgb(40,30,24)", 3); // NET WT 6 LB 6 OZ
+    for (let i = 0; i < 4; i++) word(W * 0.55, W * 0.92, Y(0.3 - i * 0.055), H * 0.02, "rgb(60,50,44)", 2); // fine print
+    sc.ctx.fillStyle = "rgb(40,30,24)";
+    sc.ctx.fillRect(W * 0.12, Y(0.2), W * 0.14, H * 0.09); // barcode block
+    sc.ctx.fillStyle = "rgb(250,244,230)";
+    for (let i = 0; i < 9; i++) sc.ctx.fillRect(W * (0.125 + i * 0.015), Y(0.2), W * 0.004, H * 0.09);
+    const ink = sc.ctx.getImageData(0, 0, W, H).data;
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const o = (y * W + x) * 4;
+        if (ink[o + 3] > 0) px(X0 + x, Y0 + y, ink[o] / 255, ink[o + 1] / 255, ink[o + 2] / 255);
       }
   }
 
@@ -207,9 +305,15 @@ export function presenceAtlas(size = 1024): PresenceSet {
           a *= pressure * (1 - 0.55 * creases) * (0.8 + 0.4 * lipN(u * 3, v * 3));
           // A faint transferred halo just outside the print.
           a = Math.max(a, 0.07 * smooth01((inside + 0.05) / 0.05) * clamp01((1.08 - Math.abs(xi)) / 0.1) * lipN(u * 4, v * 4));
+          // Rev 3: the wet inner lip leaves a faint, broken trace above the lobe tops — the part
+          // of the print that laps over the rim onto the inside of the cup (v 0.69 … 0.77).
+          const over = v - top;
+          if (over > 0 && over < 0.1)
+            a = Math.max(a, 0.26 * smooth01(over / 0.015) * smooth01((0.085 - over) / 0.035) * clamp01((0.95 - Math.abs(xi)) / 0.12) * Math.pow(lipN(u * 6, v * 2 + 3), 1.4));
         }
         const n = lipN(u * 5 + 1, v * 5);
-        px(X0 + x, Y0 + y, 0.8 + 0.06 * (n - 0.5), 0.16 + 0.05 * (n - 0.5), 0.22 + 0.04 * (n - 0.5), clamp01(a * 0.9));
+        // Rev 3: ~15 % toward luminance (a worn lipstick, not a fresh swatch).
+        px(X0 + x, Y0 + y, 0.73 + 0.05 * (n - 0.5), 0.19 + 0.05 * (n - 0.5), 0.24 + 0.04 * (n - 0.5), clamp01(a * 0.9));
         rough[(Y0 + y) * S + X0 + x] = 0.38;
         height[(Y0 + y) * S + X0 + x] = 0.5;
       }
@@ -351,7 +455,7 @@ export function presenceAtlas(size = 1024): PresenceSet {
     // pale glaze), a skin of dust dulling the middle. Its tile is the last 64 px of the row
     // (PRESENCE_UV.dreg), NOT another CE: drawn CE wide it ran off the canvas edge and `px`
     // wrapped the overflow into x 0..31 of the next rows — a 30 px coffee-brown bar on the
-    // cotton tile's left edge that showed as a dark strip up the apron's left selvedge.
+    // tile to its left (rev 2 saw it as a dark strip up the apron's selvedge).
     const DX = R + Q + 2 * E, DW = S - DX;
     for (let y = 0; y < E; y++)
       for (let x = 0; x < DW; x++) {

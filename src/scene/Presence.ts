@@ -2,21 +2,20 @@
  * System 9 — implied presence (rev 2). No figures: the things a person leaves in the two
  * minutes they are out of the room.
  *
- *   apron   the waitress's cotton waist apron on a chrome hook beside the pass-through: a
- *           fabric loop over the hook, the waistband pleated into a 116 mm bunch under it,
- *           the skirt gathered under the band and falling in four heavy folds of unequal
- *           width to a hem barely wider than the shoulder; a patch pocket with a stitch line,
- *           one tie hanging past the hem, the other tucked back into the band
+ *   hook    a chrome coat hook on the wall strip beside the pass-through. Rev 1 and rev 2 hung
+ *           a lofted cotton apron on it; both failed the 1:1 frame review (a loft cannot pass
+ *           for cloth without a cloth solve) and rev 3 cut the apron. The hook passed and stays.
  *   plate   booth 2, aisle end: a diner plate with a rolled rim and a shallow well, a
- *           stainless fork across it (bowed handle, tapering tines), a scatter of toast
+ *           stainless fork across it (neck, shoulder, 2 mm tine gaps, contact shadows), a scatter of toast
  *           flakes, and a thin dried-yolk film with the tine drag through it
  *   cup     a mug on a saucer at stool 3: a dreg of coffee, the residue ring above it, an
  *           upper-lip lipstick print on the outer rim, the saucer's well and foot ring, a
  *           contact shadow under the cup
  *
- * Rev 1's cardigan, toast crust, yolk polygon and newspaper were cut on the critic's frames:
- * a prop a viewer clocks as procedural is worse than no prop. Cloth, tile and the decals
- * share one atlas (procedural/presence.ts). Opaque cloth is the `presence` bucket; the
+ * Rev 1's cardigan, toast crust, yolk polygon and newspaper (and rev 3's apron) were cut on the
+ * critic's frames: a prop a viewer clocks as procedural is worse than no prop. Kitchen tile, the
+ * filter label and the decals share one atlas (procedural/presence.ts). Opaque tile/label is the
+ * `presence` bucket; the
  * alpha decals (lipstick, yolk film, residue ring, contact shadow) are `presenceDecal`, one
  * transparent mesh. Everything in a palette material (ceramic, stainless, chrome, coffee) is
  * appended to the scene's existing merged meshes by core/mergeInto.ts.
@@ -45,7 +44,7 @@ export interface PresenceResult {
   material: THREE.MeshStandardMaterial;
   materials: PresenceMaterials;
   /** Where the props sit, for the `sys9-*` capture poses. */
-  points: { apron: THREE.Vector3; plate: THREE.Vector3; cup: THREE.Vector3 };
+  points: { hook: THREE.Vector3; plate: THREE.Vector3; cup: THREE.Vector3 };
 }
 
 export function presenceMaterials(pal: Palette, bank?: TextureBank): PresenceMaterials {
@@ -77,6 +76,9 @@ export function presenceMaterials(pal: Palette, bank?: TextureBank): PresenceMat
     polygonOffsetUnits: -2,
     side: THREE.DoubleSide,
     envMapIntensity: pal.ceramic.envMapIntensity,
+    // RGBA vertex colour: a per-vertex alpha on top of the tile's (the fork's soft contact
+    // shadows grade 1 → 0 from the centre); every other decal is `white()`.
+    vertexColors: true,
   });
   decal.name = "presenceDecal";
   decal.userData.noCast = true;
@@ -85,10 +87,10 @@ export function presenceMaterials(pal: Palette, bank?: TextureBank): PresenceMat
 }
 
 export function buildPresence(statics: MergedBuilder, pal: Palette, mats: PresenceMaterials): PresenceResult {
-  const apron = buildApron(statics, pal, mats.cloth);
+  const hook = buildHook(statics, pal);
   const plate = buildPlate(statics, pal, mats);
   const cup = buildLipstickCup(statics, pal, mats);
-  return { material: mats.cloth, materials: mats, points: { apron, plate, cup } };
+  return { material: mats.cloth, materials: mats, points: { hook, plate, cup } };
 }
 
 /* ------------------------------------------------------------------------------------ */
@@ -241,6 +243,42 @@ function inset(rect: UvRect, f: number, fv = f): UvRect {
   return [rect[0] + w * f, rect[1] + h * fv, rect[2] - w * f, rect[3] - h * fv];
 }
 
+/** Opaque white RGBA vertex colour (the decal material multiplies by it). */
+function white(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const n = g.attributes.position.count;
+  g.setAttribute("color", new THREE.BufferAttribute(new Float32Array(n * 4).fill(1), 4));
+  return g;
+}
+
+/**
+ * A soft shadow ellipse for the decal bucket: a fan of rings whose vertex alpha falls from 1
+ * at the centre to 0 at the rim (on top of the tile's own edge fade), so a contact shadow
+ * under a fork reads as a gradient, not the cup tile's flat disc. Plan UVs into `rect`.
+ */
+function aoEllipse(ax: number, az: number, rect: UvRect): THREE.BufferGeometry {
+  const N = 32, RINGS = [0.35, 0.7, 1.0], ALPHA = [0.75, 0.3, 0.0];
+  const pos: number[] = [0, 0, 0], uv: number[] = [(rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2], col: number[] = [1, 1, 1, 1], idx: number[] = [];
+  RINGS.forEach((r, ri) => {
+    for (let k = 0; k < N; k++) {
+      const a = (k / N) * Math.PI * 2, cx = Math.cos(a) * r, cz = Math.sin(a) * r;
+      pos.push(cx * ax, 0, cz * az);
+      uv.push(rect[0] + (0.5 + 0.5 * cx) * (rect[2] - rect[0]), rect[1] + (0.5 + 0.5 * cz) * (rect[3] - rect[1]));
+      col.push(1, 1, 1, ALPHA[ri]);
+    }
+  });
+  const at = (ri: number, k: number) => 1 + ri * N + (k % N);
+  for (let k = 0; k < N; k++) idx.push(0, at(0, k + 1), at(0, k));
+  for (let ri = 0; ri < RINGS.length - 1; ri++)
+    for (let k = 0; k < N; k++) idx.push(at(ri, k), at(ri, k + 1), at(ri + 1, k), at(ri, k + 1), at(ri + 1, k + 1), at(ri + 1, k));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 4));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
 function uvByPlan(g: THREE.BufferGeometry, rect: UvRect, size: number): void {
   const pos = g.attributes.position;
   g.computeBoundingBox();
@@ -331,16 +369,14 @@ function rng(seed: number): () => number {
 }
 
 /* ------------------------------------------------------------------------------------ */
-/* Apron                                                                                  */
+/* Hook (rev 3: the apron that hung on it was cut — see BUILD.md)                        */
 /* ------------------------------------------------------------------------------------ */
 
-function buildApron(s: MergedBuilder, pal: Palette, cloth: THREE.Material): THREE.Vector3 {
+function buildHook(s: MergedBuilder, pal: Palette): THREE.Vector3 {
   // Hook on the wall strip left of the pass-through jamb, clear of the brewer, at 1.92 m.
   const wallZ = ROOM.zBack;
   const hx = PASS_THROUGH.centerX - PASS_THROUGH.width / 2 - PASS_THROUGH.jamb - 0.2; // ≈ −1.445
   const hy = 1.92;
-  const R = PRESENCE_UV.cotton;
-  const plain: UvRect = [R[0] + 0.02, R[3] - 0.045, R[0] + 0.46, R[3] - 0.005]; // clean canvas strip (under the band on the skirt)
 
   /* ---- chrome hook: rose, shank out of the wall, quarter turn up, tip with a ball ---- */
   {
@@ -365,176 +401,7 @@ function buildApron(s: MergedBuilder, pal: Palette, cloth: THREE.Material): THRE
     ball.translate(hx, hy + 0.037, wallZ + 0.058);
     s.add(ball, pal.chrome);
   }
-
-  /* ---- fabric loop over the shank: a 16 mm tape, legs nearly parallel, converging on the band centre ---- */
-  const loopZ = wallZ + 0.04; // rides the shank's outer third
-  const bandTop = hy - 0.058, bandH = 0.026, bandBot = bandTop - bandH;
-  {
-    const pts: THREE.Vector3[] = [];
-    // Up the left leg, over the shank (inner radius 6 mm → tape centre 7 mm), down the right leg.
-    const legB = bandTop + 0.004, legT = hy - 0.001;
-    for (let i = 0; i <= 6; i++) pts.push(V3(hx - 0.004 + 0.001 * (i / 6), legB + (legT - legB) * (i / 6), loopZ - 0.0015 + 0.0006 * Math.sin(i)));
-    for (let i = 1; i < 8; i++) {
-      const a = Math.PI - (i / 8) * Math.PI;
-      pts.push(V3(hx + 0.007 * Math.cos(a), hy + 0.007 * Math.sin(a), loopZ));
-    }
-    for (let i = 0; i <= 6; i++) pts.push(V3(hx + 0.007 - 0.002 * (i / 6), legT - (legT - legB) * (i / 6), loopZ + 0.0015 + 0.0006 * Math.cos(i)));
-    s.add(ribbon(curve(pts, 40, 0.4), () => 0.008, () => 0.0011, V3(0, 0, 1), plain, { ring: 10, uvRepeat: [0.35, 2] }), cloth);
-  }
-
-  /* ---- waistband bunched under the loop: the 0.7 m band pleated into 116 mm ---- */
-  // A flat 26 mm band cannot hang 116 mm wide without folding: it pleats into six ridges of
-  // unequal width and depth (a sawtooth, each pleat's return face steeper than its show face),
-  // its ends curling back toward the wall. The skirt's top edge hides under it.
-  const bunchX0 = hx - 0.058, bunchX1 = hx + 0.058;
-  const pleats = [
-    { c: 0.06, w: 0.07, a: 0.009, k: 0.35 },
-    { c: 0.24, w: 0.08, a: 0.0115, k: -0.3 },
-    { c: 0.41, w: 0.06, a: 0.008, k: 0.4 },
-    { c: 0.57, w: 0.09, a: 0.012, k: -0.25 },
-    { c: 0.76, w: 0.065, a: 0.0095, k: 0.3 },
-    { c: 0.92, w: 0.07, a: 0.007, k: -0.35 },
-  ];
-  const bandRelief = (u: number, t: number) => {
-    let z = 0.055;
-    for (const p of pleats) {
-      const d = (u - p.c) / p.w;
-      z += p.a * Math.exp(-Math.pow(Math.abs(d + p.k * d * Math.abs(d)), 1.6)) * (1 + 0.15 * Math.sin(t * Math.PI));
-    }
-    z -= 0.012 * Math.pow(Math.abs(u - 0.5) * 2, 6); // ends curl back
-    return z;
-  };
-  const band = (t: number, u: number, o: THREE.Vector3, lift = 0) => {
-    const x = bunchX0 + u * (bunchX1 - bunchX0) + 0.0015 * Math.sin(u * Math.PI * 7 + t);
-    // Suspended at its centre, the band's ends sag ~9 mm.
-    const y = bandTop - t * bandH - 0.0015 * Math.sin(u * Math.PI * 2.3 + 0.7) - 0.009 * Math.pow(Math.abs(u - 0.5) * 2, 2);
-    return o.set(x, y, wallZ + bandRelief(u, t) + lift);
-  };
-  s.add(loft(6, 60, (t, u, o) => band(t, u, o), plain, [0.35, 0.35]), cloth);
-  for (const tt of [0, 1]) {
-    const edge: THREE.Vector3[] = [];
-    for (let i = 0; i <= 48; i++) band(tt, i / 48, edge[i] = new THREE.Vector3(), -0.0014);
-    s.add(ribbon(edge, () => 0.0014, () => 0.0014, V3(0, 1, 0), plain, { ring: 8, uvRepeat: [0.2, 2] }), cloth);
-  }
-
-  /* ---- skirt: gathered under the band, four heavy folds of unequal width, hem barely wider than the shoulder ---- */
-  const fall = 0.34;
-  const skirtTop = bandBot + 0.006; // tucked 6 mm under the band
-  const folds = [
-    { s: 0.11, w: 0.09, a: 0.04 },
-    { s: 0.37, w: 0.12, a: 0.048 },
-    { s: 0.6, w: 0.07, a: 0.032 },
-    { s: 0.84, w: 0.1, a: 0.042 },
-  ];
-  const gathers = [
-    { f: 9.3, ph: 0.4, a: 0.0045 },
-    { f: 14.1, ph: 2.1, a: 0.0032 },
-    { f: 22.7, ph: 4.4, a: 0.0018 },
-    { f: 6.1, ph: 1.3, a: 0.0028 },
-  ];
-  // Half-width: 116 mm under the band (the bunch), 160 mm at the hem — it hangs, it does not flare.
-  const halfW = (t: number) => 0.058 + 0.016 * smooth(t / 0.45) + 0.006 * t;
-  // Front-face relief of the skirt (metres out of the wall plane) at (t, u).
-  const relief = (t: number, u: number) => {
-    let z = 0;
-    const open = 0.35 + 0.65 * smooth(t / 0.35), relax = 1 - 0.2 * t;
-    // The selvedges hang flatter: a fold crest right at the edge made a steep left flank that
-    // faced away from every light in the aisle and read as a black slab from the apron camera.
-    const edge = 0.55 + 0.45 * smooth(Math.min(u, 1 - u) / 0.14);
-    for (const f of folds) z += f.a * open * relax * edge * Math.exp(-Math.pow(Math.abs(u - f.s) / f.w, 1.4));
-    const gDecay = 1 - 0.7 * smooth(t / 0.55);
-    for (const g of gathers) z += g.a * gDecay * Math.sin(u * Math.PI * 2 * g.f + g.ph + 0.9 * Math.sin(t * 5 + g.ph));
-    return z;
-  };
-  const skirt = (t: number, u: number, out: THREE.Vector3, lift = 0) => {
-    const w = halfW(t);
-    // Folds also bunch the cloth sideways: shift x toward each fold's crest a little.
-    let dx = 0;
-    const edge = 0.3 + 0.7 * smooth(Math.min(u, 1 - u) / 0.14);
-    for (const f of folds) dx += 0.25 * f.a * (0.4 + 0.6 * t) * edge * Math.tanh((u - f.s) / f.w) * Math.exp(-Math.pow(Math.abs(u - f.s) / (2 * f.w), 2));
-    const x = hx + (u - 0.5) * 2 * w + 0.006 * t * t - dx;
-    const z = wallZ + 0.03 + relief(t, u) + 0.018 * smooth(t / 0.5) + lift;
-    // Hem dips a few millimetres where the folds hang heavier.
-    const dip = 0.006 * t * (0.5 * Math.sin(u * Math.PI * 2.7 + 0.6) + 0.5 * Math.sin(u * Math.PI * 5.3 + 2.2));
-    const y = skirtTop - t * fall - dip;
-    return out.set(x, y, z);
-  };
-  // Inset from the tile edges: the hem (v = 0.5) sits on the quarry tile's border, and where the
-  // side folds turn edge-on the anisotropic footprint reached across it — a dark red 10 mm strip
-  // up the left selvedge in the apron frame.
-  s.add(loft(40, 72, (t, u, o) => skirt(t, u, o), inset(R, 0.02, 0.035)), cloth);
-  // Hem: a rolled 5 × 3 mm edge along the bottom; the side selvedges 3 × 2 mm.
-  {
-    const hem: THREE.Vector3[] = [];
-    for (let i = 0; i <= 40; i++) hem.push(skirt(1, i / 40, new THREE.Vector3(), 0));
-    s.add(ribbon(hem, () => 0.0026, () => 0.0016, V3(0, 1, 0), plain, { ring: 8, uvRepeat: [0.4, 4] }), cloth);
-    for (const u of [0, 1]) {
-      const side: THREE.Vector3[] = [];
-      for (let i = 0; i <= 24; i++) side.push(skirt(0.02 + 0.98 * (i / 24), u, new THREE.Vector3(), 0));
-      s.add(ribbon(side, () => 0.0015, () => 0.0011, V3(1, 0, 0), plain, { ring: 8, uvRepeat: [0.3, 3] }), cloth);
-    }
-  }
-  /* ---- patch pocket, right of centre: face proud 4 mm, mouth gaping, top hem doubled, sides closed ---- */
-  {
-    const P = { t0: 0.42, t1: 0.78, s0: 0.2, s1: 0.8 }; // must match the atlas POCKET footprint
-    const face = (t: number, u: number, o: THREE.Vector3) => {
-      const tt = P.t0 + t * (P.t1 - P.t0), uu = P.s0 + u * (P.s1 - P.s0);
-      const gape = 0.011 * (1 - smooth(t / 0.8)) * Math.sin(u * Math.PI);
-      const sag = 0.004 * (1 - t) * Math.sin(u * Math.PI); // the top edge droops at its middle
-      skirt(tt + sag / fall, uu, o, 0.004 + gape);
-    };
-    s.add(loft(12, 14, face, inset(PRESENCE_UV.pocket, 0.012)), cloth);
-    // Side + bottom closure: a strip from the skirt to the pocket face.
-    const edgeLoop = (q: number, o: THREE.Vector3, lift: number) => {
-      // q 0..1 runs down the left side, along the bottom, up the right side.
-      let t: number, u: number;
-      if (q < 0.33) {
-        t = q / 0.33;
-        u = 0;
-      } else if (q < 0.67) {
-        t = 1;
-        u = (q - 0.33) / 0.34;
-      } else {
-        t = 1 - (q - 0.67) / 0.33;
-        u = 1;
-      }
-      const tt = P.t0 + t * (P.t1 - P.t0), uu = P.s0 + u * (P.s1 - P.s0);
-      skirt(tt, uu, o, lift);
-    };
-    s.add(loft(2, 40, (k, q, o) => edgeLoop(q, o, k * 0.004), plain, [3, 0.1]), cloth);
-    // Top hem: doubled cloth, 2.5 mm thick, 18 mm tall, following the gaping mouth.
-    const mouth: THREE.Vector3[] = [];
-    for (let i = 0; i <= 14; i++) {
-      const o = new THREE.Vector3();
-      face(0, i / 14, o);
-      mouth.push(o);
-    }
-    s.add(ribbon(mouth, () => 0.009, () => 0.0014, V3(0, 0, 1), plain, { ring: 8, uvRepeat: [0.3, 1.5] }), cloth);
-  }
-  /* ---- ties: 25 mm tapes. Right one hangs past the hem with a lazy twist; left one is tucked back into the band ---- */
-  {
-    const pts: THREE.Vector3[] = [];
-    const x0 = bunchX1 - 0.02, y0 = bandBot - 0.004; // starts under the band's bottom edge
-    const yEnd = skirtTop - fall - 0.09;
-    for (let i = 0; i <= 10; i++) {
-      const q = i / 10;
-      const y = y0 + (yEnd - y0) * q;
-      const t = clamp01((skirtTop - y) / fall);
-      const u = clamp01(0.5 + 0.045 / (2 * halfW(t))); // skirt u under the tie
-      const front = y > skirtTop - fall ? relief(t, u) + 0.018 * smooth(t / 0.5) + 0.03 : 0.03 + relief(1, u) + 0.018 - 0.01 * clamp01((skirtTop - fall - y) / 0.09);
-      pts.push(V3(x0 + 0.012 * Math.sin(q * Math.PI * 1.3 + 0.4) + 0.01 * q, y, wallZ + front + 0.0035 + 0.004 * Math.sin(q * Math.PI * 2.1)));
-    }
-    s.add(ribbon(curve(pts, 36, 0.5), () => 0.0125, () => 0.0009, V3(0, 0, 1), plain, { ring: 10, twist: (t) => 0.12 * Math.sin(t * Math.PI * 1.4), uvRepeat: [0.5, 6] }), cloth);
-    // Tucked tie: its 6 cm tail pokes out from under the band's left end and hangs against the skirt.
-    const tuck: THREE.Vector3[] = [
-      V3(bunchX0 + 0.018, bandBot + 0.004, wallZ + 0.05),
-      V3(bunchX0 + 0.015, bandBot - 0.018, wallZ + 0.062),
-      V3(bunchX0 + 0.012, bandBot - 0.04, wallZ + 0.066),
-      V3(bunchX0 + 0.013, bandBot - 0.06, wallZ + 0.0665),
-    ];
-    s.add(ribbon(curve(tuck, 20, 0.5), () => 0.0125, () => 0.0009, V3(0, 0, 1), plain, { ring: 10, twist: (t) => 0.25 * t, uvRepeat: [0.5, 2] }), cloth);
-  }
-  return new THREE.Vector3(hx, hy - 0.22, wallZ + 0.06);
+  return new THREE.Vector3(hx, hy - 0.02, wallZ + 0.05);
 }
 
 /* ------------------------------------------------------------------------------------ */
@@ -557,49 +424,80 @@ function buildPlate(s: MergedBuilder, pal: Palette, mats: PresenceMaterials): TH
   plate.translate(px, tableTop, pz);
   s.add(plate, pal.ceramic);
 
-  // Fork: stainless, across the plate — tines in the well, handle over the rim, end overhanging.
+  // Fork (rev 3): a 190 mm stainless dinner fork lying across the plate, tines in the well,
+  // the handle over the rim bead and 3 cm overhanging. One continuous bar from the tine root
+  // to the handle end — the head (23 mm) narrows through the shoulder to an 8 mm neck, the
+  // handle widens to 21 mm and rounds off — with a superellipse section so it has a real
+  // cross-section (2.2–2.6 mm stock, radiused edges). The spine is bent in profile like a real
+  // fork: flat under the tines, up through the neck, then a straight rising handle that meets
+  // the rim bead at x = 0.161 (solved from the plate radius). Four 3.6 mm tines 2.2 mm apart
+  // with a 2.5 mm upward tip curl. The head is placed on the near-left of the plate so it is
+  // out of the window's sun spot on the glaze.
   {
-    const L = 0.185;
-    // Tines rest on the well floor; the handle's underside meets the rim bead ~3.3 cm from its
-    // end (rise 2 cm over 15 cm → 7.5°) and overhangs 2.5 cm.
-    const yaw = -0.85, pitch = THREE.MathUtils.degToRad(7.5);
-    const M = new THREE.Matrix4().makeRotationY(yaw).multiply(new THREE.Matrix4().makeRotationZ(pitch));
-    const tips = V3(px - 0.012, tableTop + wellY + 0.0025, pz - 0.035);
+    const L = 0.19;
+    const yaw = Math.PI - 0.85; // handle toward −x, −z (the far / aisle side)
+    const M = new THREE.Matrix4().makeRotationY(yaw);
+    const tips = V3(px + 0.02, tableTop + wellY + 0.0012, pz + 0.04);
     M.setPosition(tips);
     const place = (g: THREE.BufferGeometry) => {
       g.applyMatrix4(M);
       s.add(g, pal.stainless);
     };
-    // Handle + neck + head as one bar (x from the head, 0.045, to the end, L): width waisted, bowed up in the middle.
+    // Profile height of the spine (y up in the fork's frame, 0 at the tine underside plane).
+    const spineY = (x: number) => {
+      const neck = 0.005 * smooth((x - 0.03) / 0.045); // the bend up out of the head
+      const rise = x > 0.075 ? (x - 0.075) * 0.172 : 0; // 9.8° handle, bead contact at x ≈ 0.161
+      const bow = -0.0012 * Math.sin(Math.PI * clamp01((x - 0.075) / (L - 0.075))); // slight hollow along the handle
+      return neck + rise + bow;
+    };
+    // Body: tine root (x = 0.036) → handle end.
+    const X0 = 0.036;
     const spine: THREE.Vector3[] = [];
-    for (let i = 0; i <= 16; i++) {
-      const q = i / 16, x = 0.045 + q * (L - 0.045);
-      spine.push(V3(x, 0.0035 * Math.sin(q * Math.PI) - 0.002 * (1 - q) * (1 - q), 0));
+    for (let i = 0; i <= 40; i++) {
+      const x = X0 + (i / 40) * (L - X0);
+      spine.push(V3(x, spineY(x), 0));
     }
-    place(
-      ribbon(
-        spine,
-        (t) => 0.006 + 0.0055 * smooth((t - 0.15) / 0.6) - 0.0025 * Math.exp(-Math.pow((t - 0.12) / 0.1, 2)),
-        (t) => 0.0016 + 0.0004 * t,
-        V3(0, 1, 0),
-        PRESENCE_UV.crumb,
-        { ring: 12, power: 2.4 },
-      ),
-    );
-    // Head: flares from the neck to the tine root.
-    const head: THREE.Vector3[] = [];
-    for (let i = 0; i <= 6; i++) head.push(V3(0.03 + (i / 6) * 0.017, -0.0012 + 0.0008 * (i / 6), 0));
-    place(ribbon(head, (t) => 0.0115 - 0.0045 * t, () => 0.0015, V3(0, 1, 0), PRESENCE_UV.crumb, { ring: 12, power: 2.4 }));
-    // Four tines: tapering, curving up a little at the tips.
+    const halfW = (t: number) => {
+      const x = X0 + t * (L - X0);
+      const shoulder = 0.0105 - 0.0063 * smooth((x - X0) / 0.03); // 21 mm root → 8.4 mm neck by x = 0.066
+      const handle = 0.0063 * smooth((x - 0.078) / 0.08); // widens to 21 mm by x = 0.158
+      const end = 0.0045 * smooth((x - 0.168) / (L - 0.168)); // rounded end
+      return shoulder + handle - end;
+    };
+    const halfH = (t: number) => {
+      const x = X0 + t * (L - X0);
+      return 0.0009 + 0.0004 * smooth((x - X0) / 0.03); // 1.8 mm at the root, 2.6 mm from the neck on
+    };
+    place(ribbon(spine, halfW, halfH, V3(0, 1, 0), PRESENCE_UV.crumb, { ring: 16, power: 3.2 }));
+    // Tines: parallel, 5.8 mm on centre, tapering to the tip, curling up 2.5 mm over the last third.
     for (let k = 0; k < 4; k++) {
-      const z = -0.0105 + k * 0.007;
+      const z = -0.0087 + k * 0.0058;
       const tine: THREE.Vector3[] = [];
-      for (let i = 0; i <= 8; i++) {
-        const q = i / 8; // 0 tip … 1 root
-        tine.push(V3(0.031 * q, -0.0012 + 0.0022 * (1 - q) * (1 - q), z * (0.92 + 0.08 * q)));
+      for (let i = 0; i <= 10; i++) {
+        const q = i / 10; // 0 tip … 1 root
+        const curl = 0.0025 * Math.pow(clamp01(1 - q / 0.55), 2);
+        tine.push(V3(0.0385 * q, curl, z * (0.94 + 0.06 * q)));
       }
-      place(ribbon(tine, (t) => 0.0009 + 0.0007 * t, (t) => 0.0007 + 0.0005 * t, V3(0, 1, 0), PRESENCE_UV.crumb, { ring: 10, power: 2.2 }));
+      place(ribbon(tine, (t) => 0.0011 + 0.0007 * t, (t) => 0.0006 + 0.0004 * t, V3(0, 1, 0), PRESENCE_UV.crumb, { ring: 10, power: 2.6 }));
     }
+    // Contact shadows (alpha decals, contactAO tile): an ellipse on the well under the head and
+    // root, and a smaller one on the rim slope where the handle rests on the bead.
+    const ao = (cx: number, cz: number, ax: number, az: number, rotY: number, y: number, tiltX = 0) => {
+      const g = aoEllipse(ax, az, inset(PRESENCE_UV.contactAO, 0.03));
+      if (tiltX) g.rotateX(tiltX);
+      g.rotateY(rotY);
+      g.translate(cx, y, cz);
+      s.add(g, mats.decal);
+    };
+    const dir = V3(Math.cos(yaw), 0, -Math.sin(yaw)); // fork +x in world
+    const head = tips.clone().addScaledVector(dir, 0.022);
+    ao(head.x, head.z, 0.034, 0.017, -yaw, tableTop + wellY + 0.0004);
+    // Rim contact: the bead is at r = 0.1185; the shadow lies on the inner slope of the rim.
+    const bead = tips.clone().addScaledVector(dir, 0.161);
+    const radial = V3(bead.x - px, 0, bead.z - pz).normalize();
+    const rimPt = V3(px, 0, pz).addScaledVector(radial, 0.112);
+    const rimAng = Math.atan2(radial.x, radial.z); // rotation about y that takes +z to the radial
+    ao(rimPt.x, rimPt.z, 0.012, 0.007, rimAng, tableTop + 0.0225, -0.48);
   }
 
   // Dried yolk film: a thin feathered smear with the tine drag through it, 0.3 mm over the well.
@@ -609,8 +507,8 @@ function buildPlate(s: MergedBuilder, pal: Palette, mats: PresenceMaterials): TH
     g.rotateY(0.7);
     g.scale(1.15, 1, 0.9);
     uvByPlan(g, inset(PRESENCE_UV.yolkFilm, 0.03), 0.05);
-    g.translate(px + 0.018, tableTop + wellY + 0.0003, pz + 0.014);
-    s.add(g, mats.decal);
+    g.translate(px + 0.03, tableTop + wellY + 0.0003, pz + 0.008); // beside the tines (rev 3 moved the fork)
+    s.add(white(g), mats.decal);
   }
 
   // Crumbs: eleven irregular flakes, random yaw and a slight cant, on the well and the table.
@@ -677,7 +575,7 @@ function buildLipstickCup(s: MergedBuilder, pal: Palette, mats: PresenceMaterial
   {
     const g = new THREE.CircleGeometry(0.0345, 36);
     g.rotateX(-Math.PI / 2);
-    uvByPlan(g, inset(PRESENCE_UV.contactAO, 0.03), 0.069);
+    uvByPlan(white(g), inset(PRESENCE_UV.contactAO, 0.03), 0.069);
     g.translate(x, my + 0.00015, z);
     s.add(g, mats.decal);
   }
@@ -702,32 +600,37 @@ function buildLipstickCup(s: MergedBuilder, pal: Palette, mats: PresenceMaterial
   coffee.rotateX(-Math.PI / 2);
   uvByPlan(coffee, inset(PRESENCE_UV.dreg, 0.03), 2 * (innerR(dregY) - 0.0002));
   coffee.translate(x, my + dregY, z);
-  s.add(coffee, mats.decal); // opaque tile in the decal bucket: `pal.coffee` has no static host
+  s.add(white(coffee), mats.decal); // opaque tile in the decal bucket: `pal.coffee` has no static host
   // Residue ring: the tide the coffee left as it went down, on the inside wall above the dreg.
   s.add(
-    loft(6, 49, (t, u, o) => {
+    white(loft(6, 49, (t, u, o) => {
       const yy = dregY + 0.014 - t * 0.014; // t 0 top … 1 at the surface
       const rr = innerR(yy) - 0.00025;
       const a = u * Math.PI * 2;
       o.set(x + rr * Math.cos(a), my + yy, z + rr * Math.sin(a));
-    }, inset(PRESENCE_UV.residue, 0, 0.03), [2, 1]),
+    }, inset(PRESENCE_UV.residue, 0, 0.03), [2, 1])),
     mats.decal,
   );
-  // Lipstick: an upper-lip print on the outer face of the rim opposite the handle, its top
-  // lapping 1 mm over the lip. A patch that follows the rim profile (arc length along the
-  // outside-up-over-inside polyline), 0.25 mm proud, UV'd to the 24 mm print tile.
+  // Lipstick: an upper-lip print straddling the rim opposite the handle — the contact line on
+  // the outer face 2 mm under the corner, the lobes over the 5 mm rolled rim top and a faint
+  // broken trace 0–2 mm down the inside (rev 3; rev 2 sat 8 px below the rim).
+  // A patch that follows the rim profile (arc length along the outside-up-over-inside
+  // polyline), 0.25 mm proud, UV'd to the 24 mm print tile.
   {
-    const prof = [V2(0.041, 0.066), V2(0.041, 0.082), V2(0.0405, 0.0875), V2(0.0385, 0.089), V2(0.0355, 0.089), V2(0.034, 0.0875), V2(0.0335, 0.084)];
+    const prof = [V2(0.041, 0.066), V2(0.041, 0.082), V2(0.0405, 0.0875), V2(0.0385, 0.089), V2(0.0355, 0.089), V2(0.034, 0.0875), V2(0.0335, 0.084), V2(0.033, 0.078)];
     const cum = [0];
     for (let i = 1; i < prof.length; i++) cum.push(cum[i - 1] + prof[i].distanceTo(prof[i - 1]));
     const total = cum[cum.length - 1];
-    // Only the tile's print band (v 0.28 … 0.74, 11 mm) is placed, so the patch's edges never
-    // sample the tile boundary. Its top (tile v ≈ 0.69) lands 1 mm over the rim top: arc
-    // position of (0.0375, 0.089) minus (0.69 − 0.28) × 24 mm.
-    const band: [number, number] = [0.28, 0.74];
+    // Only the tile's print band (v 0.28 … 0.8, 12.5 mm) is placed, so the patch's edges never
+    // sample the tile boundary. The print's mid-line (tile v ≈ 0.53) lands on the rim's outer
+    // top corner (cum[3]); the lobe tops (v ≈ 0.69, 3.8 mm further) cross the rim top and lap
+    // 0.8 mm down the inside.
+    const band: [number, number] = [0.28, 0.8];
     const bandH = (band[1] - band[0]) * 0.024;
-    const topArc = cum[3] + 0.001;
-    const arc0 = topArc - (0.69 - band[0]) * 0.024;
+    // Mid-line 0.8 mm past the outer top corner: contact line 2.8 mm down the outer face, lobe
+    // tops at the rim's inner edge, the faint inner trace (tile v 0.69 … 0.77) 0 … 2 mm inside.
+    const midArc = cum[3] + 0.0008;
+    const arc0 = midArc - (0.53 - band[0]) * 0.024;
     const sample = (arc: number, out: { r: number; y: number; nr: number; ny: number }) => {
       const a = Math.min(total - 1e-6, Math.max(0, arc));
       let i = 1;
@@ -742,7 +645,7 @@ function buildLipstickCup(s: MergedBuilder, pal: Palette, mats: PresenceMaterial
       out.ny = -tx / len;
     };
     const smp = { r: 0, y: 0, nr: 0, ny: 0 };
-    const centreA = Math.PI / 2 + 0.3; // the drinker's side of the rim (+z), a little toward −x
+    const centreA = Math.PI / 2 - 0.22; // the drinker's side of the rim (+z), a little toward +x: faces the sys9-cup camera
     const span = 0.024 / 0.0405; // 24 mm of arc at the rim radius
     const g = loft(16, 14, (t, u, o) => {
       sample(arc0 + (1 - t) * bandH, smp);
@@ -753,7 +656,7 @@ function buildLipstickCup(s: MergedBuilder, pal: Palette, mats: PresenceMaterial
       const L = PRESENCE_UV.lipstick, w = L[2] - L[0], h = L[3] - L[1];
       return [L[0] + w * 0.03, L[1] + h * band[0], L[2] - w * 0.03, L[1] + h * band[1]] as UvRect;
     })());
-    s.add(g, mats.decal);
+    s.add(white(g), mats.decal);
   }
   return new THREE.Vector3(x, my + 0.05, z);
 }

@@ -68,7 +68,7 @@ const SHAPES: Record<string, Record<string, Shape>> = {
     contactShadowAlpha: "direct",
     tyreTread: "direct",
   },
-  // System 9 (src/procedural/presence.ts): the apron / plate / cup / kitchen-tile atlas.
+  // System 9 (src/procedural/presence.ts): the kitchen-tile / label / decal atlas.
   pres: {
     presenceAtlas: ["map", "roughnessMap", "normalMap"],
   },
@@ -111,7 +111,7 @@ const LABELS: Record<string, string> = {
   tideLineAlpha: "coffee tide line",
   baseboardScuff: "cove base",
   doorDecals: "door signage",
-  presenceAtlas: "the apron and the paper",
+  presenceAtlas: "the kitchen tile and the lipstick",
 };
 
 /** Rough pixel count so the pool starts the big jobs first (longest-processing-time first). */

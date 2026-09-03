@@ -37,7 +37,7 @@ const TL = {
   reach: [0, 0.25],
   lift: [0.25, 0.95],
   sip: [0.95, 1.55],
-  drink: [1.1, 1.45],
+  drink: [0.95, 1.55],
   lower: [1.55, 1.85],
   set: [1.85, 2.55],
   release: [2.55, 2.8],
@@ -45,8 +45,10 @@ const TL = {
   sipSfx: 1.05,
 } as const;
 export const DRINK_END = TL.end;
-/** Fraction of a full mug per sip. */
-const SIP = 1 / 3;
+/** Fraction of a full mug per sip (rev 3: a quarter — four sips, each a 25 % drain over the whole 0.6 s sip). */
+const SIP = 0.25;
+/** The contact disc under the mug is gone by this lift (m). */
+const DISC_FADE_LIFT = 0.03;
 /**
  * Mug tilt at the sip: enough to bring the surface to the rim for the level it starts at (a full
  * mug tips ~24°, a third-full one ~45°), plus a few degrees to drink; the head's answer.
@@ -154,6 +156,8 @@ export class DrinkInteraction {
     mug: THREE.Mesh,
     private readonly player: FirstPerson,
     private readonly audio: DrinkAudio,
+    /** The mug's contact disc on the bar (Props.ts), faded out as the mug lifts. */
+    private readonly shadow?: THREE.Mesh,
   ) {
     this.mug = mug;
     this.mugRest.copy(mug.position);
@@ -256,10 +260,22 @@ export class DrinkInteraction {
     this.player.lean.roll = 0;
     this.player.lean.yaw = 0;
     this.player.movementLocked = false;
+    this.setDisc(0);
   }
 
+  /**
+   * Fill through the drink: the level falls over the WHOLE sip (0.95 → 1.55), nearly linearly —
+   * a swallow is a steady draw, and rev 2's 0.35 s ease-in-out dropped 97 → 67 % in 0.2 s.
+   */
   private fillAt(t: number): number {
-    return lerp(this.fillFrom, this.fillTo, easeInOut(phase(t, TL.drink[0], TL.drink[1])));
+    const u = phase(t, TL.drink[0], TL.drink[1]);
+    return lerp(this.fillFrom, this.fillTo, 0.75 * u + 0.25 * easeInOut(u));
+  }
+
+  /** Contact disc opacity for a mug `lift` m off the bar: full at rest, gone by DISC_FADE_LIFT. */
+  private setDisc(lift: number): void {
+    if (!this.shadow) return;
+    (this.shadow.material as THREE.MeshBasicMaterial).opacity = 1 - clamp01(lift / DISC_FADE_LIFT);
   }
 
   /** Pose the mug, its liquid, the steam and the head for drink-time `t`. */
@@ -325,6 +341,8 @@ export class DrinkInteraction {
     }
     this.mug.position.copy(P);
     this.mug.updateMatrixWorld(true);
+    // The disc on the bar fades with the lift (multiply → 1): nothing dense under a mug in the air.
+    this.setDisc(this.mug.getWorldPosition(this.tmpV).y - rest.y);
 
     // Liquid: horizontal in the world, level for this frame's fill, slid toward the low side.
     const fill = this.fillAt(t);

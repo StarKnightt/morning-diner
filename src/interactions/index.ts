@@ -81,7 +81,7 @@ export function initInteractions(ctx: InteractionContext): Interactions {
   const drink = new DrinkInteraction(pour, diner.pourMug, player, {
     sip: () => audio.sfx.sip(),
     clink: (at) => audio.sfx.mugClink(toVec(at)),
-  });
+  }, diner.pourMugShadow);
 
   // System 9 openables (scene/Openables.ts leaves): both cabinet doors toggle, the kitchen door is pushed.
   const catchSfx = { catch: (at: THREE.Vector3, ph: "release" | "close") => audio.sfx.cabinetCatch(toVec(at), ph) };

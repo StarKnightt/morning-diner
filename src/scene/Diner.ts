@@ -57,6 +57,7 @@ export class Diner {
   sunBeam!: THREE.SpotLight;
   /** Named props later systems animate: the mug that gets filled, the decanter that pours. */
   pourMug!: THREE.Mesh;
+  pourMugShadow!: THREE.Mesh;
   coffeePot!: THREE.Group;
   /** System 9: the openables' hinges and the presence props (Sys9.ts). */
   sys9!: System9;
@@ -94,6 +95,7 @@ export class Diner {
     // stays out of the shadow-mask lists.
     buildContactShadows(this.group, props.contactDiscs);
     this.pourMug = props.pourMug;
+    this.pourMugShadow = props.pourMugShadow;
     this.coffeePot = props.coffeePot;
     this.fanRotor = ceiling.fanRotor;
     this.colliders.push(...shell.colliders, ...booths.colliders, ...counter.colliders);

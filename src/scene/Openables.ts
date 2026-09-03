@@ -69,16 +69,20 @@ const V3 = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
  */
 function metalByVertexAlpha(m: THREE.MeshStandardMaterial, rough: number, key: string): void {
   m.onBeforeCompile = (shader) => {
-    shader.fragmentShader = shader.fragmentShader.replace(
-      "#include <metalnessmap_fragment>",
-      [
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
         "#include <metalnessmap_fragment>",
-        "#ifdef USE_COLOR_ALPHA",
-        `if ( vColor.a < 0.5 ) { metalnessFactor = 1.0; roughnessFactor = ${rough.toFixed(3)}; diffuseColor.rgb = vColor.rgb; }`,
-        "diffuseColor.a = 1.0;",
-        "#endif",
-      ].join("\n"),
-    );
+        [
+          "#include <metalnessmap_fragment>",
+          "#ifdef USE_COLOR_ALPHA",
+          `if ( vColor.a < 0.5 ) { metalnessFactor = 1.0; roughnessFactor = ${rough.toFixed(3)}; diffuseColor.rgb = vColor.rgb; }`,
+          "diffuseColor.a = 1.0;",
+          "#endif",
+        ].join("\n"),
+      )
+      // A MeshPhysicalMaterial's anisotropy (brushed metal) is a material-wide constant; gate
+      // it by the same flag so the paint around the plates stays isotropic.
+      .replace("vec2 anisotropyV = anisotropyVector;", "vec2 anisotropyV = anisotropyVector * ( 1.0 - step( 0.5, vColor.a ) );");
   };
   m.customProgramCacheKey = () => key;
 }
@@ -115,7 +119,7 @@ export function buildOpenables(parent: THREE.Group, pal: Palette, statics: Merge
     cabinet: cabinet.leaves,
     kitchenDoor: kitchen.leaf,
     kitchenLight: kitchen.light,
-    envMetals: [cabinet.material, kitchen.material],
+    envMetals: [cabinet.material, ...kitchen.materials],
   };
 }
 
@@ -381,7 +385,7 @@ const VISION = { w: 0.229, h: 0.356, centerY: 1.5 };
 /** Kitchen slice depth and width (m) behind the partition. */
 const KITCHEN_DEPTH = 2.7;
 
-function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth: THREE.Material): { leaf: HingedLeaf; light: THREE.SpotLight; material: THREE.MeshStandardMaterial } {
+function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth: THREE.Material): { leaf: HingedLeaf; light: THREE.SpotLight; materials: THREE.MeshStandardMaterial[] } {
   const T = ROOM.wallThickness, zBack = ROOM.zBack;
   const x0 = KITCHEN_DOOR.centerX - KITCHEN_DOOR.width / 2, x1 = KITCHEN_DOOR.centerX + KITCHEN_DOOR.width / 2;
   const h = KITCHEN_DOOR.height;
@@ -392,9 +396,12 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
   hinge.position.set(x0 + 0.006, 0, zMid);
   const w = x1 - x0 - 0.012;
   const b = new MergedBuilder();
-  const leafMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.06 });
+  // Physical, for the plates' anisotropy (brushed along u — horizontal on the kick plates and
+  // the push plates' faces); `metalByVertexAlpha` zeroes it on the paint. Roughness 0.35 for
+  // the metal: satin brushed stainless, a smeared reflection of the room from the probe.
+  const leafMat = new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.42, metalness: 0.06, anisotropy: 0.75 });
   leafMat.name = "kitchenLeaf";
-  metalByVertexAlpha(leafMat, 0.28, "kitchen-leaf"); // the plates: brushed stainless, one bucket with the paint
+  metalByVertexAlpha(leafMat, 0.35, "kitchen-leaf");
   const PAINT = 0xf2f1ec, RUBBER = 0x141416, PIVOT = 0x2b2b2d;
   const cx = w / 2;
   const { w: vw, h: vh, centerY: vy } = VISION;
@@ -427,49 +434,38 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
     slab([ox0, oy0, -th / 2], [ox0 + r, oy1, th / 2], RUBBER);
     slab([ox1 - r, oy0, -th / 2], [ox1, oy1, th / 2], RUBBER);
   }
-  // Scuffs: cart-bumper height (0.5–0.72 m, just over the kick plate) and hip / hand height
-  // (0.85–1.1) — thin grey-brown streaks of unequal length, angle and depth, 0.2 mm proud,
-  // clustered rather than spaced; more on the push (dining) face, a few on the kitchen face.
+  // Scuffs (rev 3): rubber transfer in the albedo, as a MULTIPLY decal — an unlit pane over
+  // each face whose texture is 1 where the paint is clean and the transfer's darkening where
+  // it is not (atlas `scuff`, two bands: dining face / kitchen face). Multiplying the lit paint
+  // cannot flip sign with the view or the light: rev 2's proud vertex-coloured streaks read
+  // dark on the closed leaf and bright on the open one (their own shading against a face in
+  // shadow), and repeated a 3-parallel-stroke motif. The tile has bumper arcs, corner scrapes,
+  // crumbs and a hand smear, each drawn once. Its own mesh: +1 draw when the leaf is in view.
   {
-    const r = (() => {
-      let q = 0x51ab77;
-      return () => ((q = (q * 1664525 + 1013904223) >>> 0) / 4294967296);
-    })();
-    const tones = [0xb9b3ab, 0xa9a39b, 0xc4beb5, 0x9d978f, 0xb1aba3, 0x8f8a83];
-    const clusters: Array<[number, number, number]> = [
-      [cx + 0.1, 0.56, 7], // cart bumpers
-      [cx + 0.28, 0.66, 4],
-      [cx - 0.08, 0.63, 3],
-      [w - 0.14, 0.92, 5], // hands beside the push plate
-      [cx + 0.02, 1.02, 3],
-    ];
-    // A streak is a 6 x 2 plane whose outer vertices carry the paint colour, so it fades to
-    // nothing at its ends and edges - a smudge, not a bar.
-    const streak = (len: number, hh: number, hex: number, ang: number, x: number, y: number, z: number, flip: boolean) => {
-      const g = new THREE.PlaneGeometry(len, hh, 6, 2);
-      const pos = g.attributes.position, n = pos.count, col = new Float32Array(n * 4);
-      const paint = new THREE.Color(PAINT), mark = new THREE.Color(hex);
-      for (let i = 0; i < n; i++) {
-        const u = pos.getX(i) / len, v = pos.getY(i) / hh; // -0.5 ... 0.5
-        const k = Math.max(0, 1 - Math.pow(Math.abs(u) * 2, 1.5)) * (Math.abs(v) < 0.4 ? 1 : 0);
-        col[i * 4] = paint.r + (mark.r - paint.r) * k;
-        col[i * 4 + 1] = paint.g + (mark.g - paint.g) * k;
-        col[i * 4 + 2] = paint.b + (mark.b - paint.b) * k;
-        col[i * 4 + 3] = 1;
-      }
-      g.setAttribute("color", new THREE.BufferAttribute(col, 4));
-      g.rotateZ(ang);
+    const scuffMat = new THREE.MeshBasicMaterial({
+      map: (cloth as THREE.MeshStandardMaterial).map,
+      blending: THREE.MultiplyBlending,
+      premultipliedAlpha: true, // r185: multiply is dst × (src·a + 1 − a); the tile's a = 1 → dst × src
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -2,
+    });
+    scuffMat.name = "kitchenScuffs";
+    scuffMat.userData.noCast = true;
+    const R = PRESENCE_UV.scuff, midV = (R[1] + R[3]) / 2;
+    const bandY: [number, number] = [0.47, 0.92]; // cart bumpers to the low hand marks; the plates are clear of it
+    const face = (z: number, flip: boolean, band: readonly [number, number]) => {
+      const g = new THREE.PlaneGeometry(slabW - 0.04, bandY[1] - bandY[0]);
+      uvIntoRect(g, [R[0], band[0], R[2], band[1]]);
       if (flip) g.rotateY(Math.PI);
-      g.translate(x, y, z);
-      b.add(g, leafMat);
+      g.translate(cx, (bandY[0] + bandY[1]) / 2, z);
+      b.add(g, scuffMat);
     };
-    for (const [x, y, n] of clusters) {
-      for (let i = 0; i < n; i++) {
-        const len = 0.03 + 0.13 * r() * r(), hh = 0.004 + 0.009 * r();
-        streak(len, hh, tones[Math.floor(r() * tones.length)], (r() - 0.5) * 0.5, x + (r() - 0.5) * 0.14, y + (r() - 0.5) * 0.09, th / 2 + 0.0002, false);
-        if (r() < 0.35) streak(len * (0.5 + 0.5 * r()), hh, tones[Math.floor(r() * tones.length)], (r() - 0.5) * 0.5, w - x + (r() - 0.5) * 0.14, y + (r() - 0.5) * 0.09, -th / 2 - 0.0002, true);
-      }
-    }
+    face(th / 2 + 0.0004, false, [midV, R[3]]); // dining face: the upper band of the tile
+    face(-th / 2 - 0.0004, true, [R[1], midV]); // kitchen face: the lower band
   }
   // Pivots: top and bottom on the hinge stile (dark, same bucket).
   for (const y of [0.05, h - 0.06]) {
@@ -478,27 +474,50 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
     b.add(tint(piv, PIVOT), leafMat);
   }
   // Stainless: 16" kick plates on both faces, 4 × 16 in push plates at 1.0–1.4 m near the free
-  // edge on both faces (a double-acting door is pushed from either side), 1.2 mm proud.
+  // edge on both faces (a double-acting door is pushed from either side), 1.5 mm proud with a
+  // 0.7 mm radiused edge that catches the light, fixed with pan-head screws on the usual
+  // template (kick: three along the top and the bottom edge, 25 mm in; push: four corners).
+  // Rev 2 passed the stainless colour as a hex of LINEAR values and `tint` read it as sRGB —
+  // a 0.30 albedo, the charcoal the critic measured. `getHex()` returns sRGB.
   {
-    const STEEL = pal.stainlessCool.color.getHex(THREE.LinearSRGBColorSpace);
+    const STEEL = pal.stainlessCool.color.getHex();
+    const SCREW = new THREE.Color().setRGB(0.5, 0.5, 0.52, THREE.LinearSRGBColorSpace).getHex();
+    const proud = 0.0015;
     const plate = (a: readonly [number, number, number], c: readonly [number, number, number]) => {
-      const g = new RoundedBoxGeometry(c[0] - a[0], c[1] - a[1], c[2] - a[2], 2, 0.0006);
+      const g = new RoundedBoxGeometry(c[0] - a[0], c[1] - a[1], c[2] - a[2], 2, 0.0007);
       g.translate((a[0] + c[0]) / 2, (a[1] + c[1]) / 2, (a[2] + c[2]) / 2);
       b.add(tint(g, STEEL, true), leafMat);
     };
-    for (const [za, zb] of [[-th / 2 - 0.0012, -th / 2], [th / 2, th / 2 + 0.0012]] as const) {
-      plate([sx0 + 0.02, yBot + 0.012, za], [sx1 - 0.02, yBot + 0.012 + 0.406, zb]);
-      plate([w - 0.06 - 0.1, 1.0, za], [w - 0.06, 1.4, zb]);
+    const screw = (x: number, y: number, zFace: number, out: 1 | -1) => {
+      const head = new THREE.CylinderGeometry(0.0038, 0.0042, 0.0014, 14);
+      head.rotateX(Math.PI / 2);
+      head.translate(x, y, zFace + out * 0.0007);
+      b.add(tint(head, SCREW, true), leafMat);
+      const slot = new THREE.BoxGeometry(0.0055, 0.0008, 0.0006);
+      slot.rotateZ(0.6 + 1.1 * Math.sin(x * 37 + y * 91)); // slots at odd angles, as driven
+      slot.translate(x, y, zFace + out * 0.0014);
+      b.add(tint(slot, 0x1a1a1c), leafMat);
+    };
+    for (const [za, zb, out] of [[-th / 2 - proud, -th / 2, -1], [th / 2, th / 2 + proud, 1]] as const) {
+      const kx0 = sx0 + 0.02, kx1 = sx1 - 0.02, ky0 = yBot + 0.012, ky1 = ky0 + 0.406;
+      plate([kx0, ky0, za], [kx1, ky1, zb]);
+      const zFace = out > 0 ? zb : za;
+      for (const fx of [0.025, 0.5, 0.975]) for (const fy of [0.025, 0.975]) screw(kx0 + fx * (kx1 - kx0), ky0 + fy * (ky1 - ky0), zFace, out);
+      const px0 = w - 0.06 - 0.1, px1 = w - 0.06, py0 = 1.0, py1 = 1.4;
+      plate([px0, py0, za], [px1, py1, zb]);
+      for (const fx of [0.13, 0.87]) for (const fy of [0.04, 0.96]) screw(px0 + fx * (px1 - px0), py0 + fy * (py1 - py0), zFace, out);
     }
   }
   // The vision glass: a 6 mm pane in the leaf's mid-plane. Not the transmissive palette glass -
   // that would switch the transmission pass on (every opaque draw twice) at poses where no
   // window is in view. A blended dielectric pane instead (System 3's car glass): 6 % base
   // reflectance rising with Fresnel, the lit kitchen shows straight through the blend.
+  // Rev 3: the pane takes the metal probe (envMetals) at 1.6× — as a dielectric it otherwise
+  // read scene.environment at the room's ambient weight and showed no reflection at all.
+  const pane = makePaneGlass(0.08, 1.6);
   {
     const g = new THREE.PlaneGeometry(vw - 0.012, vh - 0.012);
     g.translate(cx, vy, 0);
-    const pane = makePaneGlass(0.06, 1.0);
     pane.transparent = true;
     pane.forceSinglePass = true; // one draw, not back + front passes
     pane.userData.noCast = true; // glass does not shadow the kitchen
@@ -507,6 +526,12 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
   }
   b.build(hinge, { name: "kitchen-door" });
   parent.add(hinge);
+  // Kitchen metals (rev 3): a satin half-metal so the 16,000 lm spot lights them — bowls, pans,
+  // table, hood. Pure metal (`pal.stainless`) only mirrors the dining-room probe, which does not
+  // see into the kitchen, and read as charcoal with 1 px rims. Own bucket, all of it in the
+  // kitchen, so it is culled from the spawn; +1 draw with the door in view.
+  const steel = new THREE.MeshStandardMaterial({ color: 0xdcdedf, metalness: 0.55, roughness: 0.3 });
+  steel.name = "kitchenSteel";
 
   /* ---------------- the kitchen slice ---------------- */
   const zIn = zBack - T, zFar = zIn - KITCHEN_DEPTH;
@@ -540,10 +565,12 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
   s.rbox(pal.trimPaint, [x0, h, zIn - 0.015], [x1, h + j, zIn], 0.002);
 
   // Prep table along the -x wall: 30 × 60 in stainless top with a 40 mm turned-down edge and a
-  // 100 mm upstand at the wall, 1⅝" legs, an undershelf; on it a stack of sheet pans, a white
-  // poly cutting board and a Cambro.
+  // 100 mm upstand at the wall, 1⅝" legs, an undershelf; on it a stack of sheet pans at each
+  // end and a white poly cutting board between; a round trash can on the floor between the
+  // partition right of the door (rev 3 — the "black cube" was a bus tub on the undershelf; the
+  // "beige box" a Cambro; neither read as anything).
   {
-    const ss = pal.stainless;
+    const ss = steel;
     const tx0 = kx0 + 0.02, tx1 = tx0 + 0.76, tz1 = zIn - 1.0, tz0 = tz1 - 1.52, top = 0.9;
     s.rbox(ss, [tx0, top - 0.04, tz0], [tx1, top, tz1], 0.004, 2);
     s.box(ss, [tx0, top, tz0], [tx0 + 0.02, top + 0.1, tz1]); // upstand
@@ -553,27 +580,72 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
       s.add(leg, ss);
     }
     s.rbox(ss, [tx0 + 0.04, 0.25, tz0 + 0.04], [tx1 - 0.04, 0.28, tz1 - 0.04], 0.003);
-    // Sheet pans (half size, 13 × 18 in), three stacked; a bus tub under the shelf.
-    for (let i = 0; i < 3; i++) s.rbox(pal.stainless, [tx0 + 0.12, top + i * 0.02, tz0 + 0.1], [tx0 + 0.45, top + 0.025 + i * 0.02, tz0 + 0.56], 0.006, 2);
-    s.rbox(pal.fixtureWhite, [tx0 + 0.2, top, tz1 - 0.6], [tx0 + 0.65, top + 0.015, tz1 - 0.15], 0.006, 2); // cutting board
-    s.rbox(pal.fixtureWhite, [tx0 + 0.16, top + 0.015, tz1 - 0.5], [tx0 + 0.44, top + 0.165, tz1 - 0.32], 0.008, 2); // Cambro
-    s.rbox(pal.blackPowder, [tx0 + 0.1, 0.28, tz0 + 0.3], [tx0 + 0.62, 0.43, tz0 + 0.86], 0.01, 2); // bus tub
-    // Wall shelf over the table at 1.55 m, 300 deep, two brackets; #10 cans and a stack of bowls on it.
+    // Sheet pans (half size, 13 × 18 in): a 25 mm rolled rim on a 2 mm floor, nested 14 mm apart —
+    // the rims stack up as a ribbed block, which is what a pan stack looks like.
+    const panStack = (x: number, z: number, n: number, y: number) => {
+      for (let i = 0; i < n; i++) {
+        const y0 = y + i * 0.014, W = 0.33, D = 0.46, rim = 0.025, t = 0.004;
+        s.rbox(ss, [x, y0, z], [x + W, y0 + 0.002, z + D], 0.001, 1);
+        s.rbox(ss, [x, y0, z], [x + W, y0 + rim, z + t], 0.0015, 1);
+        s.rbox(ss, [x, y0, z + D - t], [x + W, y0 + rim, z + D], 0.0015, 1);
+        s.rbox(ss, [x, y0, z], [x + t, y0 + rim, z + D], 0.0015, 1);
+        s.rbox(ss, [x + W - t, y0, z], [x + W, y0 + rim, z + D], 0.0015, 1);
+      }
+    };
+    panStack(tx0 + 0.12, tz0 + 0.1, 3, top); // far end
+    panStack(tx0 + 0.18, tz1 - 0.52, 6, top); // near end, where the Cambro was
+    s.rbox(pal.fixtureWhite, [tx0 + 0.2, top, tz0 + 0.65], [tx0 + 0.65, top + 0.015, tz0 + 1.0], 0.006, 2); // cutting board
+    // 20-gallon round trash can against the partition's kitchen face right of the door casing —
+    // a peek past the +x jamb, not a black mass in the opening: a tapered body with two ribs and
+    // a rolled rim, a bin liner turned over the rim.
+    {
+      const cxT = x1 + 0.42, czT = zIn - 0.33;
+      const body = lathe([V2(0, 0.01), V2(0.2, 0.01), V2(0.205, 0), V2(0.215, 0), V2(0.242, 0.6), V2(0.25, 0.62), V2(0.242, 0.64), V2(0.232, 0.64), V2(0.225, 0.62), V2(0, 0.62)], 40);
+      body.translate(cxT, 0, czT);
+      s.add(body, pal.blackPowder);
+      for (const ry of [0.2, 0.4]) {
+        const rib = new THREE.TorusGeometry(0.215 + 0.045 * (ry / 0.6), 0.006, 8, 40);
+        rib.rotateX(Math.PI / 2);
+        rib.translate(cxT, ry, czT);
+        s.add(rib, pal.blackPowder);
+      }
+      const liner = lathe([V2(0.2, 0.6), V2(0.238, 0.645), V2(0.252, 0.635), V2(0.256, 0.59), V2(0.25, 0.52), V2(0.246, 0.5)], 40);
+      liner.translate(cxT, 0, czT);
+      s.add(liner, pal.blackPlastic);
+    }
+    // Wall shelf over the table at 1.55 m, 300 deep, two brackets; three #10 cans and a stack of bowls on it.
     const sy = 1.55;
     s.rbox(ss, [kx0 + 0.001, sy, tz0 + 0.1], [kx0 + 0.3, sy + 0.02, tz1 - 0.1], 0.003);
     s.box(ss, [kx0 + 0.001, sy - 0.02, tz0 + 0.1], [kx0 + 0.3, sy, tz0 + 0.13]);
     s.box(ss, [kx0 + 0.001, sy - 0.02, tz1 - 0.13], [kx0 + 0.3, sy, tz1 - 0.1]);
-    for (const cz of [tz0 + 0.3, tz0 + 0.5, tz0 + 0.7]) {
-      const can = new THREE.CylinderGeometry(0.0785, 0.0785, 0.178, 24);
-      can.translate(kx0 + 0.15, sy + 0.02 + 0.089, cz);
-      s.add(can, pal.stainless);
+    // #10 cans: tinplate body with the chimes (seam rims) top and bottom, a recessed lid, and a
+    // paper label (atlas `canLabel`) round the middle 150 mm — the third can turned a little.
+    for (const [cz, turn] of [[tz0 + 0.3, 0.4], [tz0 + 0.5, 2.9], [tz0 + 0.7, 1.7]] as const) {
+      const cx = kx0 + 0.15, cy = sy + 0.02, R = 0.0785, H = 0.178;
+      const tin = new THREE.CylinderGeometry(R - 0.001, R - 0.001, H, 28, 1, true);
+      tin.translate(cx, cy + H / 2, cz);
+      s.add(tin, ss);
+      for (const ry of [0.0025, H - 0.0025]) {
+        const chime = new THREE.TorusGeometry(R - 0.0015, 0.0025, 8, 28);
+        chime.rotateX(Math.PI / 2);
+        chime.translate(cx, cy + ry, cz);
+        s.add(chime, ss);
+      }
+      const lid = new THREE.CircleGeometry(R - 0.003, 28);
+      lid.rotateX(-Math.PI / 2);
+      lid.translate(cx, cy + H - 0.004, cz);
+      s.add(lid, ss);
+      const label = new THREE.CylinderGeometry(R, R, 0.15, 28, 1, true);
+      uvIntoRect(label, PRESENCE_UV.canLabel);
+      label.rotateY(turn);
+      label.translate(cx, cy + H / 2 - 0.002, cz);
+      s.add(label, cloth);
     }
-    // Stainless mixing bowls, not ceramic: in the ceramic bucket their bounds stretched its sphere
-    // from this shelf to booth 2's plate and it stopped culling at the spawn (+2 draws for nothing).
+    // Mixing bowls, nested four high: a 4 mm rolled bead at the rim so the rim reads as a rim.
     for (let i = 0; i < 4; i++) {
-      const bowl = lathe([V2(0, 0), V2(0.05, 0), V2(0.085, 0.045), V2(0.088, 0.05), V2(0.08, 0.048), V2(0.046, 0.004), V2(0, 0.004)], 32);
+      const bowl = lathe([V2(0, 0), V2(0.05, 0), V2(0.085, 0.045), V2(0.09, 0.052), V2(0.088, 0.056), V2(0.083, 0.052), V2(0.081, 0.047), V2(0.047, 0.005), V2(0, 0.005)], 36);
       bowl.translate(kx0 + 0.15, sy + 0.02 + i * 0.03, tz1 - 0.35);
-      s.add(bowl, pal.stainless);
+      s.add(bowl, ss);
     }
   }
   // Fluorescent strip on the -x wall over the table at 1.95 m: a 4 ft vapour-tight housing with
@@ -588,28 +660,45 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
     lens.translate(fx + 0.0905, fy, lampZ);
     s.add(lens, pal.fixtureLens);
   }
-  // Range under a stainless hood on the far wall (its -x end is what the door shows), the duct up.
+  // Range under a stainless hood on the far wall, right of the table's line (rev 2 had it
+  // behind the table's far end, through the pans), the duct up.
   {
-    const rx0 = kx0 + 0.15, rx1 = rx0 + 0.9;
+    const ss = steel;
+    const rx0 = kx0 + 0.95, rx1 = rx0 + 0.9; // its -x end in the door's line of sight, clear of the table
     s.rbox(pal.blackPowder, [rx0, 0.1, zFar], [rx1, 0.9, zFar + 0.8], 0.006, 2);
     s.box(pal.blackPowder, [rx0 + 0.05, 0, zFar + 0.05], [rx1 - 0.05, 0.1, zFar + 0.75]);
-    s.rbox(pal.stainless, [rx0 - 0.002, 0.9, zFar - 0.001], [rx1 + 0.002, 0.93, zFar + 0.8], 0.004, 2); // top
-    s.rbox(pal.stainless, [rx0, 0.93, zFar], [rx1, 1.3, zFar + 0.08], 0.004, 2); // back riser
+    s.rbox(ss, [rx0 - 0.002, 0.9, zFar - 0.001], [rx1 + 0.002, 0.93, zFar + 0.8], 0.004, 2); // top
+    s.rbox(ss, [rx0, 0.93, zFar], [rx1, 1.3, zFar + 0.08], 0.004, 2); // back riser
     for (let i = 0; i < 4; i++) {
       const knob = new THREE.CylinderGeometry(0.018, 0.02, 0.02, 16);
       knob.rotateX(Math.PI / 2);
       knob.translate(rx0 + 0.15 + i * 0.2, 0.86, zFar + 0.81);
       s.add(knob, pal.blackPlastic);
     }
-    // Hood: canopy 1.5 m wide × 0.95 deep, bottom at 1.95, with a row of slanted baffle filters underneath.
-    const hx0 = kx0 + 0.05, hx1 = hx0 + 1.5;
-    s.rbox(pal.stainless, [hx0, 1.95, zFar], [hx1, 2.4, zFar + 0.95], 0.005, 2);
-    s.box(pal.stainless, [hx0 + 0.5, 2.4, zFar + 0.25], [hx0 + 1.0, H, zFar + 0.75]); // duct
+    // Hood: canopy 1.5 m wide × 0.95 deep, bottom at 1.95, a 60 mm lip (grease trough) along the
+    // front edge, and a row of three baffle filters slanted 50° under it, each with its six
+    // vertical baffle ribs and a frame — the grille lines the eye expects under a hood.
+    const hx0 = kx0 + 0.75, hx1 = hx0 + 1.5;
+    s.rbox(ss, [hx0, 1.95, zFar], [hx1, 2.4, zFar + 0.95], 0.005, 2);
+    s.rbox(ss, [hx0, 1.89, zFar + 0.9], [hx1, 1.955, zFar + 0.97], 0.004, 2); // lip / trough
+    s.box(ss, [hx0 + 0.5, 2.4, zFar + 0.25], [hx0 + 1.0, H, zFar + 0.75]); // duct
     for (let i = 0; i < 3; i++) {
-      const baffle = new THREE.BoxGeometry(0.4, 0.5, 0.02);
-      baffle.rotateX(THREE.MathUtils.degToRad(-50));
-      baffle.translate(hx0 + 0.3 + i * 0.45, 2.15, zFar + 0.32);
-      s.add(baffle, pal.stainless);
+      const fx = hx0 + 0.3 + i * 0.45;
+      const parts: THREE.BufferGeometry[] = [new THREE.BoxGeometry(0.4, 0.5, 0.012)];
+      for (let k = 0; k < 6; k++) {
+        const rib = new THREE.BoxGeometry(0.014, 0.48, 0.02);
+        rib.translate(-0.175 + k * 0.07, 0, -0.012);
+        parts.push(rib);
+      }
+      for (const sx of [-1, 1]) {
+        const rail = new THREE.BoxGeometry(0.012, 0.5, 0.024);
+        rail.translate(sx * 0.194, 0, -0.008);
+        parts.push(rail);
+      }
+      const filter = mergeGeometries(parts)!;
+      filter.rotateX(THREE.MathUtils.degToRad(-50));
+      filter.translate(fx, 2.15, zFar + 0.32);
+      s.add(filter, ss);
     }
   }
   // Wire shelving on the +x wall, chrome, with white bus tubs — the kitchen proper beyond.
@@ -652,6 +741,6 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
       width: w,
     },
     light,
-    material: leafMat,
+    materials: [leafMat, steel, pane],
   };
 }
