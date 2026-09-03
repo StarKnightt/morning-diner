@@ -4,6 +4,7 @@
  * builders can group geometry by material.
  */
 import * as THREE from "three";
+import { makePaneMaterials } from "../scene/Glazing";
 import * as texModule from "../procedural/textures";
 import * as extModule from "../procedural/exterior";
 import { DOOR, ROOM, WINDOW } from "../scene/layout";
@@ -61,8 +62,13 @@ export interface Palette {
   darkMetal: THREE.MeshStandardMaterial;
   alum: THREE.MeshStandardMaterial;
   alumBright: THREE.MeshStandardMaterial;
+  /** Storefront glazing (scene/Glazing.ts): alpha leaf + two additive reflection leaves per type. */
   glass: THREE.MeshPhysicalMaterial;
+  glassReflectIn: THREE.MeshPhysicalMaterial;
+  glassReflectOut: THREE.MeshPhysicalMaterial;
   glassDoor: THREE.MeshPhysicalMaterial;
+  glassDoorReflectIn: THREE.MeshPhysicalMaterial;
+  glassDoorReflectOut: THREE.MeshPhysicalMaterial;
   glassSmudge: THREE.MeshBasicMaterial;
   slat: THREE.MeshStandardMaterial;
   slatRail: THREE.MeshStandardMaterial;
@@ -543,49 +549,19 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     darkMetal: new THREE.MeshStandardMaterial({ color: 0x3a3836, roughness: 0.5, metalness: 0.6 }),
     alum: new THREE.MeshStandardMaterial({ color: 0x4f4841, roughness: 0.45, metalness: 0.55 }),
     alumBright: new THREE.MeshStandardMaterial({ color: 0xb4b8bc, roughness: 0.38, metalness: 0.7 }),
-    // Window glass (System 3): clear 6 mm float — T 0.88, IOR 1.52, faint green-grey body
-    // tint, 4 %/surface Fresnel reflection of the room probe, dust haze that thickens
-    // toward the lower edge and corners (roughness map 0.008–0.045, REFERENCE §4).
-    // transmission stays 1 and the 12 % loss lives in `color`: any transmission < 1
-    // leaves a lit diffuse skin over the pane that reads as a milky veil (rev 1 lesson).
-    // System 4 rev 2: #e2ebe6 (linear 0.76/0.83/0.79, +9 % green) turned the sky through the
-    // panes grey-green in the sys4 frames; face-on, 6 mm clear float is (0.85/0.87/0.86) —
-    // the green lives in the edges. Measured in-page (rev 2, sky through the door pane with
-    // the pane shown / hidden): three r185 renders a DoubleSide transmissive surface's back
-    // face into the transmission buffer first (WebGLRenderer.renderTransmissionPass), so a
-    // single pane applies `color` and the Fresnel term TWICE — #edf0ee passed 0.69, not 0.88.
-    // Two Fresnel losses are right for a pane (two surfaces, (1 − 0.042)² = 0.92); the body
-    // absorption must not be squared, so `color` is its square root: #f9fbfa (0.955/0.968/0.96)²
-    // × 0.92 = 0.86 total, the 6 mm float value, with 1.5 % of green.
-    glass: new THREE.MeshPhysicalMaterial({
-      color: 0xf9fbfa,
-      roughness: 1,
-      roughnessMap: ext.glassDust(1024, 3320, false),
-      metalness: 0,
-      transmission: 1,
-      ior: 1.52,
-      thickness: 0.006,
-      attenuationColor: new THREE.Color(0.7, 0.86, 0.8),
-      attenuationDistance: 0.6,
-      envMapIntensity: 1,
-      specularIntensity: 1,
-      side: THREE.DoubleSide,
-    }),
-    // Door glass: same pane with palm/finger smudges around push-bar height.
-    glassDoor: new THREE.MeshPhysicalMaterial({
-      color: 0xf9fbfa,
-      roughness: 1,
-      roughnessMap: ext.glassDust(1024, 3321, true),
-      metalness: 0,
-      transmission: 1,
-      ior: 1.52,
-      thickness: 0.006,
-      attenuationColor: new THREE.Color(0.7, 0.86, 0.8),
-      attenuationDistance: 0.6,
-      envMapIntensity: 1,
-      specularIntensity: 1,
-      side: THREE.DoubleSide,
-    }),
+    // Window glass. System 3–4 rev 5: a `transmission: 1` MeshPhysicalMaterial (T 0.88, IOR 1.52,
+    // dust roughness map 0.008–0.045, DoubleSide; the body loss lived in a square-rooted `color`
+    // because a DoubleSide transmissive pane applied it and the Fresnel twice — measured 0.69,
+    // not 0.88). System 4 rev 6: the storefront panes no longer use three's transmission pass
+    // (half-resolution buffer, double Fresnel, exterior 1.5–2.5 EV dark through a correctly
+    // exposed interior). Each pane is dawn-station's two-leaf glazing (scene/Glazing.ts): an
+    // alpha leaf whose alpha is 1 − (1 − F)(1 − 0.12) and additive reflection leaves per face.
+    // `glass` / `glassDoor` are the alpha leaves; the reflection leaves sit beside them.
+    ...(() => {
+      const w = makePaneMaterials("glass", ext.glassDust(1024, 3320, false));
+      const d = makePaneMaterials("glassDoor", ext.glassDust(1024, 3321, true));
+      return { glass: w.pane, glassReflectIn: w.reflectIn, glassReflectOut: w.reflectOut, glassDoor: d.pane, glassDoorReflectIn: d.reflectIn, glassDoorReflectOut: d.reflectOut };
+    })(),
     glassSmudge: (() => {
       // Greasy palm-smear haze on the door pane. Forward scatter from a grease film is
       // strongest at grazing view angles, so the alpha is scaled by a Fresnel-like term

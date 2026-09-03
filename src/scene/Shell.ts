@@ -12,7 +12,7 @@ import { DECAL, atlasQuad } from "../core/shapes";
 import { makeRng } from "../core/rng";
 import { dinerFloorWear, floorCrackSegments } from "../procedural/textures";
 import { DOOR, KITCHEN_DOOR, PASS_THROUGH, REGISTER, ROOM, WINDOW } from "./layout";
-import { installLotSideTransmission } from "./GlassResolution";
+import { buildGlazing } from "./Glazing";
 
 export interface Opening {
   a0: number; // along-wall start
@@ -473,14 +473,10 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     b.box(pal.concrete, [-halfX - 1.5, yLow - 0.15, zFront + T], [halfX + 1.5, -0.12, zFront + T + 1.8], { uvScale: 1 });
   }
 
-  // Glass last: one transparent mesh for all panes.
-  const glass = new THREE.Mesh(mergeGeometries(glassGeos, false)!, pal.glass);
-  glass.renderOrder = 10;
-  glass.name = "window-glass";
-  // Full-size transmission buffer while the camera is on the lot side: the blinds are behind
-  // the panes from there and alias to mush in the half-size one (GlassResolution.ts).
-  installLotSideTransmission(glass, zMid);
-  parent.add(glass);
+  // Glass last: one geometry for all panes, three coincident leaves (System 4 rev 6,
+  // Glazing.ts: alpha transmission + additive reflection per face; no transmission buffer, so
+  // the blinds are drawn at full resolution from the lot as well — GlassResolution.ts retired).
+  parent.add(buildGlazing(mergeGeometries(glassGeos, false)!, { pane: pal.glass, reflectIn: pal.glassReflectIn, reflectOut: pal.glassReflectOut }, "window-glass"));
   const film = new THREE.Mesh(mergeGeometries(filmGeos, false)!, pal.decal);
   film.renderOrder = 12;
   film.name = "window-film";

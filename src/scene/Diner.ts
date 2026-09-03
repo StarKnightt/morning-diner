@@ -176,6 +176,11 @@ export class Diner {
       // System 9's two door materials carry their stainless / chrome in the vertex alpha
       // (one bucket per door): they take the metal probe so the plates and pulls mirror the room.
       metalMats.push(...this.sys9.openables.envMetals);
+      // System 4 rev 6 glazing (Glazing.ts): the panes' room-facing reflection leaf mirrors the
+      // room (metals' probe, sun on), the lot-facing one the lot; the alpha leaf has no probe.
+      metalMats.push(this.palette.glassReflectIn, this.palette.glassDoorReflectIn);
+      exteriorMats.add(this.palette.glassReflectOut);
+      exteriorMats.add(this.palette.glassDoorReflectOut);
       const assign = (mats: Iterable<THREE.MeshStandardMaterial>, env: THREE.Texture | null) => {
         for (const m of mats) {
           m.envMap = env;

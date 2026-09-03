@@ -563,7 +563,7 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
     glass.scale(1, 0.12, 1);
     glass.rotateX(Math.PI / 2);
     glass.translate(x, y, z + 0.004);
-    b.add(glass, pal.glass);
+    b.add(glass, pal.glassClear); // System 4 rev 6: `glass` is now the storefront alpha leaf; the clock dome keeps transmission
   }
 
   b.build(parent, { name: "props" });
