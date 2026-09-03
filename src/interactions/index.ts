@@ -91,7 +91,7 @@ export function initInteractions(ctx: InteractionContext): Interactions {
     clink: (at) => audio.sfx.mugClink(toVec(at)),
   }, diner.pourMugShadow);
 
-  // System 9 openables (scene/Openables.ts leaves): both cabinet doors toggle, the kitchen door is pushed.
+  // System 9 openables (scene/Openables.ts leaves): both cabinet doors and the kitchen door toggle.
   const catchSfx = { catch: (at: THREE.Vector3, ph: "release" | "close") => audio.sfx.cabinetCatch(toVec(at), ph) };
   const cabinet: [CabinetDoorInteraction, CabinetDoorInteraction] = [
     new CabinetDoorInteraction(diner.sys9.openables.cabinet[0], "cabinet-left", catchSfx, "cabinet"),
