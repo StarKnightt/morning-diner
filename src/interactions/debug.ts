@@ -88,7 +88,7 @@ export const INTERACT_POSES: Record<InteractPoseName, { camera?: typeof POUR_CAM
   "sit-seated": { note: "booth 2, +x bench, seated eye 1.15 m turned 35° to the window" },
   "stool-approach": { note: "standing 0.75 m behind stool 5 with the E — Sit prompt up (0.35 m off to +x, looking down at the seat)" },
   "stool-seated": { note: "seated on stool 5: eye 1.45 m (seat 0.73 + 0.72) facing the counter, −12° pitch" },
-  "stool-seated-look-left": { note: "seated on stool 5, look turned 60° left (toward the door end); the seat top has swivelled with it" },
+  "stool-seated-look-left": { note: "seated on stool 5, look turned 60° left (toward the kitchen-door end); the seat top has swivelled with it" },
   "pour-mid": { camera: POUR_CAMERA, note: "1.2 s into the stream (t ≈ 3.0): mug half full, stream + building steam" },
   "pour-full": { camera: POUR_CAMERA, note: "6 s: decanter back on the warmer 9 mm lower, mug full, steam" },
   "door-open": { camera: DOOR_CAMERA, note: "2 s: leaf held at 85° (hold phase 1.45–2.85 s)" },

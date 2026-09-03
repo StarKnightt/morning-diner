@@ -2383,8 +2383,32 @@ src/audio/wiring.ts   createDinerAudio() with the warmer at the brewer's lower p
 ```
 
 Controls: E (F, or click under pointer lock) on the highlighted target. Reach:
-benches 1.4 m, mug 1.25 m, door 1.4 m, cabinet doors 1.5 m, kitchen door 1.6 m (System 9);
+benches 1.4 m, stools 2.0 m, mug 1.25 m, door 1.4 m, cabinet doors 1.5 m, kitchen door 1.6 m (System 9);
 look cone 22–30° half-angle.
+
+**Counter stools (`feat-stool-sit`, frames `shots/fix-stool-{approach,seated,seated-look-left}.png`).**
+"I can't sit on these stools": only the benches had a seat. `Sit.ts` is now one state machine over
+`Seat` descriptors — eye pose, focus, reach, the edge where the body turns before it lowers, lean
+direction/amount, settle dip, durations, look limits, an `exit` pose, an optional `swivel` object —
+and builds 10 bench seats + 9 stool seats from it (`sit.benches`, `sit.stools`, `sit.seats`; the
+booth numbers are untouched). Stool: prompt "Sit" on any stool within 2 m / 30°; 1.0 s sit-down
+(the booth's four phases scaled), eye to **seat + 0.72 m = 1.45 m** (cushion top 0.73 m ± the
+stool's own ±6 mm, read from `stoolSeats[i].userData.seatHeight` — the brief's "~1.25 m" would put
+the eye 20 cm above the counter top, a child's view), facing the counter (−z), −12° pitch, a 5 cm
+lean over the counter while the hips land, 10 mm settle dip; seated look ±70° yaw / ±40° pitch,
+looking down past −15° leans the head up to 6 cm forward. **Swivel:** `Counter.ts` now puts each
+stool's seat top (swivel plate, cushion, welt, seam, chrome band) in its own `Group` pivoted on the
+column axis (`diner.stoolSeats[0..8]`, +27 draws over the merged buckets; same palette materials,
+so probes / shadow masks see no difference) and Sit.ts turns it after the look with a 0.12 s
+first-order lag; the chrome base and footring stay fixed. Q / E stands (0.8 s) to a spot 0.45 m
+behind the stool in the aisle, keeping the heading. Movement locked as at the booth. **Sound:**
+there was no booth sit cue to reuse, so `PlayerSfx.seatCreak(strength)` (vinyl skin swell 250→700
+Hz + hip thump + welt tick, ≈ −34 dBFS) fires as any seat settles (1.0) and on standing (0.6), and
+`stoolSqueak(amount)` (a 1.8–2.8 kHz bearing chirp, ≈ −38 dBFS) after every ~28° of seat turn,
+0.7 s cooldown. **Coffee from the stool: skipped** — the only interactive mug (`pourMug`) is on the
+back bar beside the brewer at z −2.3, 2.7 m from the nearest stool seat and behind the counter;
+Pour/Drink reach is 1.25 m. The counter mugs (saucers at stools 3 and 7, the Presence cup) are
+inert props.
 System 9 keys (`src/player/FirstPerson.ts`, feature 5): **WASD / arrows** walk 1.4 m/s;
 **Shift** walk fast (2.6 m/s, 0.2 s blend in/out, same 0.15 / 0.12 s accel/decel *times*,
 head-bob 1.8 → 2.4 Hz phase and 1.4 → 2.2 cm p-p with speed); **Space** a hop (0.32 m apex,
@@ -2402,9 +2426,11 @@ Debug / capture API (`src/interactions/debug.ts`, on `window`):
 |---|---|
 | `__interact("sit" \| "pour" \| "door")` | run the interaction live (sit picks the nearest bench; `{booth, side}` as 3rd arg) |
 | `__interact(name, t)` | seek to `t` seconds into that interaction and freeze the clocks (silent) |
+| `__interact("sit-stool", index?, t?)` | sit on counter stool `index` 0–8 (default: nearest; `("sit-stool", t, {stool})` also works); `t` seeks the 1.0 s sit-down and freezes |
+| `__interact("look", yawDeg, {pitch?})` | seated only: turn the look `yawDeg` off the seat heading (+ = left) and snap the stool swivel to it |
 | `__interact("stand" \| "resume" \| "reset")` | stand up / unfreeze / everything back to rest |
 | `__interact("drink" \| "cabinet" \| "cabinet-right" \| "cabinet-close" \| "kitchen-door" \| "kitchen-door-close", t?)` | System 9: drink (1.6 s; a seek fills the mug first), toggle the left / right cabinet door (`t` seeks the 0.8 s opening), close the left door (`t` seeks the 0.75 s closing), toggle the kitchen door — it opens and HOLDS at 90° (`t` seeks the 1.5 s opening), close it (`t` seeks the 2.25 s spring return) |
-| `__interactPose("sit-seated" \| "pour-mid" \| "pour-full" \| "door-open" \| "drink-sip" \| "cabinet-open" \| "kitchen-door-open" \| "kitchen-door-back")` | state + camera for `tools/shoot.mjs` |
+| `__interactPose("sit-seated" \| "stool-approach" \| "stool-seated" \| "stool-seated-look-left" \| "pour-mid" \| "pour-full" \| "door-open" \| "drink-sip" \| "cabinet-open" \| "kitchen-door-open" \| "kitchen-door-back")` | state + camera for `tools/shoot.mjs` |
 | `__interactions` | the live object: `.sit.state`, `.pour.state`, `.pour.fill`, `.door.progress`, `.door.angleDeg`, `.drink.state`, `.cabinet[0..1].{state,angleDeg}`, `.kitchenDoor.{state,busy,angleDeg}`, `.target`, `.audio.state()`, `.startAudio()` |
 | `__player` | the `FirstPerson` controller (harness feel checks: `.position`, `.camera`, `.setPose`, `.keys` (a `Set` of key codes — add `"KeyW"` / `"ShiftLeft"` / `"Space"` and call `.update(dt)`), `.speed`, `.sprintAmount`, `.inAir`, `.jumpHeight`, `.blocked`) |
 
