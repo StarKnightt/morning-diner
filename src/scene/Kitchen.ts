@@ -2,8 +2,8 @@
  * The kitchen proper (feat-kitchen): the walkable back-of-house behind the swing door and the
  * pass-through. Replaces the System 9 "slice" (Openables.ts rev 2–4: a 2.7 m pass-through
  * with a prep table, a hood and a fluorescent strip) with the whole enclosed box that
- * fix-rear's REAR constants describe from the outside — same footprint, so the exterior
- * shell and this interior meet on the same planes:
+ * fix-rear's REAR constants describe from the outside — same footprint; the finished faces
+ * sit 1.2 mm inside the shell's inner planes (see "walls" below — ON them they z-fight):
  *
  *   depth  4.2 m behind the partition's kitchen face   (REAR.kitchenDepth)
  *   width  the full rear section, x ∈ [-ROOM.halfX, ROOM.halfX]
@@ -373,23 +373,32 @@ export function buildKitchen(parent: THREE.Group, pal: Palette, cloth: THREE.Mes
   }
 
   /* ---------------- walls: tile to 1.5, paint above, corner guards ---------------- */
+  // Every finished face sits PROUD mm inside the shell's own inner face. Rear.ts's stucco
+  // solids (rear wall to zFar, end walls to ±halfX) and the partition (Shell.ts, to zIn) are
+  // opaque boxes whose kitchen-side faces lie exactly on these planes; a tile plane or paint
+  // box ON the same plane z-fights them, and with 4× MSAA the fight reads as the whole wall
+  // dissolving into stucco and back with every centimetre the camera moves (fix-kitchen-
+  // flicker: "the whole kitchen flickers if I move a little"). 1.2 mm is ≥ 7 depth steps at
+  // the far end of the room (24-bit depth, near 0.05) and invisible as an offset.
+  const PROUD = 0.0012;
+  const zRear = zFar + PROUD, xWest = kx0 + PROUD, xEast = kx1 - PROUD;
   // Rear wall, punched for the service door.
-  tile([kx0, 0, zFar], [BD.x0 - 0.05, tileTop, zFar], vec(0, 0, 1));
-  tile([BD.x1 + 0.05, 0, zFar], [kx1, tileTop, zFar], vec(0, 0, 1));
-  s.box(paint, [kx0, tileTop, zFar - 0.05], [BD.x0 - 0.05, H, zFar]);
-  s.box(paint, [BD.x1 + 0.05, tileTop, zFar - 0.05], [kx1, H, zFar]);
-  s.box(paint, [BD.x0 - 0.05, BD.height + 0.05, zFar - 0.05], [BD.x1 + 0.05, H, zFar]);
+  tile([kx0, 0, zRear], [BD.x0 - 0.05, tileTop, zRear], vec(0, 0, 1));
+  tile([BD.x1 + 0.05, 0, zRear], [kx1, tileTop, zRear], vec(0, 0, 1));
+  s.box(paint, [kx0, tileTop, zFar - 0.05], [BD.x0 - 0.05, H, zRear]);
+  s.box(paint, [BD.x1 + 0.05, tileTop, zFar - 0.05], [kx1, H, zRear]);
+  s.box(paint, [BD.x0 - 0.05, BD.height + 0.05, zFar - 0.05], [BD.x1 + 0.05, H, zRear]);
   s.collider([kx0, 0, zFar - 0.3], [BD.x0, H, zFar]);
   s.collider([BD.x1, 0, zFar - 0.3], [kx1, H, zFar]);
   // The end walls.
-  tile([kx0, 0, zFar], [kx0, tileTop, zIn], vec(1, 0, 0));
-  s.box(paint, [kx0 - 0.05, tileTop, zFar], [kx0, H, zIn]);
-  tile([kx1, 0, zFar], [kx1, tileTop, zIn], vec(-1, 0, 0));
-  s.box(paint, [kx1, tileTop, zFar], [kx1 + 0.05, H, zIn]);
+  tile([xWest, 0, zFar], [xWest, tileTop, zIn], vec(1, 0, 0));
+  s.box(paint, [kx0 - 0.05, tileTop, zFar], [xWest, H, zIn]);
+  tile([xEast, 0, zFar], [xEast, tileTop, zIn], vec(-1, 0, 0));
+  s.box(paint, [xEast, tileTop, zFar], [kx1 + 0.05, H, zIn]);
   s.collider([kx0 - 0.3, 0, zFar], [kx0, H, zIn]);
   s.collider([kx1, 0, zFar], [kx1 + 0.3, H, zIn]);
   // The partition's kitchen face: around the swing door casing and the pass-through.
-  const zFace = zIn - 0.0012;
+  const zFace = zIn - PROUD;
   tile([kx0, 0, zFace], [dx0 - dj, tileTop, zFace], vec(0, 0, -1));
   tile([dx1 + dj, 0, zFace], [pa0 - pj, tileTop, zFace], vec(0, 0, -1));
   tile([pa0 - pj, 0, zFace], [pa1 + pj, pSill - 0.035, zFace], vec(0, 0, -1));
