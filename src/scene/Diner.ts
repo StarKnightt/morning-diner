@@ -14,6 +14,7 @@ import { issueCompile, waitForPrograms } from "../core/compile";
 import { createPalette, type Palette } from "../core/materials";
 import type { Collider } from "../core/merge";
 import type { TextureBank } from "../core/textureBank";
+import { buildBackCounter } from "./BackCounter";
 import { buildBlinds } from "./Blinds";
 import { buildBooths } from "./Booths";
 import { buildCeiling } from "./Ceiling";
@@ -23,9 +24,11 @@ import { buildExterior } from "./Exterior";
 import { ROOM_PROBE_INTENSITY, buildContactShadows, buildLighting, installShadowMasks, sunDirection } from "./Lighting";
 import { buildProps } from "./Props";
 import { buildRear } from "./Rear";
+import { buildKitchen } from "./Kitchen";
 import { buildShell } from "./Shell";
 import { buildSignage } from "./Signage";
 import { buildSystem9, type System9 } from "./Sys9";
+import { buildWorld } from "./World";
 import { DOOR, FAN, ROOM } from "./layout";
 
 export interface BuildHooks {
@@ -83,6 +86,7 @@ export class Diner {
     const booths = buildBooths(this.group, this.palette);
     await hooks.stage("Upholstering the booths", 2 / 8);
     const counter = buildCounter(this.group, this.palette);
+    const backCounter = buildBackCounter(this.group, this.palette); // fix-backcounter: the work side's under-counter run + service props
     await hooks.stage("Building the counter", 3 / 8);
     const ceiling = buildCeiling(this.group, this.palette);
     await hooks.stage("Hanging the ceiling", 4 / 8);
@@ -90,6 +94,11 @@ export class Diner {
     await hooks.stage("Fitting the door", 5 / 8);
     const props = buildProps(this.group, this.palette);
     this.sys9 = buildSystem9(this.group, this.palette, this.bank);
+    // feat-kitchen: the walkable kitchen behind the swing door (Kitchen.ts); its stainless joins
+    // the station-probe list, its stations the collider list.
+    const kitchen = buildKitchen(this.group, this.palette, this.sys9.presence.materials.cloth);
+    this.sys9.openables.envMetals.push(...kitchen.envMetals);
+    this.colliders.push(...kitchen.colliders);
     await hooks.stage("Setting the tables", 6 / 8);
     buildBlinds(this.group, this.palette);
     await hooks.stage("Hanging the blinds", 7 / 8);
@@ -112,10 +121,13 @@ export class Diner {
     this.coffeePot = props.coffeePot;
     this.stoolSeats = counter.stoolSeats;
     this.fanRotor = ceiling.fanRotor;
-    this.colliders.push(...shell.colliders, ...booths.colliders, ...counter.colliders);
+    this.colliders.push(...shell.colliders, ...booths.colliders, ...counter.colliders, ...backCounter.colliders);
 
     scene.add(this.group);
     const lights = buildLighting(scene);
+    // World layer (World.ts): desert ground relief, scatter, horizon — into the exterior
+    // group, before the shadow masks and the lot-probe material sweep below pick it up.
+    buildWorld(this.group, lights.horizon);
     this.sun = lights.sun;
     this.sunBeam = lights.sunBeam;
     this.sunLot = lights.sunLot;

@@ -43,6 +43,9 @@ export type InteractPoseName =
   | "door-open"
   | "drink-sip"
   | "cabinet-open"
+  | "cabinets-closed"
+  | "cabinets-open-upper"
+  | "cabinets-open-lower"
   | "kitchen-door-open"
   | "kitchen-door-back";
 
@@ -80,6 +83,10 @@ const DOOR_CAMERA = { x: 5.5, y: 1.62, z: 1.7, yaw: 156, pitch: -12 };
 export const DRINK_CAMERA = { x: -1.25, y: 1.62, z: -1.5, yaw: 8, pitch: -28 };
 /** System 9: in the service aisle, 3/4 view down at the cabinet bay so both leaves' swing reads. */
 export const CABINET_CAMERA = { x: -1.35, y: 1.25, z: -0.7, yaw: 22, pitch: -30 };
+/** fix-cabinets: standing in the aisle under the +x run of upper cabinets, looking up at the doors (the user's view). */
+export const UPPER_CABINET_CAMERA = { x: 1.0, y: 1.62, z: -0.15, yaw: -10, pitch: 9 };
+/** fix-cabinets: the under-counter bay from the aisle, low, so the shelf and floor stock read. */
+export const LOWER_CABINET_CAMERA = { x: -1.55, y: 1.05, z: -0.85, yaw: 12, pitch: -22 };
 /** System 9: in the aisle at the -x end looking at the kitchen door; the leaf swings away and back through the frame. */
 /** Counter stool the `stool-*` poses use: stool 5 (x = −2.0), the coffee warmer behind it across the service aisle. */
 export const STOOL_POSE_INDEX = 5;
@@ -94,6 +101,9 @@ export const INTERACT_POSES: Record<InteractPoseName, { camera?: typeof POUR_CAM
   "door-open": { camera: DOOR_CAMERA, note: "2 s: leaf held at 85° (hold phase 1.45–2.85 s)" },
   "drink-sip": { camera: DRINK_CAMERA, note: "1.35 s into the drink from a full mug: rim at the lips, head tilted back 5°, level falling" },
   "cabinet-open": { camera: CABINET_CAMERA, note: "both cabinet doors open at rest (95°): shelf, saucers, filters, spray bottle" },
+  "cabinets-closed": { camera: UPPER_CABINET_CAMERA, note: "the +x run of upper cabinets shut, from the aisle looking up (the report's 'I can't open these')" },
+  "cabinets-open-upper": { camera: UPPER_CABINET_CAMERA, note: "every upper cabinet door open at rest: carcass, shelves, plates, bowls, tumblers, mugs, boxes, towel roll" },
+  "cabinets-open-lower": { camera: LOWER_CABINET_CAMERA, note: "the under-counter pair open at rest: saucers, towel roll, flour bag, filters, saucepan + lid, spray bottle" },
   "kitchen-door-open": { camera: KITCHEN_DOOR_CAMERA, note: "open at rest: leaf held at 90° into the kitchen, the lit kitchen slice beyond" },
   "kitchen-door-back": { camera: KITCHEN_DOOR_CAMERA, note: "0.83 s into the release: the spring's back-swing, leaf ~23° into the dining room" },
 };
@@ -103,7 +113,7 @@ export function installInteractionDebugApi(
   player: FirstPerson,
   clock: { freeze(f: boolean): void; isFrozen(): boolean },
 ): void {
-  const { sit, pour, door, drink, cabinet, kitchenDoor } = api;
+  const { sit, pour, door, drink, cabinet, upperCabinets, kitchenDoor } = api;
 
   const nearestBench = () => {
     const p = player.position;
@@ -179,6 +189,15 @@ export function installInteractionDebugApi(
         }
         break;
       }
+      case "upper-cabinets": {
+        // fix-cabinets: every upper door at once (toggle, or seek into the opening and freeze).
+        for (const d of upperCabinets) {
+          if (t === undefined) d.toggle();
+          else d.seek(t, "closed");
+        }
+        if (t !== undefined) clock.freeze(true);
+        break;
+      }
       case "kitchen-door":
         if (t === undefined) kitchenDoor.toggle();
         else {
@@ -237,11 +256,23 @@ export function installInteractionDebugApi(
         door.reset();
         cabinet[0].reset();
         cabinet[1].reset();
+        for (const d of upperCabinets) d.reset();
         kitchenDoor.reset();
         clock.freeze(false);
         break;
-      default:
-        console.warn(`[interact] unknown "${name}"`);
+      default: {
+        // fix-cabinets: one upper door by its hinge name, `upper-cabinet-<run>-<k>` (`t` seeks into the opening).
+        const d = upperCabinets.find((c) => c.name === name);
+        if (!d) {
+          console.warn(`[interact] unknown "${name}"`);
+          break;
+        }
+        if (t === undefined) d.toggle();
+        else {
+          d.seek(t, "closed");
+          clock.freeze(true);
+        }
+      }
     }
   };
 
@@ -279,8 +310,14 @@ export function installInteractionDebugApi(
         interact("drink", 1.35);
         break;
       case "cabinet-open":
+      case "cabinets-open-lower":
         interact("cabinet", 10);
         interact("cabinet-right", 10);
+        break;
+      case "cabinets-closed":
+        break;
+      case "cabinets-open-upper":
+        interact("upper-cabinets", 10);
         break;
       case "kitchen-door-open":
         interact("kitchen-door", 10);

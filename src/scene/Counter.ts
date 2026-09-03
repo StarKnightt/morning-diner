@@ -372,33 +372,20 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
 
   /* ---------------- upper cabinets + soffit ---------------- */
   {
-    const { bottom, top, depth, soffitDepth, doorWidth, runs } = CABINETS;
+    const { bottom, top, depth, soffitDepth, runs } = CABINETS;
     const zWall = ROOM.zBack;
     const zFace = zWall + depth;
     // Bulkhead / soffit: wall finish from the cabinet tops to the ceiling, 60 mm proud of the doors.
     // The ceiling grid stops against it with a wall angle (Ceiling.ts).
     b.box(pal.wallPaint, [BACK_BAR.xMin, top, zWall], [BACK_BAR.xMax, ROOM.height, zWall + soffitDepth], { uvScale: 2 });
     for (const [x0, x1] of runs) {
-      // Carcass with a dark face so door gaps read as shadow; laminate end panels run to the soffit.
-      b.box(pal.kickPanel, [x0 + 0.018, bottom, zWall], [x1 - 0.018, top, zFace - 0.02]);
+      // Laminate end panels run to the soffit. The carcass (open, with shelves and stock) and the
+      // hinged door modules are System 9 openables (Openables.ts, `buildUpperCabinets`) — fix-cabinets:
+      // they used to be static slabs here, so the player could not open them.
       b.rbox(pal.laminateCabinet, [x0, bottom, zWall], [x0 + 0.018, top, zFace], 0.002, 2, { metric: true });
       b.rbox(pal.laminateCabinet, [x1 - 0.018, bottom, zWall], [x1, top, zFace], 0.002, 2, { metric: true });
       // Light rail under the cabinets (laminate, set back 30 mm)
       b.rbox(pal.laminateCabinet, [x0, bottom - 0.04, zFace - 0.05], [x1, bottom, zFace - 0.03], 0.002, 2, { metric: true });
-      // Equal door modules with 3 mm gaps (dark carcass behind reads as the shadow), up to a scribe under the soffit
-      const inner0 = x0 + 0.018, inner1 = x1 - 0.018;
-      const count = Math.max(1, Math.round((inner1 - inner0) / doorWidth));
-      const w = (inner1 - inner0) / count;
-      for (let k = 0; k < count; k++) {
-        const dx0 = inner0 + k * w + 0.0015, dx1 = inner0 + (k + 1) * w - 0.0015;
-        b.rbox(pal.laminateCabinet, [dx0, bottom + 0.0015, zFace - 0.02], [dx1, top - 0.003, zFace], 0.002, 2, { metric: true });
-        // 2 mm edge band on the door's visible vertical edges
-        b.box(pal.edgeBand, [dx0, bottom + 0.0015, zFace - 0.02], [dx0 + 0.0022, top - 0.003, zFace + 0.0002]);
-        b.box(pal.edgeBand, [dx1 - 0.0022, bottom + 0.0015, zFace - 0.02], [dx1, top - 0.003, zFace + 0.0002]);
-        // Small bar pull near the bottom edge (alternating sides)
-        const px = k % 2 === 0 ? dx1 - 0.05 : dx0 + 0.05;
-        b.rbox(pal.chrome, [px - 0.006, bottom + 0.06, zFace], [px + 0.006, bottom + 0.16, zFace + 0.025], 0.003);
-      }
     }
   }
 

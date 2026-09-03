@@ -251,7 +251,10 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
   punchedWall(-halfX, halfX, yLow, H, [pass, kdoor], (x0, x1, y0, y1) => {
     b.box(pal.wallPaint, [x0, y0, zBack - T], [x1, y1, zBack], uvIn);
   });
-  b.collider([-halfX, 0, zBack - T], [halfX, H, zBack]);
+  // feat-kitchen: the partition's collider stops either side of the swing door so the player
+  // walks through into the kitchen (Kitchen.ts owns everything behind this wall).
+  b.collider([-halfX, 0, zBack - T], [kdoor.a0, H, zBack]);
+  b.collider([kdoor.a1, 0, zBack - T], [halfX, H, zBack]);
 
   /* ---------------- end walls, ±x ---------------- */
   b.box(pal.wallPaint, [-halfX - T / 2, yLow, zBack - T], [-halfX, H, zFront + T], uvIn);
@@ -419,26 +422,8 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     }
   }
 
-  /* ---------------- shallow kitchen interior behind the pass-through ---------------- */
-  {
-    const { kitchenDepth: kd, kitchenHalfWidth: kw } = PASS_THROUGH;
-    const cx = PASS_THROUGH.centerX;
-    const zIn = zBack - T, zFar = zIn - kd;
-    const x0 = cx - kw, x1 = cx + kw;
-    const dim = pal.kitchenDim;
-    b.box(dim, [x0, 0, zFar - 0.05], [x1, H, zFar]); // back wall
-    b.box(dim, [x0 - 0.05, 0, zFar], [x0, H, zIn]); // side walls
-    b.box(dim, [x1, 0, zFar], [x1 + 0.05, H, zIn]);
-    b.box(dim, [x0, -0.05, zFar], [x1, 0, zIn]); // floor
-    b.box(dim, [x0, H - 0.03, zFar], [x1, H, zIn]); // ceiling; its soffit sits 30 mm under the void box's top (was coplanar)
-    // Dim silhouettes: a work table under the heat lamps, a range + hood on the back wall
-    b.box(pal.kitchenDim, [cx - 0.9, 0.86, zIn - 0.75], [cx + 0.9, 0.9, zIn - 0.15]);
-    for (const [lx, lz] of [[cx - 0.85, zIn - 0.7], [cx + 0.85, zIn - 0.7], [cx - 0.85, zIn - 0.2], [cx + 0.85, zIn - 0.2]]) {
-      b.box(pal.kitchenDim, [lx - 0.02, 0, lz - 0.02], [lx + 0.02, 0.86, lz + 0.02]);
-    }
-    b.box(pal.kitchenDim, [cx - 0.75, 0, zFar], [cx + 0.75, 0.92, zFar + 0.8]);
-    b.box(pal.kitchenDim, [cx - 0.9, 1.9, zFar], [cx + 0.9, 2.4, zFar + 0.95]);
-  }
+  // (feat-kitchen: the shallow "kitchenDim" box behind the pass-through is gone — the real
+  // kitchen behind the pass is Kitchen.ts, the full REAR footprint.)
 
   /* ---------------- cove base (100 × 12 mm) ---------------- */
   {
