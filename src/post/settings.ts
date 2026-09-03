@@ -172,7 +172,8 @@ export function defaultSettings(): PostSettings {
     // march integrates 6–9 m of lit air behind the counter and 0.012 lifted the entire frame to
     // cream (the user's "fog bank"). A golden veil in the stripes, the walls behind it legible.
     haze: { enabled: true, strength: 0.004, g: 0.55, steps: 24, halfRes: true },
-    shimmer: { enabled: true, amplitude: 1.2, frequency: 11, speed: 0.9, scroll: 0.45, minDepth: 8, heightFade: 2.2 },
+    // Off by default: the user read the refraction wobble as the world "melting". `?shimmer=1` re-enables.
+    shimmer: { enabled: false, amplitude: 1.2, frequency: 11, speed: 0.9, scroll: 0.45, minDepth: 8, heightFade: 2.2 },
     // Offset: the source is the front lip of the decanter mouth (the funnel floor sits 6 cm above the
     // mouth, so the vapour spills out of the front gap); the emitter's forward draught carries the
     // strands clear of the funnel and the hood lip (z −2.25) as they rise. Wisp model (System 8 steam
