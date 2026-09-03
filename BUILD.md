@@ -3434,6 +3434,28 @@ cull at 1/512 of peak was tried and left disabled (r²max slot kept at 1e9): the
 `world-road` 2.9 ms total — but the bloom pass (constant work) read 0.2–0.5 ms in this run vs
 0.8 in the 18a1bba run, so ~1/3 of the drop is GPU clock state, not the gate.
 
+## Fix — "the whole kitchen flickers if I move a little" (`fix-kitchen-flicker`, `shots/fix-kitchen-flicker-*.png`)
+
+Coplanar z-fight, not culling or the bounce gate. Kitchen.ts put its finished faces ON the
+shell's inner planes: the end-wall tile plane and paint box at x = ±halfX (exactly Rear.ts's
+end-wall stucco `xW + T` / `xE − T`) and the rear-wall tile / paint at z = zFar (exactly the
+rear stucco's inner face). With 4× MSAA the fight resolves per sample, so whole walls read as
+pinkish stucco bleeding through tile and khaki, and the pattern jumps with every centimetre
+of camera travel (the partition face already sat 1.2 mm proud — `zFace` — which is why the
+line pose never showed it). Reproduced with a held strafe key (real FirstPerson head-bob,
+±6 mm) at x −4.4 / z −3.0 / yaw 60: consecutive frames 36 % / 32 % of pixels changed > 24
+while frame 0 → 2 changed 8.6 %, i.e. an alternating state, gone at `?post=0` (scene pass) and
+independent of `?haze=0`; `before-kitchen-dish` shows the +x wall almost entirely stucco.
+Ruled out live: every `kitchen*` / `rear*` mesh has a finite bounding sphere (radii 0.09–9.3,
+no NaN), draw calls constant across the moves (198 / 267 / 602–604), the three kitchen
+PointLights are `castShadow = false`, and the toggle survives `?post=0`. Fix: `PROUD =
+0.0012` — tile planes and paint boxes 1.2 mm inside the shell on all three walls (the
+partition's own offset, now shared), ≥ 7 depth steps at 11.6 m with 24-bit depth and near
+0.05. After: 5 mm lateral steps change 3.5–12 % of pixels at the kitchen poses, all of it
+edges and the paint's stipple (diff maps), no area toggles; `length` and both rear-lot poses
+were run through the same sequence and show edges only. Frames `fix-kitchen-flicker-kitchen-*`
+re-shot; draw calls unchanged.
+
 ## System status
 
 | # | System | Status |
