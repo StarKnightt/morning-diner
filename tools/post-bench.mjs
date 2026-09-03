@@ -51,7 +51,15 @@ const POSES = {
   beam: { x: -1.6, y: 1.5, z: 0.4, yaw: 215, pitch: -3 },
   // Low in the aisle, toward the sun, booth backs and dividers behind the beams.
   "beam-low": { x: 0.2, y: 1.0, z: 1.2, yaw: 205, pitch: -10 },
+  // perf-frame: the frame-budget set (Signage / Kitchen / World poses from shoot.mjs).
+  "sign-facade": { x: 1.6, y: 1.62, z: 13.0, yaw: 0, pitch: 6 },
+  "kitchen-line": { x: -0.2, z: -5.2, yaw: 178, pitch: -8 },
+  "world-road": { x: -2.5, y: 1.62, z: 27.0, yaw: 100, pitch: -4 },
 };
+/** `--settle=ms`: wall time after a pose change before timing (lazy links / shadow bakes settle). */
+const SETTLE_MS = Number(arg("settle", "0"));
+/** `--samples=n`: EMA windows measured back to back per pose (QA saw run-to-run swings). */
+const SAMPLES = Number(arg("samples", "1"));
 
 /* ---------------- teardown first ---------------- */
 const resources = { server: null, browser: null };
@@ -124,22 +132,26 @@ async function main() {
       if (!pose) throw new Error(`unknown pose ${name}`);
       await page.evaluate((p) => window.__setPose(p), pose);
       await waitFrames(page, 30);
+      if (SETTLE_MS > 0) await page.waitForTimeout(SETTLE_MS);
+      for (let sample = 0; sample < SAMPLES; sample++) {
       // Reset the EMA so the number reflects this pose only, then let it settle.
       await page.evaluate(() => window.__post?.resetTimers?.());
       await waitFrames(page, FRAMES);
       const t = await page.evaluate(() => (window.__post ? window.__post.timings() : null));
-      const calls = await page.evaluate(() => window.__stats().calls);
+      const { calls, triangles } = await page.evaluate(() => window.__stats());
       let evalOut = "";
       if (EVAL) evalOut = JSON.stringify(await page.evaluate(EVAL));
-      const row = { cfg, pose: name, calls, timings: t, evalOut };
+      const row = { cfg, pose: name, calls, triangles, timings: t, evalOut };
       rows.push(row);
       const tstr = t
         ? Object.entries(t)
-            .map(([k, v]) => `${k}=${v.ema.toFixed(3)}`)
+            .map(([k, v]) => `${k}=${v.ema.toFixed(2)}`)
             .join("  ")
         : "(no timer ext)";
       const post = t ? Object.entries(t).filter(([k]) => k !== "scene").reduce((a, [, v]) => a + v.ema, 0) : 0;
-      console.log(`[bench] ${cfg.padEnd(28)} ${name.padEnd(12)} calls=${String(calls).padStart(4)}  ${tstr}  | post=${post.toFixed(3)} ms${evalOut ? `  eval=${evalOut}` : ""}`);
+      const total = t ? Object.values(t).reduce((a, v) => a + v.ema, 0) : 0;
+      console.log(`[bench] ${cfg.padEnd(22)} ${name.padEnd(12)}#${sample} calls=${String(calls).padStart(4)} tris=${String(triangles).padStart(8)}  ${tstr}  | post=${post.toFixed(2)} total=${total.toFixed(2)} ms${evalOut ? `  eval=${evalOut}` : ""}`);
+      }
       if (DO_SHOT) {
         const file = path.join(outDir, `${TAG}-${cfg.replace(/[^a-z0-9]+/gi, "_")}-${name}.png`);
         await page.screenshot({ path: file, type: "png" });

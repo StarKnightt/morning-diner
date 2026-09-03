@@ -53,7 +53,7 @@
 import * as THREE from "three";
 import { BACK_BAR, BOOTH, CEILING, COUNTER, PASS_THROUGH, ROOM, STOOL, WINDOW, trofferCenter } from "./layout";
 import { slatBeamOpen, slatShadowGlsl } from "./slatShadow";
-import { bounceQuads, bounceRectsGlsl } from "./bounceRects";
+import { bounceQuads, bounceRectsGlsl, bounceRectsUniform } from "./bounceRects";
 
 /* ------------------------------------------------------------------------- */
 /* Units and exposure                                                         */
@@ -749,6 +749,7 @@ export function installPcss(): void {
     const wrapped: Hook = function (this: THREE.Material, shader, renderer) {
       fn.call(this, shader, renderer);
       (shader.uniforms as Record<string, { value: unknown }>).sunPcfMap = SUN_PCF_UNIFORM;
+      (shader.uniforms as Record<string, { value: unknown }>).uBounce = BOUNCE_UNIFORM;
     };
     wrapped.toString = () => fn.toString() + "+sunpcf";
     (wrapped as unknown as { sunPcf?: boolean }).sunPcf = true;
@@ -771,6 +772,7 @@ function bindSunPcf(m: THREE.Material): void {
   const wrapped = function (this: THREE.Material, shader: THREE.WebGLProgramParametersWithUniforms, renderer: THREE.WebGLRenderer) {
     own.call(this, shader, renderer);
     (shader.uniforms as Record<string, { value: unknown }>).sunPcfMap = SUN_PCF_UNIFORM;
+    (shader.uniforms as Record<string, { value: unknown }>).uBounce = BOUNCE_UNIFORM;
   };
   (wrapped as unknown as { sunPcf?: boolean }).sunPcf = true;
   m.onBeforeCompile = wrapped;
@@ -891,6 +893,9 @@ function installSlatShadow(): void {
  * specular image: the point-source stand-ins needed a diffuse-only patch for that, rev 4).
  * `?nobounce` leaves it out.
  */
+/** The bounce quad table (bounceRectsUniform); bound to every lit program by the PCSS wrapper. */
+const BOUNCE_UNIFORM: { value: Float32Array } = { value: new Float32Array(0) };
+
 function installBounceRects(): void {
   const q = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
   if (q?.has("nobounce") || q?.has("nofill")) return;
@@ -907,7 +912,8 @@ function installBounceRects(): void {
   }
   const sun = sunDirection();
   const quads = bounceQuads({ sunLux: SUN_LUX, sun, glass: GLASS_T, slatOpen: slatBeamOpen(sun), sunColor: new THREE.Vector3(SUN_COLOR.r, SUN_COLOR.g, SUN_COLOR.b) });
-  THREE.ShaderChunk.lights_pars_begin = pars + bounceRectsGlsl(quads, K);
+  BOUNCE_UNIFORM.value = bounceRectsUniform(quads, K);
+  THREE.ShaderChunk.lights_pars_begin = pars + bounceRectsGlsl(quads);
   THREE.ShaderChunk.lights_fragment_begin = chunk.replace(anchor, `${anchor}
     #ifndef BOUNCE_NO_RECTS
     {
