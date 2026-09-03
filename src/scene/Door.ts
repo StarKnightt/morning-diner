@@ -10,6 +10,7 @@ import { MergedBuilder } from "../core/merge";
 import { DECAL, atlasQuad } from "../core/shapes";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { DOOR, ROOM } from "./layout";
+import { installLotSideTransmission } from "./GlassResolution";
 
 export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   const hinge = new THREE.Group();
@@ -162,6 +163,9 @@ export function buildDoor(parent: THREE.Group, pal: Palette): THREE.Group {
   const glass = new THREE.Mesh(g, pal.glassDoor);
   glass.renderOrder = 10;
   glass.name = "door-glass";
+  // Same lot-side switch as the window glass (GlassResolution.ts): from the lot the room
+  // behind this pane renders into the transmission buffer.
+  installLotSideTransmission(glass, zMid);
   hinge.add(glass);
   // Greasy handprints around push-bar height: the roughness map frosts the transmission
   // behind them; this 1 mm-proud haze decal (same print layout) adds the faint whitish

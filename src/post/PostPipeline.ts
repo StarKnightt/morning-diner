@@ -127,11 +127,41 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
   if (dust) scene.add(dust.points);
 
   // Ambient steam off the decanter on the warmer (System 7 makes its own emitter for the pour).
+  // Steam-timing mode (`?debug.timeSteam=1`): the scene pass is not wrapped in a query so each
+  // emitter's draw can be (GpuTimer queries do not nest); `timings()` then lists `pour:steam` /
+  // `post:steam-decanter` beside the passes.
+  SteamEmitter.timer = settings.debug.timeSteam ? timer : null;
   let steam: SteamEmitter | null = null;
   const pot = scene.getObjectByName("coffeePot");
+  let potRest: THREE.Vector3 | null = null;
+  const potPrev = new THREE.Vector3();
+  let potPrevTime = -1;
   {
     if (pot) {
-      steam = new SteamEmitter({ count: settings.steam.count, rise: settings.steam.rise, life: settings.steam.life, strength: settings.steam.strength });
+      steam = new SteamEmitter(
+        {
+          count: settings.steam.count,
+          rise: settings.steam.rise,
+          life: settings.steam.life,
+          strength: settings.steam.strength,
+          radius: 0.02,
+          width: [0.007, 0.045],
+          alpha: 0.14,
+          burst: 0.9,
+          shear: 0.05,
+          meander: 0.024,
+          // Under the brew basket the draught twists the laminar root; the strands bow apart.
+          curl: 0.008,
+          release: 0.024,
+          // Out of the front gap under the funnel and forward past the hood lip (z −2.25): 9 cm/s of +z.
+          wind: [0.004, 0.09],
+          // The black brewer tower stands behind the wisp from the aisle: the fixed dark-backdrop boost.
+          backdrop: 1.3,
+          fadePlane: new THREE.Vector4(0, 0, 1, -ROOM.zBack),
+          fadeWidth: 0.03,
+        },
+        sun,
+      );
       const p = new THREE.Vector3();
       pot.updateWorldMatrix(true, false);
       p.setFromMatrixPosition(pot.matrixWorld);
@@ -398,6 +428,18 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
       if (pot) {
         const p = steam.object.position;
         p.setFromMatrixPosition(pot.matrixWorld);
+        // The pot is carried during the pour (System 7 moves the real group). A carried, tilting
+        // decanter has no standing plume: the wisp smears out over the first centimetres of the
+        // lift (frame-difference velocity → wake tear) and is gone until the pot is back on the
+        // warmer. Without this the strands flew with the pot and read as 30–50 cm straight rays.
+        if (!potRest) potRest = p.clone();
+        const dt = time - potPrevTime;
+        if (potPrevTime >= 0 && dt > 1e-4 && dt < 0.2 && p.distanceTo(potPrev) < 0.3) {
+          steam.velocity.subVectors(p, potPrev).multiplyScalar(1 / dt);
+        } else steam.velocity.set(0, 0, 0);
+        potPrev.copy(p);
+        potPrevTime = time;
+        steam.params.strength *= 1 - THREE.MathUtils.smoothstep(p.distanceTo(potRest), 0.01, 0.06);
         p.x += s.steam.offset[0];
         p.y += 0.178 + s.steam.offset[1];
         p.z += s.steam.offset[2];
@@ -408,7 +450,7 @@ export function createPostPipeline(renderer: THREE.WebGLRenderer, scene: THREE.S
     // 1. scene. renderer.render runs the shadow pass first (through the installShadowMasks
     // wrapper: both maps, only when shadowMap.needsUpdate is set) and restores sceneRT
     // as the target before the opaque pass, so the map the haze reads below is current.
-    timer.begin("scene");
+    if (!s.debug.timeSteam) timer.begin("scene");
     renderer.setRenderTarget(sceneRT);
     renderer.render(scene, camera);
     timer.end();

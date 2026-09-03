@@ -12,6 +12,7 @@ import { DECAL, atlasQuad } from "../core/shapes";
 import { makeRng } from "../core/rng";
 import { dinerFloorWear, floorCrackSegments } from "../procedural/textures";
 import { DOOR, KITCHEN_DOOR, PASS_THROUGH, REGISTER, ROOM, WINDOW } from "./layout";
+import { installLotSideTransmission } from "./GlassResolution";
 
 export interface Opening {
   a0: number; // along-wall start
@@ -476,6 +477,9 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
   const glass = new THREE.Mesh(mergeGeometries(glassGeos, false)!, pal.glass);
   glass.renderOrder = 10;
   glass.name = "window-glass";
+  // Full-size transmission buffer while the camera is on the lot side: the blinds are behind
+  // the panes from there and alias to mush in the half-size one (GlassResolution.ts).
+  installLotSideTransmission(glass, zMid);
   parent.add(glass);
   const film = new THREE.Mesh(mergeGeometries(filmGeos, false)!, pal.decal);
   film.renderOrder = 12;
