@@ -20,7 +20,7 @@ import { buildCeiling } from "./Ceiling";
 import { buildCounter } from "./Counter";
 import { buildDoor } from "./Door";
 import { buildExterior } from "./Exterior";
-import { ROOM_PROBE_INTENSITY, buildContactShadows, buildLighting, installShadowMasks, sunDirection } from "./Lighting";
+import { ROOM_PROBE_INTENSITY, buildContactShadows, buildLighting, installShadowMasks, sunDirection, HAZE_DENSITY } from "./Lighting";
 import { buildProps } from "./Props";
 import { buildShell } from "./Shell";
 import { buildSignage } from "./Signage";
@@ -122,7 +122,7 @@ export class Diner {
     // 40 m (nothing inside the building or the lot is within reach) to 200 m, so the dirt
     // plane, scrub and both ridge rings dissolve into the sky instead of meeting it on a
     // hard line (the dirt plane's edge at 210 m is fully fogged).
-    scene.fog = new THREE.Fog(lights.horizon.clone(), 40, 200);
+    scene.fog = new THREE.FogExp2(lights.horizon.clone(), HAZE_DENSITY); // rev 7.1: sun-aware aerial perspective (Lighting.ts installHazeFog) — the colour uniform is unused by the patched chunk
     await hooks.stage("Paving the lot", 8 / 8);
     hooks.mark("geometry");
     await hooks.stage("Lighting the room", 1);

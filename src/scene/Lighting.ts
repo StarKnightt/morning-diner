@@ -104,7 +104,7 @@ export const nits = (n: number): number => n * K;
  * +3.4; the zenith (400 nits) +1.2 — a real blue, not a wash; the troffers' 300 lux on the
  * counter (≈ 70 nits) reads at −1.3 EV: visibly ON. `?ev=` and `[` `]` step from here.
  */
-export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 20 } as const;
+export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 15 } as const; // rev 7.1: +0.4 EV (undertable → 40, patch ≈ 241)
 export const EV100 = Math.log2((CAMERA.fNumber * CAMERA.fNumber) / CAMERA.shutter) - Math.log2(CAMERA.iso / 100);
 /** Metered saturation luminance for that exposure (Lagarde: L_sat = 1.2 · 2^EV) ≈ 2,260 nits at 1/60 (9,560 at rev 3's 1/250); the display white sits CAMERA_WHITE_EV − 2.47 stops above it. */
 export const L_SAT_NITS = 1.2 * Math.pow(2, EV100);
@@ -377,7 +377,7 @@ const SKY_ZENITH_RATIO = 0.25;
 /** Rev 7: warm horizon (peach, toward the sun) — also the haze tint of the ridge rings. */
 const SKY_HORIZON_CHROMA = new THREE.Color(1.0, 0.6, 0.34);
 /** Rev 7: horizon opposite the sun — pale blue-grey (the Belt of Venus sits just above it). */
-const SKY_HORIZON_COOL_CHROMA = new THREE.Color(0.74, 0.8, 1.0);
+const SKY_HORIZON_COOL_CHROMA = new THREE.Color(0.78, 0.66, 0.68); // rev 7.1: aerosol haze is near-neutral, B/R 0.87 (dawn-station §5) — not blue
 /** Rev 7: pale yellow band 5–25° above the sun. */
 const SKY_ABOVE_SUN_CHROMA = new THREE.Color(1.0, 0.86, 0.6);
 /** Rev 7: orange aureole (forward scatter, 20° around the sun). */
@@ -1287,21 +1287,44 @@ export function scaleSky(sky: THREE.Mesh, scale: number): void {
         float lum = mix(horizLum, ${SKY_ZENITH_RATIO.toFixed(3)}, pow(h, 0.7)) * (1.0 + circ);
         // Chroma (unit luminance): peach horizon toward the sun, blue-grey opposite → deep
         // blue zenith; a pale-yellow band 5–25° above the sun; the aureole goes orange.
-        vec3 hor = mix(${glslVec3(SKY_HORIZON_COOL_CHROMA)}, horizon, smoothstep(0.0, 1.0, a));
+        vec3 hor = mix(${glslVec3(SKY_HORIZON_COOL_CHROMA)}, horizon, 0.055 + 0.945 * pow(a, 3.5));
         vec3 chroma = mix(hor, zenith, pow(h, 0.45));
         float band = smoothstep(0.0, 0.12, h) * smoothstep(0.45, 0.15, h) * a * a;
         chroma = mix(chroma, ${glslVec3(SKY_ABOVE_SUN_CHROMA)}, band * 0.65);
         chroma = mix(chroma, ${glslVec3(SKY_AUREOLE_CHROMA)}, clamp(circ * 0.8, 0.0, 0.9));
         chroma = mix(chroma, vec3(1.02, 0.9, 0.78), smoothstep(0.035, 0.0, h) * 0.4);
         vec3 col = chroma * lum;
-        float disc = smoothstep(0.999975, 0.999992, c) * 40.0;
-        col += ${glslVec3(SKY_AUREOLE_CHROMA)} * disc;
+        // Rev 7.1 — dawn-station lightSky.ts disc (survey §4): sun tangent frame, radius 0.0185 rad
+        // (refraction + haze smear the 0.27° disc to ≈ 2°), flattened ÷0.68, wide shoulder, limb
+        // darkening toward (0.72, 0.34, 0.14), base darker than top; the disc is 100× its own sky
+        // band; a horizontal smear and an 11.5°-e-fold veiling glare so the blown disc is not a
+        // sticker on the gradient.
+        {
+          vec3 sunF = normalize(sunDir);
+          vec3 sunR = normalize(cross(vec3(0.0, 1.0, 0.0), sunF));
+          vec3 sunU = cross(sunF, sunR);
+          float pz = dot(d, sunF);
+          if (pz > 0.2) {
+            float ax = dot(d, sunR) / pz, ay = dot(d, sunU) / pz;
+            float angle = length(vec2(ax, ay));
+            const float R = 0.0185;
+            float r = length(vec2(ax, ay / 0.68)) / R;
+            float edge = 1.0 - smoothstep(0.22, 1.08, r);
+            float limb = pow(max(1.0 - 0.82 * r * r, 0.0), 0.45);
+            vec3 discChroma = mix(${glslVec3(new THREE.Color(0.72, 0.34, 0.14).multiplyScalar(1 / luminance(new THREE.Color(0.72, 0.34, 0.14))))}, ${glslVec3(SKY_AUREOLE_CHROMA)}, limb);
+            float discLum = 100.0 * horizLum * (1.0 + circ);
+            vec3 disc = discChroma * discLum * mix(0.55, 1.0, clamp(ay / R * 0.5 + 0.5, 0.0, 1.0));
+            col += disc * edge;
+            col += ${glslVec3(SKY_AUREOLE_CHROMA)} * discLum * 0.022 * exp(-abs(ay) * 22.0) * exp(-abs(ax) / (6.0 * R));
+            col += ${glslVec3(SKY_AUREOLE_CHROMA)} * discLum * 0.0025 * exp(-angle * 5.0);
+          }
+        }
         if (d.y < 0.0) col = mix(horizon * horizLum, ground, clamp(-d.y * 6.0, 0.0, 1.0));
         gl_FragColor = vec4(col * skyScale, 1.0);`;
     shader.fragmentShader = src.slice(0, i0) + body + src.slice(i1 + "gl_FragColor = vec4(col, 1.0);".length);
     shader.fragmentShader = shader.fragmentShader.replace("varying vec3 vDir;", "varying vec3 vDir;\nuniform float skyScale;");
   };
-  mat.customProgramCacheKey = () => "sky-physical-r7";
+  mat.customProgramCacheKey = () => "sky-physical-r71";
   mat.needsUpdate = true;
 }
 
@@ -1350,6 +1373,53 @@ function scaleHorizonRings(scene: THREE.Scene): void {
     col.needsUpdate = true;
   }
 }
+
+/* ------------------------------------------------------------------------- */
+/* Aerial perspective (rev 7.1, dawn-station lightShaderPatches.ts patchFog)   */
+/* ------------------------------------------------------------------------- */
+/**
+ * Replaces three's fog chunk with a sun-aware haze: the fog colour is a mix of a cool
+ * (anti-solar) and a warm (solar) horizon by the view ray's angle to the sun, plus a
+ * forward-scatter glow (pow 9), attenuated by a 46 m e-fold height layer. Uniforms live in
+ * `UniformsLib.fog` AND every already-merged `ShaderLib` entry (the merge is a snapshot at
+ * module load — dawn-station NOTES: an unset uniform is silently zero). Installed at this
+ * module's load, before any program compiles. Colours in scene units (nits × `nits()`).
+ */
+export const HAZE_UNIFORMS = {
+  uHazeSunDir: { value: sunDirection() },
+  uHazeCool: { value: new THREE.Color(0.78, 0.66, 0.68).multiplyScalar(nits(660) / luminance(new THREE.Color(0.78, 0.66, 0.68))) },
+  uHazeWarm: { value: new THREE.Color(0.84, 0.45, 0.25).multiplyScalar(nits(1800) / luminance(new THREE.Color(0.84, 0.45, 0.25))) },
+  uHazeGlow: { value: new THREE.Color(1.2, 0.62, 0.28).multiplyScalar(nits(2200) / luminance(new THREE.Color(1.2, 0.62, 0.28))) },
+  uHazeHeight: { value: 46.0 },
+  uHazeGain: { value: 1.0 },
+};
+/** FogExp2 density: 5 % at the frontage road (60 m), 47 % at 200 m, 92 % at 400 m. */
+export const HAZE_DENSITY = 0.004;
+function installHazeFog(): void {
+  const rep = (src: string, from: string, to: string): string | null => (src.includes(from) ? src.replace(from, to) : null);
+  const NL = String.fromCharCode(10, 9);
+  const pv = rep(THREE.ShaderChunk.fog_pars_vertex, "varying float vFogDepth;", "varying float vFogDepth;" + NL + "varying vec3 vFogViewPos;");
+  const v = rep(THREE.ShaderChunk.fog_vertex, "vFogDepth = - mvPosition.z;", "vFogDepth = - mvPosition.z;" + NL + "vFogViewPos = mvPosition.xyz;");
+  const pf = rep(THREE.ShaderChunk.fog_pars_fragment, "varying float vFogDepth;", "varying float vFogDepth;" + NL + "varying vec3 vFogViewPos;" + NL + "uniform vec3 uHazeSunDir; uniform vec3 uHazeCool; uniform vec3 uHazeWarm; uniform vec3 uHazeGlow; uniform float uHazeHeight; uniform float uHazeGain;");
+  const f = rep(THREE.ShaderChunk.fog_fragment, "	gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );", /* glsl */ `
+	vec3 hazeOffset = ( vec4( vFogViewPos, 0.0 ) * viewMatrix ).xyz;
+	float hazeSun = max( dot( normalize( hazeOffset ), normalize( uHazeSunDir ) ), 0.0 );
+	float hazeH = max( cameraPosition.y + 0.5 * hazeOffset.y, 0.0 );
+	float hazeAtt = exp( - hazeH / max( uHazeHeight, 1.0 ) );
+	float hazeFactor = clamp( fogFactor * hazeAtt * uHazeGain, 0.0, 1.0 );
+	vec3 hazeCol = mix( uHazeCool, uHazeWarm, pow( hazeSun, 1.6 ) * 0.86 + hazeSun * 0.14 ) + uHazeGlow * pow( hazeSun, 9.0 ) * 0.9;
+	gl_FragColor.rgb = mix( gl_FragColor.rgb, hazeCol, hazeFactor );`);
+  if (!pv || !v || !pf || !f) { console.warn("[lighting] fog chunk layout changed; aerial perspective not installed"); return; }
+  THREE.ShaderChunk.fog_pars_vertex = pv;
+  THREE.ShaderChunk.fog_vertex = v;
+  THREE.ShaderChunk.fog_pars_fragment = pf;
+  THREE.ShaderChunk.fog_fragment = f;
+  Object.assign(THREE.UniformsLib.fog, HAZE_UNIFORMS);
+  for (const entry of Object.values(THREE.ShaderLib) as Array<{ uniforms?: Record<string, THREE.IUniform> }>) {
+    if (entry?.uniforms && ("fogDensity" in entry.uniforms || "fogColor" in entry.uniforms)) Object.assign(entry.uniforms, HAZE_UNIFORMS);
+  }
+}
+installHazeFog();
 
 /* ------------------------------------------------------------------------- */
 /* Contact occlusion                                                          */
