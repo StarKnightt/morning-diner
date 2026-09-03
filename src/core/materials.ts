@@ -529,7 +529,8 @@ export function createPalette(maxAnisotropy: number, bank?: TextureBank): Palett
     // 20–30 GU → roughness ~0.45 (dielectric paint, F0 4 %), dust streaks on the up-face.
     slat: (() => {
       const d = ext.slatDust(1024, 3322);
-      return new THREE.MeshStandardMaterial({ map: d.map, roughnessMap: d.roughnessMap, roughness: 1, metalness: 0.1, envMapIntensity: 0.7, side: THREE.DoubleSide });
+      // System 4 rev 4: paint is a dielectric (metalness 0.1 gave the crown a tinted mirror sheen).
+      return new THREE.MeshStandardMaterial({ map: d.map, roughnessMap: d.roughnessMap, roughness: 1, metalness: 0, envMapIntensity: 0.7, side: THREE.DoubleSide });
     })(),
     slatRail: new THREE.MeshStandardMaterial({ color: 0xe6dfcc, roughness: 0.42, metalness: 0.25 }),
     // Moulded plastic end caps, tassel, equaliser, wand tip: almond a shade darker than the rail

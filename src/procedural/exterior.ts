@@ -549,14 +549,18 @@ export function slatDust(size: number, seed: number): { roughnessMap: THREE.Text
   for (let y = 0; y < h; y++)
     for (let x = 0; x < size; x++) {
       const u = x / size, v = y / h;
-      // Sparse dust streaks along the slat, heaviest at the centre of the up-face; the
-      // baked enamel itself is a smooth 0.3 so the curved profile carries a crown highlight.
+      // Sparse dust streaks along the slat, heaviest at the centre of the up-face. System 4
+      // rev 4: the enamel is 20–30 GU → roughness 0.6 (was 0.3: on the 2 mm crown that put a
+      // sharp axial sky highlight down every slat — "fat glossy cylinders", both critics), and
+      // the alabaster is thirty years yellowed and dusty: albedo 0.6 (sRGB 205/196/175), not
+      // 0.74. The crown's diffuse profile is what remains: a lit street-side lip where the
+      // curl faces the sun, a uniform body, a dark room-side lip.
       const dust = clamp((streak(u, v) - 0.55) * 2.4, 0, 1) * (0.3 + 0.7 * Math.sin(Math.PI * v) ** 0.7);
       const o = (y * size + x) * 4;
-      const r = clamp(0.3 + dust * 0.3, 0, 1) * 255;
+      const r = clamp(0.6 + dust * 0.25, 0, 1) * 255;
       rimg.data[o] = r; rimg.data[o + 1] = r; rimg.data[o + 2] = r; rimg.data[o + 3] = 255;
       const k = 1 - dust * 0.06;
-      img.data[o] = 224 * k; img.data[o + 1] = 216 * k; img.data[o + 2] = 196 * k; img.data[o + 3] = 255;
+      img.data[o] = 205 * k; img.data[o + 1] = 196 * k; img.data[o + 2] = 175 * k; img.data[o + 3] = 255;
     }
   ctx.putImageData(img, 0, 0); rctx.putImageData(rimg, 0, 0);
   return { map: finish(c, true, 8), roughnessMap: finish(rc, false, 8) };

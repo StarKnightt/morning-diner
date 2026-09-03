@@ -33,6 +33,7 @@ import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { makeRng } from "../core/rng";
 import { ROOM, WINDOW } from "./layout";
+import { installLotGroundFill } from "./Lighting";
 
 export const BLIND = {
   slatWidth: 0.025,
@@ -208,6 +209,7 @@ export function buildBlinds(parent: THREE.Group, pal: Palette): BlindsResult {
   const slatMat = pal.slat.clone();
   slatMat.vertexColors = true;
   slatMat.name = "slat";
+  installLotGroundFill(slatMat); // System 4 rev 4: sunlit-lot bounce onto the undersides (Lighting.ts)
 
   const yHeadTop = WINDOW.head - fw; // underside of the head frame member
   const yHead0 = yHeadTop - BLIND.headrail.h;

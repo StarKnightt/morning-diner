@@ -82,14 +82,26 @@ export const nits = (n: number): number => n * K;
  * above L_sat (9,560 nits: the sunlit table, the sky through the slats, the sand) clips.
  * That is the histogram of the Reitz frame (f/5.6 · 1/125 · ISO 200 = EV 11.9 for a room
  * with one window's worth of sun).
+ *
+ * Rev 4: 1/60 s (EV100 10.9, grey ≈ 405 nits). Rev 3 had one consistent camera across every
+ * pose — and it was an *exterior* exposure on an interior subject: the shaded walls at
+ * 220–340 nits sat at −2.9 … −2.3 EV (sRGB 46–64), the ceiling at 30–35, the floor under
+ * the tables black, 56 % of `length` under sRGB 48. Shore (Trail's End), Eggleston (Snak
+ * Shak) and Reitz expose for the room — walls 85–130, tabletops 100, the window average 104
+ * with the glass gone — and let the exterior roll off. Two stops open puts the 220–340-nit
+ * walls at −0.9 … −0.3 EV (sRGB 105–130), the ceiling beside a troffer at +0.6, the sunlit
+ * wall and table 5 stops over grey (clip), the 4,500-nit sky at +3.5 (rolled off, ≈ 240,
+ * the aureole clipped) and the sunlit lot at +2.5 … +4 (asphalt ≈ 225, sand ≈ 245, CMU ≈
+ * 250: order kept, nothing readable lost). The shoulder that makes that possible is
+ * CAMERA_WHITE_EV below.
  */
-export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 250 } as const;
+export const CAMERA = { iso: 100, fNumber: 5.6, shutter: 1 / 60 } as const;
 export const EV100 = Math.log2((CAMERA.fNumber * CAMERA.fNumber) / CAMERA.shutter) - Math.log2(CAMERA.iso / 100);
-/** Saturation luminance for that exposure (Lagarde: L_sat = 1.2 · 2^EV) ≈ 9,560 nits. */
+/** Metered saturation luminance for that exposure (Lagarde: L_sat = 1.2 · 2^EV) ≈ 2,260 nits at 1/60 (9,560 at rev 3's 1/250); the display white sits CAMERA_WHITE_EV − 2.47 stops above it. */
 export const L_SAT_NITS = 1.2 * Math.pow(2, EV100);
 /**
  * `renderer.toneMappingExposure`: scene value 1.0 = L_sat. ≈ 1.05 at K = 1e-4.
- * Middle grey (0.18) then sits at ≈ 1,690 nits. Measured scene-referred values (rev 2 probe,
+ * Middle grey (0.18) then sits at ≈ 405 nits (rev 2–3: 1,690). Measured scene-referred values (rev 2 probe,
  * REFERENCE §8): sunlit Formica table 12–14 k nits (+3 EV, clips), sun patch on a wall
  * ≈ 6,300 (+1.9), sky through the slats 7–12 k (+2 … clip), lot asphalt ≈ 3,000 (+0.8),
  * shaded wall ≈ 900 (−0.9), ceiling tile ≈ 1,000 (−0.75), counter top ≈ 650 (−1.3),
@@ -115,22 +127,39 @@ export const TONE_MAPPING: THREE.ToneMapping = THREE.CustomToneMapping;
  * curve: the sensor's saturation, log2(1 / 0.18) = 2.47. Rev 2's first round used 3.5
  * ("the JPEG engine keeps a stop of headroom"); with it the 10 k-nit sky sat at sRGB 220
  * and the sand at 226 — nothing in the exterior clipped, which no camera does.
+ *
+ * Rev 4: 4.5. With the camera open two stops for the room (CAMERA), a white at +2.5 would
+ * put the whole exterior — asphalt +2.5, sky +3.5, sand +3.6, CMU +4.1 — at 255 and the
+ * sedan roof's sky sheen with it. A camera JPEG has 3–4 stops of highlight roll-off over
+ * metered grey (highlight-priority / DR-optimiser modes exist for exactly this frame), so
+ * the shoulder is stretched: the same Hable curve normalised to white at +4.5 EV, with the
+ * gain re-solved so grey still lands at 0.26. Below +1 EV it is within 3 codes of the rev 2
+ * curve (−3 → 47, −2 → 70, −1 → 102, 0 → 139, +1 → 178); above it rolls: +2 → 211,
+ * +3 → 235, +4 → 250, +4.5 → 255. Sun on a cream wall (+5.4) and the troffer bars (+4.9)
+ * still clip; the sky through the east glass sits at ≈ 240 with its aureole clipped.
  */
-export const CAMERA_WHITE_EV = 2.5;
+export const CAMERA_WHITE_EV = 4.5;
 /**
  * Hable ("Uncharted 2") filmic curve, per channel, normalised so x_white → 1 with
  * x_white = 0.18 · 2^CAMERA_WHITE_EV · CAMERA_CURVE_GAIN. The gain scales the input so
- * middle grey lands at 0.26 display-linear (sRGB 140; a camera JPEG puts a grey card at
- * 118–140) instead of Hable's default 0.149. Display values on this curve, by stops over
- * grey (white at +2.5), from the exact port of this GLSL in the rev 2 harness (camtone.mjs;
- * verified against 14 probe regions to ±1 code): −5 → sRGB 17, −4 → 29, −3 → 44, −2 → 67,
- * −1 → 98, 0 → 140, +1 → 187, +2 → 234, +2.5 → 255. Author by inverting a target code
- * through that table (code 64 ↔ 390 nits, 96 ↔ 810, 128 ↔ 1,410, 192 ↔ 3,600, 240 ↔ 7,400),
- * never by eye against a tone-mapped frame (night-street TECHNIQUE §1–2).
+ * middle grey lands at 0.26 display-linear (sRGB 139; a camera JPEG puts a grey card at
+ * 118–140) instead of Hable's default 0.149; it is solved for the white point at module
+ * load (1.492 at +2.5, 2.587 at +4.5). Rev 2's table (white +2.5), from the exact port of
+ * this GLSL in the harness (camtone.mjs; verified against 14 probe regions to ±1 code):
+ * −5 → sRGB 17, −4 → 29, −3 → 44, −2 → 67, −1 → 98, 0 → 140, +1 → 187, +2 → 234,
+ * +2.5 → 255; the rev 4 table is on CAMERA_WHITE_EV. Author by inverting a target code
+ * through the table (rev 4: code 64 ↔ 105 nits, 96 ↔ 205, 128 ↔ 340, 192 ↔ 1,050,
+ * 240 ↔ 3,900), never by eye against a tone-mapped frame (night-street TECHNIQUE §1–2).
  * Per-channel: a clipped sunlit red goes salmon → white the way film and sensors do
  * (AgX kept it red by design; the photographs the frame is judged against do not).
  */
-const CAMERA_CURVE_GAIN = 1.5;
+const CAMERA_CURVE_GAIN = (() => {
+  const hable = (x: number) => { const A = 0.22, B = 0.30, C = 0.10, D = 0.20, E = 0.01, F = 0.30; return (x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F) - E / F; };
+  const W = 0.18 * Math.pow(2, CAMERA_WHITE_EV);
+  let lo = 0.1, hi = 20;
+  for (let i = 0; i < 60; i++) { const g = (lo + hi) / 2; if (hable(0.18 * g) / hable(W * g) < 0.26) lo = g; else hi = g; }
+  return (lo + hi) / 2;
+})();
 
 /**
  * Replace three's identity `CustomToneMapping` in the shared tonemapping chunk with the
@@ -818,6 +847,37 @@ function assignSunSplit(root: THREE.Object3D, exteriorMaterials: THREE.Material[
  * first map in the list would ever be rendered. The wrapper mirrors the early return
  * and the final clear itself.
  */
+/**
+ * Rev 4: bounce from the sunlit lot onto the blinds. The slats hang 85 mm inside the glass,
+ * and their only indirect light was the room probe at 0.1 × — a probe that sees the windows
+ * from 3 m back — so a slat's underside (which, street edge up, faces down and toward the lot)
+ * received ≈ 100 nits and every slat seen from below read as a dark bar (`sit-seated`, the far
+ * windows in `length`). Outside that underside is 2,300–3,900 nits of sunlit asphalt and sand:
+ * E ≈ π · 2,800 nits · 0.45 (view factor past the slat below and the sill) ≈ 4,000 lux, warm.
+ * Modelled as a Lambertian fill of fixed direction (down-street, 37° below the horizon) added
+ * to the material's indirect diffuse — what a HemisphereLight's ground term does, but only for
+ * this material, so the room does not get lit by the lot through the wall. Top faces see it at
+ * dot ≈ 0 (their light is the sun and the sky, 4–7 k nits; this adds nothing there).
+ */
+export function installLotGroundFill(mat: THREE.Material): void {
+  const dir = new THREE.Vector3(0, -0.6, 0.8).normalize();
+  const fill = new THREE.Color().setRGB(255 / 255, 230 / 255, 195 / 255, THREE.SRGBColorSpace).multiplyScalar(nits(4000));
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = function (shader, renderer) {
+    prev.call(this, shader, renderer);
+    shader.uniforms.uLotFill = { value: fill };
+    shader.uniforms.uLotFillDir = { value: dir };
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nuniform vec3 uLotFill; uniform vec3 uLotFillDir;")
+      .replace("#include <lights_fragment_end>", `#include <lights_fragment_end>
+	{
+		vec3 fillDirView = normalize( ( viewMatrix * vec4( uLotFillDir, 0.0 ) ).xyz );
+		reflectedLight.indirectDiffuse += BRDF_Lambert( diffuseColor.rgb ) * uLotFill * max( 0.0, dot( normal, fillDirView ) );
+	}`);
+  };
+  (mat as THREE.Material & { customProgramCacheKey: () => string }).customProgramCacheKey = () => "lotfill";
+}
+
 export function installShadowMasks(renderer: THREE.WebGLRenderer, root: THREE.Object3D, lights: LightingResult, exteriorMaterials: THREE.Material[] = []): void {
   assignSunSplit(root, exteriorMaterials);
   const interior: THREE.Object3D[] = [];
@@ -938,10 +998,14 @@ export function buildLighting(scene: THREE.Scene): LightingResult {
   }
   sunLot.shadow.bias = -0.0001;
   sunLot.shadow.normalBias = 0.03; // ≈ 1.5 texels of the 2048² map (rev 2: 0.05 lifted every tyre and wheel stop off its shadow)
-  // One bilinear tap (installPcss, radius in (−0.5, 0]): a 1-texel (11 mm) ramp. The sun's
-  // real penumbra on the lot is 9.3 mm per metre of caster height — one texel for a car's
-  // sill, two for its roof — so the 4-tap kernel was softer than the sun and cost 0.8 ms.
-  sunLot.shadow.radius = -0.25;
+  // Rev 3: one bilinear tap (installPcss, radius in (−0.5, 0]) — a 1-texel (7 mm) ramp; the
+  // sun's real penumbra on the lot is 9.3 mm per metre of caster height, one texel for a
+  // car's sill, two for its roof. Rev 4: four bilinear taps on a 1-texel square (radius −1,
+  // ≈ 2-texel ramp = a roof's 13 mm). A single bilinear ramp is exact along the map's axes
+  // but a diagonal edge crosses it texel by texel: at `lot-shadow` the sedan's outline
+  // stepped 4–5 px every 14 rows (both critics). The 4-tap square averages the four
+  // neighbouring ramps, so the step becomes a slope.
+  sunLot.shadow.radius = -1;
   scene.add(sunLot, sunLot.target);
 
   // Rev 3: no cone occluder. The spot / directional split is per receiver (installSunSplit):
