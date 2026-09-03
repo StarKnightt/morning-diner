@@ -35,7 +35,7 @@ import { makePaneGlass } from "./Exterior";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { PRESENCE_UV } from "../procedural/presence";
-import { BACK_BAR, KITCHEN_DOOR, ROOM } from "./layout";
+import { BACK_BAR, KITCHEN_DOOR, REAR, ROOM } from "./layout";
 import { nits } from "./Lighting";
 import { lathe, ribbon, SAUCER_PROFILE, tiledRect, uvIntoRect } from "./Presence";
 
@@ -483,8 +483,8 @@ function buildCabinet(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth
 
 /** 9 × 14 in vision panel, its centre at 1.5 m (eye height through the glass). */
 const VISION = { w: 0.229, h: 0.356, centerY: 1.5 };
-/** Kitchen slice depth and width (m) behind the partition. */
-const KITCHEN_DEPTH = 2.7;
+/** Kitchen slice depth (m) behind the partition: the whole enclosed kitchen box (layout.ts REAR, fix-rear; was a 2.7 m slice in a void). */
+const KITCHEN_DEPTH = REAR.kitchenDepth;
 
 function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth: THREE.Material): { leaf: HingedLeaf; light: THREE.SpotLight; materials: THREE.MeshStandardMaterial[] } {
   const T = ROOM.wallThickness, zBack = ROOM.zBack;
@@ -842,6 +842,24 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
   light.position.set(kx0 + 0.3, H - 0.1, zIn - 0.2);
   light.target.position.set(kx0 + 0.3, 0.4, zIn - 2.45);
   parent.add(light, light.target);
+  // fix-rear: the slice is the full 4.2 m kitchen box now, so a second strip (housing + lens on
+  // the -x wall at the far half) and its shadowless spot light the range wall and the back
+  // floor, which the first light's 6 m cutoff and inverse square left at ~15 %. Aimed down and
+  // toward -z from z = zIn - 2.6, so its +z-most ray still travels away from the dining room.
+  {
+    const lampZ2 = zIn - 3.4, fy = 1.95, fx = kx0 + 0.001;
+    s.rbox(pal.fixtureWhite, [fx, fy - 0.07, lampZ2 - 0.62], [fx + 0.09, fy + 0.07, lampZ2 + 0.62], 0.008, 2);
+    const lens2 = uvIntoRect(new THREE.PlaneGeometry(1.2, 0.1), [0, 0, 1, 1], [0.3, 0.72]);
+    lens2.rotateY(Math.PI / 2);
+    lens2.translate(fx + 0.0905, fy, lampZ2);
+    s.add(lens2, pal.fixtureLens);
+    const light2 = new THREE.SpotLight(KITCHEN_TUBE, nits(12_000 / Math.PI), 6, THREE.MathUtils.degToRad(46), 0.35, 2);
+    light2.castShadow = false;
+    light2.name = "kitchen-fluorescent-2";
+    light2.position.set(kx0 + 0.6, H - 0.1, zIn - 2.6);
+    light2.target.position.set(kx0 + 1.2, 0.4, zFar + 0.3);
+    parent.add(light2, light2.target);
+  }
 
   return {
     leaf: {

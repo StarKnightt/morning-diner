@@ -22,6 +22,7 @@ import { buildDoor } from "./Door";
 import { buildExterior } from "./Exterior";
 import { ROOM_PROBE_INTENSITY, buildContactShadows, buildLighting, installShadowMasks, sunDirection } from "./Lighting";
 import { buildProps } from "./Props";
+import { buildRear } from "./Rear";
 import { buildShell } from "./Shell";
 import { buildSystem9, type System9 } from "./Sys9";
 import { DOOR, FAN, ROOM } from "./layout";
@@ -90,6 +91,10 @@ export class Diner {
     buildBlinds(this.group, this.palette);
     await hooks.stage("Hanging the blinds", 7 / 8);
     const exterior = buildExterior(this.group, this.palette, sunDirection(), this.bank);
+    // fix-rear: the enclosed kitchen box, its rear / side dressing and the rooftop (Rear.ts).
+    // Interior sun split like the shell's outer skins; its materials take the lot probe below.
+    const rear = buildRear(this.group, this.palette, this.bank);
+    this.colliders.push(...rear.colliders);
     // System 4: baked contact occlusion along every base line (nothing else in the rig
     // shadows those regions) and, rev 2, under the mugs and saucers. Casts nothing, so it
     // stays out of the shadow-mask lists.
@@ -191,6 +196,7 @@ export class Diner {
       // the pole shadow are in its map).
       exteriorMats.add(this.palette.wallPaintExt);
       exteriorMats.add(this.palette.concrete);
+      for (const m of rear.envMaterials) exteriorMats.add(m);
       // 0.75: the probe sits 8 m out over the sunlit apron and hands a vertical wall more of the
       // ground's bounce than the strip of apron under the windows delivers; at 1.0 the awning
       // band measured 2.1 EV under the sunlit stucco, the critics' band is 2.5–3 (the lot's own
