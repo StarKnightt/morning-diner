@@ -24,7 +24,7 @@
  *            tested (the apex is under the counter overhang); the collision volume still holds
  *            horizontally. `position.y` stays the eye height — the jump is a camera offset
  *            (`airY`) like the bob, so poses, colliders and the seat transitions are untouched.
- *   lean     `{ pitch, roll }` radians added to the camera's rotation (the sip's head-tilt).
+ *   lean     `{ pitch, roll, yaw }` radians added to the camera's rotation (the sip's head-tilt and gaze drift).
  */
 import * as THREE from "three";
 import type { Collider } from "../core/merge";
@@ -63,8 +63,8 @@ export class FirstPerson {
   blocked: () => boolean = () => false;
   /** Feet planted (System 9 Drink.ts): the keys are ignored — the body decelerates — but the look stays live. */
   movementLocked = false;
-  /** Extra camera rotation, radians — the sip's head-tilt (Drink.ts). Zero at rest. */
-  readonly lean = { pitch: 0, roll: 0 };
+  /** Extra camera rotation, radians — the sip's head-tilt and gaze drift (Drink.ts). Zero at rest. */
+  readonly lean = { pitch: 0, roll: 0, yaw: 0 };
   /** Landing footfall: `strength` 0..1 from the impact speed (0.32 m hop ≈ 1). */
   onLand?: (strength: number) => void;
 
@@ -305,7 +305,7 @@ export class FirstPerson {
     if (this.airY > 0) this.camera.position.y += this.airY;
     if (this.dipT >= 0) this.camera.position.y -= LAND_DIP * Math.sin(Math.PI * Math.min(1, this.dipT / LAND_DIP_TIME));
     this.camera.rotation.set(0, 0, 0, "YXZ");
-    this.camera.rotation.y = this.yaw;
+    this.camera.rotation.y = this.yaw + this.lean.yaw;
     this.camera.rotation.x = this.pitch + this.lean.pitch;
     this.camera.rotation.z = this.lean.roll;
   }

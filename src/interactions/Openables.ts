@@ -7,8 +7,9 @@
  *
  * Cabinet door (a 35 mm cup hinge with a magnetic catch), one press toggles:
  *   open   reach 0 → 0.20  hand to the pull; the catch lets go at 0.20 (release tick)
- *          swing 0.20 → 0.80  0° → 95°: fast off the catch, then the soft stop — the
- *          hinge's damper takes the last 25° and the leaf settles from a 1.5° overshoot
+ *          swing 0.20 → 0.80  0° → 95°: 0.15 s ease-in from rest (rev 2 — the first
+ *          frame used to jump to 29°), then the soft stop — the hinge's damper takes the
+ *          rest of the arc decelerating and the leaf settles from a 1.5° overshoot
  *   close  reach 0 → 0.15, swing 0.15 → 0.75  95° → 0°: a shove, the damper slows the
  *          last 20°, the magnetic catch pulls the last 3° home with a click (close)
  *
@@ -43,11 +44,19 @@ export interface CabinetAudio {
   catch(at: THREE.Vector3, phase: "release" | "close"): void;
 }
 
-/** Opening curve 0..1: quick off the catch, damper over the last quarter, 1.5° overshoot that settles. */
+/**
+ * Opening curve 0..1 (rev 2): from rest, the hand accelerates the leaf for 0.15 s (velocity ramps
+ * linearly — a quadratic ease-in, no 0 → 29° step on the first frame), then the damper takes
+ * over and it decelerates linearly to 95° at u = 0.72; a 1.5° overshoot bump settles after.
+ */
+const CAB_EASE_IN = 0.15 / ((CAB_TL.open.swing[1] - CAB_TL.open.swing[0]) * 0.72);
 function cabinetOpenCurve(u: number): number {
   u = clamp01(u);
-  // Ease-out to 1 by u = 0.72, then a small overshoot bump that decays to rest.
-  if (u < 0.72) return easeOut(u / 0.72) * 1.0;
+  if (u < 0.72) {
+    const v = u / 0.72, a = CAB_EASE_IN;
+    // Triangular velocity profile: ∫ = 1. Position v²/a on the ramp, 1 − (1 − v)²/(1 − a) after.
+    return v < a ? (v * v) / a : 1 - ((1 - v) * (1 - v)) / (1 - a);
+  }
   const v = (u - 0.72) / 0.28;
   return 1 + (1.5 / CAB_OPEN_DEG) * Math.sin(Math.PI * v) * (1 - v * 0.4);
 }

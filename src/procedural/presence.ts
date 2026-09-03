@@ -1,19 +1,28 @@
 /**
- * System 9 "implied presence" atlas — one canvas set (map / roughness / normal) for
- * the soft things that suggest a person who just stepped away: the waitress's
- * cotton-canvas waist apron, a knit cardigan, a folded newspaper, and what is
- * left on a breakfast plate. Four regions on a 2 × 2 grid (`PRESENCE_UV`, v up):
+ * System 9 "implied presence" atlas (rev 3) — one canvas set (map with alpha / roughness /
+ * normal) for the prop decals and the kitchen slice behind the swing door. Regions
+ * (`PRESENCE_UV`, v up):
  *
- *   cotton     cream 2/1 basket-weave canvas; the weave lives mostly in the normal map,
- *              with hand-wipe grime toward the pocket line and two coffee spots
- *   knit       rust stockinette with the V of every stitch, 10 px ribs, fuzz
- *   newsprint  aged page: masthead bar, a headline of word-blocks, a deck, four columns
- *              of 2 px body lines with ragged word gaps, one halftone photo block
- *   food       toast top with crumb pores and a darker crust band (left half) and a
- *              dried egg-yolk smear, semi-gloss, with a darker skin edge (right half)
+ *   scuff       MULTIPLY map for the kitchen door's rubber scuffs, two 0.9 × 0.45 m bands
+ *               (dining face / kitchen face): bumper arcs, corner scrapes, crumbs, a palm smear
+ *               (rev 1–2's apron cotton lived here; the apron was cut)
+ *   canLabel    a #10 food-service can label: cream paper, red band with white word blocks,
+ *               green produce block, weight line, fine print, paper seam (kitchen shelf)
+ *   wallTile    4 × 4 white 4" ceramic wall tiles, cushion edges, grey grout (kitchen slice)
+ *   quarry      4 × 4 red 6" quarry floor tiles, dark grout, mottled (kitchen slice)
+ *   lipstick    an upper-lip print (two lobes, cupid's bow, lip lines), pink-red, ALPHA —
+ *               pressure fades at the outline; lower contact edge strongest
+ *   yolkFilm    a thin dried egg-yolk film, ALPHA, feathered, four tine drag streaks
+ *   crumb       toast-crumb colour for the flakes
+ *   contactAO   soft dark disc, ALPHA (the cup's contact shadow in the saucer well)
+ *   dreg        cold coffee, opaque, gloss 0.08 (the 4 mm left in the cup - hosted by the decal
+ *               bucket because `pal.coffee` lives only on the pot and the pour mug)
+ *   residue     coffee residue ring for the inside of the cup, ALPHA, ragged tide line
+ *   label       printed band for the filter box: brand block, word lines, a filter graphic
  *
- * Pure function of `size` (seeded), so it runs in the texture worker (`pres` module in
- * texWorker.ts, `presenceAtlas` in the TextureBank SHAPES).
+ * Alpha only matters to the transparent decal material (Presence.ts `presenceDecal`); the
+ * opaque `presence` bucket ignores it. Pure function of `size` (seeded), so it runs in the
+ * texture worker (`pres` module in texWorker.ts, `presenceAtlas` in the TextureBank SHAPES).
  */
 import * as THREE from "three";
 import { makeFbm, makeRng } from "../core/rng";
@@ -26,13 +35,17 @@ export interface PresenceSet {
 
 /** [u0, v0, u1, v1] per region, v up (CanvasTexture flipY). */
 export const PRESENCE_UV = {
-  cotton: [0.0, 0.5, 0.5, 1.0],
-  knit: [0.5, 0.5, 1.0, 1.0],
-  newsprint: [0.0, 0.0, 0.5, 0.5],
-  toast: [0.5, 0.0, 0.75, 0.5],
-  yolk: [0.75, 0.0625, 1.0, 0.5],
-  /** Flat waxy lipstick red (the cup's rim mark samples its centre) — keeps the mark in this bucket. */
-  lipstick: [0.75, 0.0, 1.0, 0.0625],
+  scuff: [0.0, 0.5, 0.5, 1.0],
+  canLabel: [0.5, 0.5, 0.75, 0.75],
+  lipstick: [0.5, 0.75, 0.75, 1.0],
+  yolkFilm: [0.75, 0.75, 1.0, 1.0],
+  label: [0.75, 0.65625, 1.0, 0.75],
+  residue: [0.75, 0.59375, 1.0, 0.65625],
+  crumb: [0.75, 0.5, 0.84375, 0.59375],
+  contactAO: [0.84375, 0.5, 0.9375, 0.59375],
+  dreg: [0.9375, 0.5, 1.0, 0.59375],
+  quarry: [0.0, 0.0, 0.5, 0.5],
+  wallTile: [0.5, 0.0, 1.0, 0.5],
 } as const satisfies Record<string, readonly [number, number, number, number]>;
 
 function canvas(w: number, h: number) {
@@ -56,207 +69,460 @@ function finish(c: HTMLCanvasElement, srgb: boolean, anisotropy: number): THREE.
 }
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+const smooth01 = (v: number) => {
+  v = clamp01(v);
+  return v * v * (3 - 2 * v);
+};
 
 export function presenceAtlas(size = 1024): PresenceSet {
-  const S = size, R = S / 2; // region size
+  const S = size, R = S / 2, Q = S / 4;
   const { c, ctx } = canvas(S, S);
-  const rough = new Float32Array(S * S);
-  const height = new Float32Array(S * S);
+  const rough = new Float32Array(S * S).fill(0.9);
+  const height = new Float32Array(S * S).fill(0.5);
   const img = ctx.createImageData(S, S);
-  const px = (x: number, y: number, r: number, g: number, b: number) => {
+  const px = (x: number, y: number, r: number, g: number, b: number, a = 1) => {
     const o = (y * S + x) * 4;
-    img.data[o] = r * 255;
-    img.data[o + 1] = g * 255;
-    img.data[o + 2] = b * 255;
-    img.data[o + 3] = 255;
+    img.data[o] = clamp01(r) * 255;
+    img.data[o + 1] = clamp01(g) * 255;
+    img.data[o + 2] = clamp01(b) * 255;
+    img.data[o + 3] = clamp01(a) * 255;
   };
   const rng = makeRng(9009);
-  const fbmA = makeFbm(91, 6, 4), fbmB = makeFbm(92, 24, 3), fbmC = makeFbm(93, 60, 2);
+  const grainN = makeFbm(94, 180, 2);
 
-  /* ---------------- cotton canvas (top-left) ---------------- */
-  for (let y = 0; y < R; y++)
-    for (let x = 0; x < R; x++) {
-      const u = x / R, v = y / R;
-      // 2/1 basket weave: 3 px threads; warp over weft in alternating cells.
-      const cellX = Math.floor(x / 3), cellY = Math.floor(y / 3);
-      const over = (cellX + cellY) % 2 === 0;
-      const fx = (x % 3) / 3, fy = (y % 3) / 3;
-      const bulge = over ? Math.sin(fx * Math.PI) : Math.sin(fy * Math.PI); // thread crown across its width
-      const weave = 0.93 + 0.07 * bulge;
-      const tone = 0.97 + 0.06 * (fbmA(u, v) - 0.5);
-      // Grime: hand wipes gather low (the pocket line) and toward the middle.
-      const grime = clamp01((fbmB(u, v) - 0.45) * 2.2) * (0.35 + 0.65 * v) * 0.22;
-      let r = 0.91 * weave * tone, g = 0.88 * weave * tone, b = 0.80 * weave * tone;
-      r = r * (1 - grime) + 0.42 * grime;
-      g = g * (1 - grime) + 0.36 * grime;
-      b = b * (1 - grime) + 0.28 * grime;
-      // Two old coffee spots: faint fills with a slightly darker, ragged tide line.
-      for (const [sx, sy, sr] of [[0.36, 0.71, 0.05], [0.62, 0.8, 0.03]]) {
-        const rag = 1 + 0.55 * (fbmB(u * 5 + 3, v * 5) - 0.5) + 0.3 * (fbmC(u * 2, v * 2) - 0.5);
-        const d = (Math.hypot(u - sx, (v - sy) * 1.3) / sr) * rag;
-        if (d < 1) {
-          const tide = clamp01((d - 0.7) / 0.3); // soft tide line, no hard rim
-          const blot = 0.5 + 0.5 * fbmB(u * 9, v * 9 + 7);
-          const k = (0.35 * blot + 0.65 * tide * tide) * 0.14;
-          r = r * (1 - k) + 0.36 * k;
-          g = g * (1 - k) + 0.24 * k;
-          b = b * (1 - k) + 0.14 * k;
+  /* ---------------- scuff transfer (top-left, R × R): a MULTIPLY map for the kitchen door ---------------- */
+  // 1 where the paint is clean, the rubber transfer's darkening where it is not; two bands of
+  // 0.9 × 0.45 m (1.76 mm/px) — rows 0..R/2 the dining face (busier: carts come through
+  // loaded), rows R/2..R the kitchen face. Motifs, each placed once from the seed: bumper arcs
+  // (a cart corner swinging in), straight corner scrapes at odd angles, crumb clusters where a
+  // bumper hit, a broad faint palm smear. Drawn with the 2D API on a scratch canvas over white.
+  {
+    const sc = canvas(R, R);
+    const c = sc.ctx;
+    c.fillStyle = "#ffffff";
+    c.fillRect(0, 0, R, R);
+    c.lineCap = "round";
+    const rubber = (a: number) => `rgba(38,36,34,${a.toFixed(3)})`;
+    const dolly = (a: number) => `rgba(74,58,44,${a.toFixed(3)})`;
+    const arc = (x: number, y: number, r: number, a0: number, a1: number, w: number, col: string) => {
+      c.strokeStyle = col;
+      c.lineWidth = w;
+      c.beginPath();
+      c.arc(x, y, r, a0, a1);
+      c.stroke();
+    };
+    const scrape = (x: number, y: number, len: number, ang: number, w: number, col: string) => {
+      c.strokeStyle = col;
+      c.lineWidth = w;
+      c.beginPath();
+      c.moveTo(x, y);
+      c.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+      c.stroke();
+    };
+    const crumbs = (x: number, y: number, n: number, spread: number) => {
+      for (let i = 0; i < n; i++) {
+        c.fillStyle = rubber(0.2 + 0.35 * rng());
+        c.beginPath();
+        c.ellipse(x + (rng() - 0.5) * spread, y + (rng() - 0.5) * spread * 0.6, 1 + 2.5 * rng(), 0.8 + 1.5 * rng(), rng() * Math.PI, 0, Math.PI * 2);
+        c.fill();
+      }
+    };
+    // Soft strokes: three passes, wide and faint to narrow and darker — rubber transfer has no
+    // hard edge at 1.8 mm/px.
+    const softArc = (x: number, y: number, r: number, a0: number, a1: number, w: number, a: number, col: (a: number) => string) => {
+      arc(x, y, r, a0, a1, w * 2.4, col(a * 0.22));
+      arc(x, y, r, a0, a1, w * 1.5, col(a * 0.4));
+      arc(x, y, r, a0, a1, w, col(a));
+    };
+    const softScrape = (x: number, y: number, len: number, ang: number, w: number, a: number, col: (a: number) => string) => {
+      scrape(x, y, len, ang, w * 3, col(a * 0.2));
+      scrape(x, y, len, ang, w, col(a));
+    };
+    // A rub: a short thick smear where a bumper slid along the leaf — the commonest mark.
+    const rub = (x: number, y: number, len: number, hh: number, ang: number, a: number, col: (a: number) => string) => {
+      for (const [k, f] of [[2.0, 0.18], [1.4, 0.35], [1.0, 1.0]] as const) {
+        c.fillStyle = col(a * f);
+        c.beginPath();
+        c.ellipse(x, y, (len / 2) * (0.9 + 0.1 * k), (hh / 2) * k, ang, 0, Math.PI * 2);
+        c.fill();
+      }
+    };
+    const band = (y0: number, busy: number) => {
+      const yb = (v: number) => y0 + v * (R / 2); // v 0 top .. 1 bottom of the band
+      // Rubs: 40–130 mm long, 8–20 mm tall, at the bumper's height, a few higher.
+      const nRub = Math.round(busy * (3 + rng() * 2));
+      for (let i = 0; i < nRub; i++) {
+        const x = R * (0.1 + 0.8 * rng()), y = yb(0.45 + 0.45 * rng());
+        rub(x, y, 22 + 50 * rng(), 4.5 + 7 * rng(), (rng() - 0.5) * 0.3, 0.1 + 0.14 * rng(), rng() < 0.25 ? dolly : rubber);
+      }
+      // Bumper arcs: a cart's corner bumper (r ≈ 40–70 mm) swinging in, transfers on the swing.
+      const nArc = Math.round(busy * (2 + rng() * 2));
+      for (let i = 0; i < nArc; i++) {
+        const x = R * (0.15 + 0.7 * rng()), y = yb(0.5 + 0.4 * rng()), r = 22 + 20 * rng();
+        const a0 = Math.PI * (0.9 + 0.3 * rng()), span = 0.5 + 0.9 * rng();
+        softArc(x, y, r, a0, a0 + span, 4 + 6 * rng(), 0.12 + 0.16 * rng(), rubber);
+      }
+      // Corner scrapes: thin lines at 5–25° off horizontal, either way, with a faint halo.
+      const nScr = Math.round(busy * (1 + rng() * 3));
+      for (let i = 0; i < nScr; i++) {
+        const x = R * (0.05 + 0.6 * rng()), y = yb(0.3 + 0.6 * rng());
+        const ang = (rng() < 0.5 ? 1 : -1) * (0.09 + 0.35 * rng());
+        softScrape(x, y, 50 + 150 * rng(), ang, 1.2 + 1.6 * rng(), 0.12 + 0.2 * rng(), rng() < 0.3 ? dolly : rubber);
+      }
+      // A crumb cluster at one hit.
+      if (rng() < 0.7 * busy) crumbs(R * (0.2 + 0.6 * rng()), yb(0.55 + 0.35 * rng()), 4 + Math.floor(rng() * 5), 22 + 20 * rng());
+      // A palm smear high in the band: several faint offset blobs, not a disc.
+      if (rng() < 0.8) {
+        const x = R * (0.55 + 0.3 * rng()), y = yb(0.12 + 0.15 * rng());
+        for (let i = 0; i < 5; i++) {
+          c.fillStyle = rubber(0.025 + 0.02 * rng());
+          c.beginPath();
+          c.ellipse(x + (rng() - 0.5) * 30, y + (rng() - 0.5) * 16, 18 + 22 * rng(), 9 + 9 * rng(), (rng() - 0.5) * 1.2, 0, Math.PI * 2);
+          c.fill();
         }
       }
-      px(x, y, r, g, b);
-      rough[y * S + x] = 0.86 + 0.06 * bulge + 0.05 * grime;
-      height[y * S + x] = bulge * 0.6 + 0.4 * (over ? 1 : 0);
-    }
-
-  /* ---------------- knit (top-right) ---------------- */
-  for (let y = 0; y < R; y++)
-    for (let x = 0; x < R; x++) {
-      const u = x / R, v = y / R;
-      const X = x + R;
-      // Stockinette: 10 px wales, 7 px courses; every stitch is a V (two legs).
-      const wale = (x % 10) / 10, course = (y % 7) / 7;
-      const leg = Math.abs(wale - 0.5) * 2; // 0 at the centre of the wale, 1 at the edges
-      const vShape = clamp01(1 - Math.abs(course - 0.5 - 0.35 * (leg - 0.5)) * 2.6);
-      const stitch = 0.78 + 0.22 * vShape * (0.6 + 0.4 * (1 - leg));
-      const fuzz = 1 + 0.08 * (fbmC(u, v) - 0.5);
-      const tone = 1 + 0.08 * (fbmA(u * 0.7, v * 0.7) - 0.5);
-      const k = stitch * fuzz * tone;
-      px(X, y, 0.56 * k, 0.29 * k, 0.15 * k);
-      rough[y * S + X] = 0.96;
-      height[y * S + X] = vShape * (1 - 0.5 * leg);
-    }
-
-  /* ---------------- newsprint (bottom-left) ---------------- */
-  {
-    const Y0 = R;
+    };
+    band(0, 1.0);
+    band(R / 2, 0.55);
+    const ink = c.getImageData(0, 0, R, R).data;
     for (let y = 0; y < R; y++)
       for (let x = 0; x < R; x++) {
-        const u = x / R, v = y / R;
-        const grain = 1 + 0.05 * (fbmC(u, v) - 0.5) + 0.03 * (fbmA(u, v) - 0.5);
-        // Yellowed toward the edges (it sat in the sun on the sill).
-        const edge = clamp01(Math.max(Math.abs(u - 0.5), Math.abs(v - 0.5)) * 2 - 0.55) * 0.5;
-        px(x, Y0 + y, (0.74 - 0.04 * edge) * grain, (0.71 - 0.06 * edge) * grain, (0.62 - 0.1 * edge) * grain);
-        rough[(Y0 + y) * S + x] = 0.82 + 0.04 * (fbmC(u, v) - 0.5);
-        height[(Y0 + y) * S + x] = 0.5 + 0.05 * (fbmC(u, v) - 0.5);
+        const o = (y * R + x) * 4;
+        px(x, y, ink[o] / 255, ink[o + 1] / 255, ink[o + 2] / 255);
+        rough[y * S + x] = 0.9;
+        height[y * S + x] = 0.5;
       }
-    ctx.putImageData(img, 0, 0);
-    // Ink work with the 2D API on top of the paper field.
-    const m = 14; // margin
-    const ink = (a: number) => `rgba(28,26,24,${a})`;
-    // Masthead bar with a white rule and a name block.
-    ctx.fillStyle = ink(0.92);
-    ctx.fillRect(m, Y0 + m, R - 2 * m, 30);
-    ctx.fillStyle = "rgba(200,194,180,0.95)";
-    ctx.fillRect(m + 8, Y0 + m + 6, 170, 18);
-    ctx.fillStyle = ink(0.9);
-    for (let i = 0, x = m + 12; i < 3; i++) {
-      const w = 40 + rng() * 25;
-      ctx.fillRect(x, Y0 + m + 9, w, 12);
-      x += w + 8;
-    }
-    ctx.fillStyle = ink(0.8);
-    ctx.fillRect(m, Y0 + m + 34, R - 2 * m, 1.5);
-    // Headline: two lines of big word blocks.
-    const wordLine = (y: number, h: number, x0: number, x1: number, a: number, gap: number) => {
-      ctx.fillStyle = ink(a);
+  }
+
+  /* ---------------- #10 can label (Q × Q at x R.., y Q..): u round the can, v up the label ---------------- */
+  // A commodity food-service can: cream paper, a red band round the middle carrying the product
+  // name as white word blocks, a green produce block with a red disc (the picture), a black
+  // net-weight line, fine print at the foot, and a 12 mm paper seam. Drawn per pixel, the type
+  // as blocks on a scratch canvas.
+  {
+    const X0 = R, Y0 = Q, W = Q, H = Q;
+    const paperN = makeFbm(96, 12, 3);
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const u = x / W, v = 1 - y / H; // v up
+        const n = paperN(u * 2, v * 2) - 0.5;
+        let r = 0.92 + 0.04 * n, g = 0.88 + 0.04 * n, b = 0.78 + 0.03 * n;
+        // Red band 0.36–0.66 with a thin gold rule at each edge.
+        if (v > 0.36 && v < 0.66) {
+          r = 0.72 + 0.04 * n;
+          g = 0.1;
+          b = 0.08;
+        }
+        if (Math.abs(v - 0.36) < 0.006 || Math.abs(v - 0.66) < 0.006) {
+          r = 0.82;
+          g = 0.66;
+          b = 0.28;
+        }
+        // Produce block on the front (u 0.1–0.42, v 0.68–0.94): green ground, a red disc with a
+        // highlight, a stem.
+        if (u > 0.1 && u < 0.42 && v > 0.68 && v < 0.94) {
+          r = 0.2 + 0.05 * n;
+          g = 0.45 + 0.06 * n;
+          b = 0.16;
+          const d = Math.hypot((u - 0.26) / 0.11, (v - 0.8) / 0.09);
+          if (d < 1) {
+            const hl = Math.exp(-Math.pow(Math.hypot(u - 0.23, v - 0.84) / 0.03, 2));
+            r = 0.8 + 0.2 * hl;
+            g = 0.12 + 0.5 * hl;
+            b = 0.08 + 0.4 * hl;
+          }
+          if (Math.abs(u - 0.26) < 0.008 && v > 0.87 && v < 0.93) {
+            r = 0.25;
+            g = 0.4;
+            b = 0.12;
+          }
+        }
+        // Paper seam (overlap) at u = 0.97: a shade line and a step.
+        const seam = Math.exp(-Math.pow((u - 0.97) / 0.006, 2));
+        r *= 1 - 0.25 * seam;
+        g *= 1 - 0.25 * seam;
+        b *= 1 - 0.25 * seam;
+        px(X0 + x, Y0 + y, r, g, b);
+        rough[(Y0 + y) * S + X0 + x] = 0.55 + 0.05 * n;
+        height[(Y0 + y) * S + X0 + x] = 0.5 - 0.15 * (u > 0.97 ? 1 : 0);
+      }
+    // Type as blocks: the name on the band (twice round, front and back), a weight line, fine print.
+    const sc = canvas(W, H);
+    sc.ctx.clearRect(0, 0, W, H);
+    const word = (x0: number, x1: number, y: number, h: number, a: string, gap: number) => {
+      sc.ctx.fillStyle = a;
       let x = x0;
-      while (x < x1 - 6) {
-        const w = Math.min(x1 - x, h * (1.2 + rng() * 2.4));
-        ctx.fillRect(x, y, w, h);
+      while (x < x1 - 3) {
+        const w = Math.min(x1 - x, h * (0.9 + rng() * 1.6));
+        sc.ctx.fillRect(x, y, w, h);
         x += w + gap;
       }
     };
-    wordLine(Y0 + m + 46, 24, m, R - m, 0.9, 9);
-    wordLine(Y0 + m + 78, 24, m, R - m - 90, 0.9, 9);
-    // Deck.
-    wordLine(Y0 + m + 112, 9, m, R - m - 40, 0.7, 5);
-    ctx.fillStyle = ink(0.55);
-    ctx.fillRect(m, Y0 + m + 128, R - 2 * m, 1);
-    // Body: four columns of 2 px lines; a halftone photo in column 3–4.
-    const cols = 4, gutter = 10, colW = (R - 2 * m - gutter * (cols - 1)) / cols;
-    const bodyTop = Y0 + m + 136, bodyBottom = Y0 + R - m;
-    const photo = { x: m + 2 * (colW + gutter), y: bodyTop, w: 2 * colW + gutter, h: 130 };
-    for (let ci = 0; ci < cols; ci++) {
-      const x0 = m + ci * (colW + gutter);
-      let y = bodyTop;
-      if (ci >= 2) y = photo.y + photo.h + 10;
-      // Subhead every so often.
-      while (y < bodyBottom - 4) {
-        if (rng() < 0.06) {
-          wordLine(y, 6, x0, x0 + colW, 0.85, 3);
-          y += 11;
-          continue;
-        }
-        const last = rng() < 0.12; // paragraph end: short line + gap
-        wordLine(y, 2, x0, last ? x0 + colW * (0.3 + 0.5 * rng()) : x0 + colW, 0.7, 2);
-        y += last ? 7 : 4;
+    const Y = (v: number) => H * (1 - v);
+    word(W * 0.08, W * 0.46, Y(0.6), H * 0.09, "rgb(250,244,230)", 5); // CRUSHED TOMATOES
+    word(W * 0.1, W * 0.4, Y(0.47), H * 0.045, "rgb(250,244,230)", 3);
+    word(W * 0.56, W * 0.94, Y(0.6), H * 0.09, "rgb(250,244,230)", 5); // repeated on the back
+    word(W * 0.58, W * 0.88, Y(0.47), H * 0.045, "rgb(250,244,230)", 3);
+    word(W * 0.46, W * 0.9, Y(0.9), H * 0.05, "rgb(40,30,24)", 4); // brand over the band
+    word(W * 0.1, W * 0.5, Y(0.3), H * 0.035, "rgb(40,30,24)", 3); // NET WT 6 LB 6 OZ
+    for (let i = 0; i < 4; i++) word(W * 0.55, W * 0.92, Y(0.3 - i * 0.055), H * 0.02, "rgb(60,50,44)", 2); // fine print
+    sc.ctx.fillStyle = "rgb(40,30,24)";
+    sc.ctx.fillRect(W * 0.12, Y(0.2), W * 0.14, H * 0.09); // barcode block
+    sc.ctx.fillStyle = "rgb(250,244,230)";
+    for (let i = 0; i < 9; i++) sc.ctx.fillRect(W * (0.125 + i * 0.015), Y(0.2), W * 0.004, H * 0.09);
+    const ink = sc.ctx.getImageData(0, 0, W, H).data;
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const o = (y * W + x) * 4;
+        if (ink[o + 3] > 0) px(X0 + x, Y0 + y, ink[o] / 255, ink[o + 1] / 255, ink[o + 2] / 255);
       }
-    }
-    // Photo: grey halftone field with a darker subject mass and a hairline border.
-    const pimg = ctx.getImageData(photo.x, photo.y, photo.w, photo.h);
-    const pf = makeFbm(97, 3, 4);
-    for (let y = 0; y < photo.h; y++)
-      for (let x = 0; x < photo.w; x++) {
-        const u = x / photo.w, v = y / photo.h;
-        const subject = clamp01(1 - Math.hypot((u - 0.45) * 1.3, (v - 0.55) * 1.1) * 1.6);
-        let g = 0.62 - 0.35 * subject + 0.25 * (pf(u, v) - 0.5);
-        // Halftone: a 3 px dot screen modulating the grey.
-        const dot = ((x % 3) + (y % 3)) % 2 === 0 ? 0.06 : -0.06;
-        g = clamp01(g + dot) * 0.86;
-        const o = (y * photo.w + x) * 4;
-        pimg.data[o] = g * 255 * 1.02;
-        pimg.data[o + 1] = g * 255;
-        pimg.data[o + 2] = g * 255 * 0.92;
-        pimg.data[o + 3] = 255;
-      }
-    ctx.putImageData(pimg, photo.x, photo.y);
-    ctx.strokeStyle = ink(0.8);
-    ctx.lineWidth = 1;
-    ctx.strokeRect(photo.x + 0.5, photo.y + 0.5, photo.w - 1, photo.h - 1);
-    wordLine(photo.y + photo.h + 3, 2, photo.x, photo.x + photo.w * 0.8, 0.6, 2); // caption
-    // Read the inked page back so the remaining regions can be written through `px`.
-    const back = ctx.getImageData(0, 0, S, S);
-    img.data.set(back.data);
   }
 
-  /* ---------------- food (bottom-right): toast | yolk ---------------- */
+  /* ---------------- lipstick print (Q × Q at x R.., y 0..) — 24 mm square, alpha ---------------- */
   {
-    const Y0 = R, X0 = R, half = R / 2;
-    const pores = makeFbm(98, 40, 3), crumb = makeFbm(99, 14, 3), yolkN = makeFbm(100, 5, 3);
+    const X0 = R, Y0 = 0;
+    const W = 0.355; // half-width → 17 mm of the 24 mm tile
+    const lipN = makeFbm(101, 9, 3);
+    for (let y = 0; y < Q; y++)
+      for (let x = 0; x < Q; x++) {
+        const u = x / Q, v = 1 - y / Q; // v up
+        const xi = (u - 0.5) / W;
+        let a = 0;
+        if (Math.abs(xi) < 1.15) {
+          const e = Math.sqrt(Math.max(0, 1 - Math.min(1, xi * xi)));
+          // Upper lip: two lobes with the cupid's bow dip between them; the lower edge (contact
+          // line) is nearly straight with the tubercle's bulge at the centre.
+          // 17 × 7.5 mm: lobe tops at v ≈ 0.69, contact line at ≈ 0.38.
+          const top = 0.5 + 0.19 * e * (1 - 0.36 * Math.exp(-Math.pow(xi / 0.17, 2))) + 0.01 * (lipN(u * 2, v) - 0.5);
+          const bot = 0.5 - 0.035 - 0.04 * Math.sqrt(e) - 0.05 * Math.exp(-Math.pow(xi / 0.32, 2));
+          const inside = Math.min(top - v, v - bot); // > 0 inside
+          const soft = 0.018;
+          a = smooth01((inside + soft) / (2 * soft)) * clamp01((1.03 - Math.abs(xi)) / 0.06);
+          // Pressure: strongest at the contact edge, lighter at the lobe tops; lip lines — thin
+          // vertical creases where less colour transferred.
+          const pressure = 0.55 + 0.45 * clamp01(1 - (v - bot) / Math.max(0.02, top - bot));
+          const creases = Math.pow(clamp01(Math.sin(u * Math.PI * 2 * 21 + 3 * (lipN(u, v * 0.3) - 0.5)) * 0.5 + 0.5), 6);
+          a *= pressure * (1 - 0.55 * creases) * (0.8 + 0.4 * lipN(u * 3, v * 3));
+          // A faint transferred halo just outside the print.
+          a = Math.max(a, 0.07 * smooth01((inside + 0.05) / 0.05) * clamp01((1.08 - Math.abs(xi)) / 0.1) * lipN(u * 4, v * 4));
+          // Rev 3: the wet inner lip leaves a faint, broken trace above the lobe tops — the part
+          // of the print that laps over the rim onto the inside of the cup (v 0.69 … 0.77).
+          const over = v - top;
+          if (over > 0 && over < 0.1)
+            a = Math.max(a, 0.26 * smooth01(over / 0.015) * smooth01((0.085 - over) / 0.035) * clamp01((0.95 - Math.abs(xi)) / 0.12) * Math.pow(lipN(u * 6, v * 2 + 3), 1.4));
+        }
+        const n = lipN(u * 5 + 1, v * 5);
+        // Rev 3: ~15 % toward luminance (a worn lipstick, not a fresh swatch).
+        px(X0 + x, Y0 + y, 0.73 + 0.05 * (n - 0.5), 0.19 + 0.05 * (n - 0.5), 0.24 + 0.04 * (n - 0.5), clamp01(a * 0.9));
+        rough[(Y0 + y) * S + X0 + x] = 0.38;
+        height[(Y0 + y) * S + X0 + x] = 0.5;
+      }
+  }
+
+  /* ---------------- yolk film (Q × Q at x R+Q.., y 0..) — 50 mm square, alpha ---------------- */
+  {
+    const X0 = R + Q, Y0 = 0;
+    const yN = makeFbm(102, 4, 4), yF = makeFbm(103, 14, 3);
+    for (let y = 0; y < Q; y++)
+      for (let x = 0; x < Q; x++) {
+        const u = x / Q, v = 1 - y / Q;
+        // Irregular blob, feathered.
+        const cx = 0.5 + 0.06 * (yN(0.2, 0.7) - 0.5), cy = 0.5;
+        const ang = Math.atan2(v - cy, u - cx);
+        const rr = 0.3 * (1 + 0.32 * (yN(Math.cos(ang) * 0.5 + 0.5, Math.sin(ang) * 0.5 + 0.5) - 0.5) * 2 + 0.12 * Math.sin(ang * 3 + 1));
+        const d = Math.hypot(u - cx, (v - cy) * 1.2) / Math.max(0.05, rr);
+        let a = smooth01((1.08 - d) / 0.25) * (0.28 + 0.3 * yF(u, v));
+        // Fork drag: four tine streaks 7 mm apart (0.14 of the tile), curving, where the film
+        // was scraped thin — a slightly thicker ridge beside each.
+        const along = u * 0.9 + v * 0.45 + 0.06 * (yN(u, v) - 0.5);
+        const across = -u * 0.45 + v * 0.9;
+        const tine = ((across * 7.2 + 0.3) % 1 + 1) % 1; // 0..1 across each 7 mm lane
+        const scrape = Math.exp(-Math.pow((tine - 0.5) / 0.09, 2)) * clamp01((along - 0.25) / 0.1) * clamp01((0.95 - along) / 0.1);
+        const ridge = Math.exp(-Math.pow((tine - 0.66) / 0.05, 2)) * clamp01((along - 0.25) / 0.1);
+        a *= 1 - 0.75 * scrape;
+        a += 0.14 * ridge * smooth01((1.0 - d) / 0.2);
+        const thick = clamp01(a / 0.6);
+        px(X0 + x, Y0 + y, 0.88 + 0.06 * (yF(u * 2, v * 2) - 0.5), 0.66 + 0.1 * (yF(u * 2, v * 2) - 0.5) - 0.12 * thick, 0.16 + 0.06 * thick, clamp01(a));
+        rough[(Y0 + y) * S + X0 + x] = 0.22 + 0.15 * (1 - thick);
+        height[(Y0 + y) * S + X0 + x] = 0.5 + 0.18 * thick - 0.12 * scrape;
+      }
+  }
+
+  // Right-top quadrant under the yolk tile (x R+Q.., y Q..R): label 256 × 96, residue 256 × 64,
+  // crumb 96 × 96 and contact AO 96 × 96 — the canvas rows match PRESENCE_UV (flipY: UV v = 1 − y/S).
+  const LH = 96, RH = 64, CE = 96;
+  /* ---------------- label band (Q × LH at x R+Q.., y Q..) ---------------- */
+  {
+    const X0 = R + Q, Y0 = Q, W = Q, H = LH;
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const u = x / W, v = y / H;
+        // Cream ground, brown left block (brand), red disc, a white fluted filter graphic.
+        let r = 0.93, g = 0.88, b = 0.78;
+        if (u < 0.38) {
+          r = 0.38;
+          g = 0.22;
+          b = 0.12;
+          const dx = (u - 0.19) / 0.14, dy = (v - 0.5) / 0.75;
+          const rd = Math.hypot(dx, dy);
+          if (rd < 1) {
+            // Filter: white pleated disc (flutes as alternating tone), a brown centre.
+            const flute = 0.86 + 0.12 * Math.sin(Math.atan2(dy, dx) * 28);
+            r = rd < 0.42 ? 0.58 : flute;
+            g = rd < 0.42 ? 0.42 : flute - 0.02;
+            b = rd < 0.42 ? 0.3 : flute - 0.08;
+          }
+        } else if (u > 0.86) {
+          // Red count block.
+          r = 0.72;
+          g = 0.12;
+          b = 0.1;
+        }
+        px(X0 + x, Y0 + y, r, g, b);
+        rough[(Y0 + y) * S + X0 + x] = 0.55;
+        height[(Y0 + y) * S + X0 + x] = 0.5;
+      }
+    // Word lines (blocks read as print at distance) in the cream field and the red block —
+    // drawn with the 2D API on a scratch canvas (opaque), then copied in, so the alpha regions
+    // already in `img` never round-trip through the canvas's premultiplied store.
+    const sc = canvas(W, H);
+    sc.ctx.clearRect(0, 0, W, H);
+    const word = (x0: number, x1: number, y: number, h: number, a: string, gap: number) => {
+      sc.ctx.fillStyle = a;
+      let x = x0;
+      while (x < x1 - 4) {
+        const w = Math.min(x1 - x, h * (1.1 + rng() * 2.2));
+        sc.ctx.fillRect(x, y, w, h);
+        x += w + gap;
+      }
+    };
+    const lx0 = W * 0.41, lx1 = W * 0.84;
+    word(lx0, lx1, H * 0.08, H * 0.11, "rgb(60,32,18)", 6); // COFFEE FILTERS
+    word(lx0, lx1 - 30, H * 0.24, H * 0.055, "rgb(70,40,22)", 4);
+    word(lx0, lx1 - 60, H * 0.33, H * 0.04, "rgb(80,48,28)", 3);
+    sc.ctx.fillStyle = "rgb(250,244,230)";
+    sc.ctx.fillRect(W * 0.885, H * 0.11, W * 0.09, H * 0.14); // "500"
+    sc.ctx.fillRect(W * 0.895, H * 0.3, W * 0.07, H * 0.06); // "CT"
+    const ink = sc.ctx.getImageData(0, 0, W, H).data;
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const o = (y * W + x) * 4;
+        if (ink[o + 3] > 0) px(X0 + x, Y0 + y, ink[o] / 255, ink[o + 1] / 255, ink[o + 2] / 255);
+      }
+  }
+
+  /* ---------------- residue ring (Q × RH at x R+Q.., y Q+LH..), alpha; u tiles by fold-back ---------------- */
+  {
+    const X0 = R + Q, Y0 = Q + LH, W = Q, H = RH;
+    const rN = makeFbm(104, 6, 3);
+    for (let y = 0; y < H; y++)
+      for (let x = 0; x < W; x++) {
+        const u = x / W, v = 1 - y / H; // v up: 0 at the coffee surface, 1 highest
+        const tide = 0.55 + 0.3 * (rN(u * 2, 0.3) - 0.5) * 2; // ragged top of the ring
+        const band = clamp01((tide - v) / 0.08); // 1 below the tide line
+        const line = Math.exp(-Math.pow((v - tide) / 0.035, 2)); // the dark line at the tide
+        const film = 0.35 * band * (0.6 + 0.4 * rN(u * 4, v * 4)) * (1 - 0.5 * v / Math.max(0.1, tide));
+        const a = clamp01(film + 0.5 * line + 0.3 * clamp01((0.12 - v) / 0.12)); // heaviest right at the surface
+        px(X0 + x, Y0 + y, 0.26, 0.15, 0.08, a);
+        rough[(Y0 + y) * S + X0 + x] = 0.35;
+        height[(Y0 + y) * S + X0 + x] = 0.5;
+      }
+  }
+
+  /* ---------------- crumb (CE × CE at x R+Q.., y Q+LH+RH..) and contact AO (CE × CE at x R+Q+CE..) ---------------- */
+  {
+    const Y0 = Q + LH + RH, E = CE;
+    const pores = makeFbm(98, 30, 3), crumb = makeFbm(99, 10, 3);
+    for (let y = 0; y < E; y++)
+      for (let x = 0; x < E; x++) {
+        const u = x / E, v = y / E;
+        const pore = clamp01((pores(u, v) - 0.55) * 4);
+        const tone = 0.9 + 0.25 * (crumb(u, v) - 0.5);
+        const scorch = clamp01((crumb(u * 2 + 1, v * 2) - 0.5) * 3) * 0.6;
+        const dark = pore * 0.5 + scorch;
+        px(R + Q + x, Y0 + y, 0.8 * tone * (1 - 0.7 * dark), 0.56 * tone * (1 - 0.8 * dark), 0.26 * tone * (1 - 0.85 * dark));
+        rough[(Y0 + y) * S + R + Q + x] = 0.92;
+        height[(Y0 + y) * S + R + Q + x] = 0.5 - 0.3 * pore;
+        // Contact AO: a soft dark disc, alpha 0.55 to 80 % of the radius, then fading to 0 (the
+        // cup's foot covers the middle; the visible ring just outside it is the dark part).
+        const d = Math.hypot(u - 0.5, v - 0.5) * 2;
+        const a = 0.55 * smooth01((1 - d) / 0.22);
+        px(R + Q + E + x, Y0 + y, 0.05, 0.04, 0.03, a);
+        rough[(Y0 + y) * S + R + Q + E + x] = 0.9;
+        height[(Y0 + y) * S + R + Q + E + x] = 0.5;
+      }
+    // Dreg: cold coffee - a little lighter and browner at the meniscus (thinner film over the
+    // pale glaze), a skin of dust dulling the middle. Its tile is the last 64 px of the row
+    // (PRESENCE_UV.dreg), NOT another CE: drawn CE wide it ran off the canvas edge and `px`
+    // wrapped the overflow into x 0..31 of the next rows — a 30 px coffee-brown bar on the
+    // tile to its left (rev 2 saw it as a dark strip up the apron's selvedge).
+    const DX = R + Q + 2 * E, DW = S - DX;
+    for (let y = 0; y < E; y++)
+      for (let x = 0; x < DW; x++) {
+        const u = x / DW, v = y / E;
+        const d = Math.hypot(u - 0.5, v - 0.5) * 2;
+        const rim = clamp01((d - 0.82) / 0.16);
+        const skin = 0.5 + 0.5 * crumb(u * 3 + 5, v * 3);
+        px(DX + x, Y0 + y, 0.17 + 0.14 * rim, 0.09 + 0.07 * rim, 0.04 + 0.03 * rim, 1);
+        rough[(Y0 + y) * S + DX + x] = 0.06 + 0.1 * skin;
+        height[(Y0 + y) * S + DX + x] = 0.5;
+      }
+  }
+
+  /* ---------------- quarry floor (bottom-left, R × R): 4 × 4 red 6" tiles ---------------- */
+  {
+    const Y0 = R, N = 4, T = R / N;
+    const mott = makeFbm(105, 10, 3), tileTone = makeRng(77);
+    const tones: number[] = [];
+    for (let i = 0; i < N * N; i++) tones.push(0.9 + 0.2 * tileTone());
     for (let y = 0; y < R; y++)
       for (let x = 0; x < R; x++) {
-        const X = X0 + x, Y = Y0 + y;
-        if (x < half) {
-          // Toast: golden top, crumb pores as darker pits, crust band at the region's edges.
-          const u = x / half, v = y / R;
-          const pore = clamp01((pores(u, v) - 0.56) * 4);
-          const tone = 0.9 + 0.2 * (crumb(u, v) - 0.5);
-          const edge = clamp01(Math.max(Math.abs(u - 0.5), Math.abs(v - 0.5)) * 2 - 0.72) / 0.28;
-          const scorch = clamp01((crumb(u * 2, v * 2) - 0.55) * 3) * 0.5;
-          let r = 0.78 * tone, g = 0.55 * tone, b = 0.26 * tone;
-          const dark = pore * 0.45 + scorch * 0.5 + edge * 0.55;
-          r *= 1 - dark * 0.7;
-          g *= 1 - dark * 0.8;
-          b *= 1 - dark * 0.85;
-          px(X, Y, r, g, b);
-          rough[Y * S + X] = 0.92;
-          height[Y * S + X] = 0.6 - 0.6 * pore + 0.15 * (crumb(u, v) - 0.5);
-        } else if (y >= R - R / 8) {
-          // Lipstick strip (bottom 1/8 of the yolk column): waxy red, flat, semi-gloss.
-          const n = yolkN(x / R + 3, y / R);
-          px(X, Y, 0.6 + 0.05 * (n - 0.5), 0.07, 0.1);
-          rough[Y * S + X] = 0.42;
-          height[Y * S + X] = 0.5;
+        const u = x / R, v = y / R;
+        const tx = Math.floor(x / T), ty = Math.floor(y / T);
+        const fx = (x % T) / T, fy = (y % T) / T;
+        const grout = 0.035; // 5 mm of 152
+        const edge = Math.min(fx, 1 - fx, fy, 1 - fy);
+        const inGrout = edge < grout;
+        const bevel = smooth01((edge - grout) / 0.03);
+        const tone = tones[ty * N + tx] * (0.92 + 0.16 * (mott(u * 2, v * 2) - 0.5)) * (0.95 + 0.1 * (grainN(u, v) - 0.5));
+        if (inGrout) {
+          const gt = 0.95 + 0.1 * (grainN(u * 3, v * 3) - 0.5);
+          px(x, Y0 + y, 0.22 * gt, 0.2 * gt, 0.18 * gt);
+          rough[(Y0 + y) * S + x] = 0.95;
+          height[(Y0 + y) * S + x] = 0.3;
         } else {
-          // Yolk: a dried smear — deep yellow, darker skin at the edge, a couple of streaks.
-          const u = (x - half) / half, v = y / (R - R / 8);
-          const n = yolkN(u, v);
-          const edge = clamp01(Math.max(Math.abs(u - 0.5), Math.abs(v - 0.5)) * 2 - 0.7) / 0.3;
-          const streak = clamp01(Math.sin((u * 3 + v * 7 + n) * Math.PI * 2) * 0.5 + 0.2) * 0.25;
-          const k = 1 - 0.35 * edge - streak * 0.5;
-          px(X, Y, (0.86 + 0.08 * (n - 0.5)) * k, (0.62 + 0.1 * (n - 0.5)) * k, 0.12 * k);
-          rough[Y * S + X] = 0.35 + 0.3 * edge + 0.2 * streak;
-          height[Y * S + X] = 0.5 + 0.3 * (n - 0.5) - 0.2 * edge;
+          px(x, Y0 + y, 0.46 * tone, 0.23 * tone, 0.16 * tone);
+          rough[(Y0 + y) * S + x] = 0.72 + 0.08 * (mott(u * 3, v * 3) - 0.5);
+          height[(Y0 + y) * S + x] = 0.3 + 0.2 * bevel + 0.03 * (mott(u * 4, v * 4) - 0.5);
+        }
+      }
+  }
+
+  /* ---------------- white wall tile (bottom-right, R × R): 4 × 4 glossy 4" tiles ---------------- */
+  {
+    const X0 = R, Y0 = R, N = 4, T = R / N;
+    const tileTone = makeRng(78);
+    const tones: number[] = [];
+    for (let i = 0; i < N * N; i++) tones.push(0.97 + 0.04 * tileTone());
+    for (let y = 0; y < R; y++)
+      for (let x = 0; x < R; x++) {
+        const u = x / R, v = y / R;
+        const tx = Math.floor(x / T), ty = Math.floor(y / T);
+        const fx = (x % T) / T, fy = (y % T) / T;
+        const grout = 0.025; // 2.5 mm of 102
+        const edge = Math.min(fx, 1 - fx, fy, 1 - fy);
+        const inGrout = edge < grout;
+        const cushion = smooth01((edge - grout) / 0.06); // rounded tile edge
+        if (inGrout) {
+          const gt = 0.95 + 0.1 * (grainN(u * 3, v * 3) - 0.5);
+          px(X0 + x, Y0 + y, 0.62 * gt, 0.61 * gt, 0.58 * gt);
+          rough[(Y0 + y) * S + X0 + x] = 0.92;
+          height[(Y0 + y) * S + X0 + x] = 0.25;
+        } else {
+          const tone = tones[ty * N + tx] * (0.99 + 0.02 * (grainN(u * 2, v * 2) - 0.5));
+          px(X0 + x, Y0 + y, 0.9 * tone, 0.92 * tone, 0.93 * tone); // a cool white: the glaze must not read cream under 4100 K
+          rough[(Y0 + y) * S + X0 + x] = 0.17 + 0.03 * (grainN(u * 5, v * 5) - 0.5);
+          height[(Y0 + y) * S + X0 + x] = 0.25 + 0.4 * cushion;
         }
       }
   }

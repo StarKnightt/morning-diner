@@ -106,9 +106,7 @@ const POSES = {
   "pour-mid": { interact: "pour-mid" },
   "pour-full": { interact: "pour-full" },
   "door-open": { interact: "door-open" },
-  // System 9 — implied presence props (src/scene/Presence.ts), each from about a metre.
-  "sys9-apron": { x: -1.45, y: 1.6, z: -1.7, yaw: 352, pitch: 6 },
-  "sys9-cardigan": { x: -2.0, y: 1.3, z: 1.3, yaw: 34, pitch: -27 },
+  // System 9 — implied presence props (src/scene/Presence.ts), each from about a metre (the apron pose went with the apron, rev 3).
   "sys9-plate": { x: -1.0, y: 1.35, z: 1.75, yaw: 165, pitch: -35 },
   "sys9-cup": { x: -3.4, y: 1.35, z: 0.7, yaw: 29, pitch: -16 },
   // System 9 — openables at rest and open (Openables.ts; the open poses go through __interactPose).
@@ -236,20 +234,21 @@ async function main() {
   for (const name of NAMES) {
     const pose = POSES[name];
     const t0 = Date.now();
-    await page.evaluate((p) => {
+    await page.evaluate(({ p, name }) => {
       // Interactions back to rest before every frame so an open door or a full mug never leaks into the next pose.
       window.__interact?.("reset");
       // The "E — Sit" hint is part of the System 7 frames; the scene poses (several stand within
-      // reach of a bench) are for the realism critics and must not carry UI.
+      // reach of a bench) and the System 9 prop / openable frames are for the realism critics and
+      // must not carry UI.
       const prompt = document.querySelector(".mdn-prompt");
-      if (prompt) prompt.style.display = p.interact ? "" : "none";
+      if (prompt) prompt.style.display = p.interact && !name.startsWith("sys9-") ? "" : "none";
       if (p.interact) {
         if (!window.__interactPose) throw new Error(`pose needs window.__interactPose (System 7) for "${p.interact}"`);
         window.__interactPose(p.interact);
       } else {
         window.__setPose(p);
       }
-    }, pose);
+    }, { p: pose, name });
     await page.waitForTimeout(SETTLE_MS);
     // A few extra frames so shadows and any lazily compiled program have drawn.
     await page.evaluate(

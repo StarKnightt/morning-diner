@@ -113,11 +113,11 @@ const SEQUENCES = {
     interact: "drink",
     camera: DRINK_CAMERA,
     t0: 0,
-    t1: 1.6,
+    t1: 2.8,
     step: 0.1,
-    keys: [0, 0.5, 0.8, 1.0, 1.2, 1.6],
+    keys: [0, 0.6, 0.95, 1.35, 1.7, 2.55],
     cols: 6,
-    title: "DRINK  first person at the mug (full)  0-1.6 s @ 0.1 s",
+    title: "DRINK  first person at the mug (full)  0-2.8 s @ 0.1 s",
   },
   cabinet: {
     interact: "cabinet",
@@ -403,8 +403,11 @@ async function main() {
     const tSeq = Date.now();
     for (const t of times) {
       const info = await page.evaluate(
-        ({ s, t, cam }) => {
+        ({ s, t, cam, hidePrompt }) => {
           window.__interact("reset");
+          // System 9 sheets are frame-only evidence: no "E — Close cabinet" hint in the tiles.
+          const prompt = document.querySelector(".mdn-prompt");
+          if (prompt) prompt.style.display = hidePrompt ? "none" : "";
           if (cam) window.__setPose(cam);
           window.__interact(s.interact, t, s.opts ?? {});
           const ix = window.__interactions;
@@ -418,7 +421,7 @@ async function main() {
           if (s.interact === "kitchen-door") return `${ix.kitchenDoor.angleDeg.toFixed(1)}DEG`;
           return "";
         },
-        { s: seq, t, cam: seq.camera },
+        { s: seq, t, cam: seq.camera, hidePrompt: ["drink", "cabinet", "cabinet-close", "kitchen-door"].includes(seq.interact) },
       );
       // Frozen clocks: a few frames so the shadow maps re-render and the prompt settles.
       await page.evaluate(
