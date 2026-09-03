@@ -156,40 +156,89 @@ export function bounceQuads(p: BounceParams): BounceQuad[] {
 /**
  * GLSL: `bounceIrradiance( vec3 p, vec3 n )` in three's `irradiance` units (lux × K), from the
  * baked quad list. `k` converts nits to shader units (Lighting.ts `nits()`).
+ *
+ * Cost (measured, `length`, RTX 4060, 1080p): the first version — a runtime loop over `const`
+ * arrays, four normalize + four acos per quad for every fragment of every material — was 5.3 ms
+ * of scene pass (12.5 vs 7.2 ms). This one is unrolled with literal constants, skips fragments
+ * outside the room (the lot never sees an interior patch), and per quad skips a fragment that is
+ * behind the emitting plane or has every corner behind its own tangent plane (the floor under a
+ * floor patch, a wall facing away) with four dots before any of the transcendental work; beyond
+ * three quad-diagonals the patch is evaluated as a point (L · A · cosθe · cosθr / r², 3 % off the
+ * contour integral there); acos is Eberly's polynomial (|err| < 7e-5 rad). 0.7 ms (7.7 ms scene
+ * pass at `length`, rev 4's number).
+ *
+ * The all-corners-behind test is also a correctness fix: Lambert's contour integral is only the
+ * form factor when the whole polygon is above the receiver's tangent plane, and the first version
+ * evaluated it unclipped — an upward-facing seat cushion 0.45 m ABOVE the sunlit floor patch was
+ * getting ≈ 140 nits from the floor (the lower hemisphere's negative projected solid angle came
+ * out positive through the sign convention). Cushions, table tops and the shaded floor lost that
+ * light (`booth` cushion-shade 189 → 46 nits). A polygon straddling the tangent plane (a booth
+ * partition beside a floor patch) is still evaluated unclipped; the part behind the plane counts
+ * negative, so the error is a shortfall of at most that part's share, not a gain.
  */
-export function bounceRectsGlsl(quads: BounceQuad[], k: number): string {
+export function bounceRectsGlsl(quads: BounceQuad[], k: number, zInside = ROOM.zFront): string {
   const f = (v: number) => (Math.abs(v) < 1e-6 ? "0.0" : v.toFixed(5));
-  const verts = quads.flatMap((q) => q.v.map((v) => `vec3( ${f(v.x)}, ${f(v.y)}, ${f(v.z)} )`)).join(", ");
-  const rads = quads.map((q) => `vec3( ${f(q.radiance.x * k)}, ${f(q.radiance.y * k)}, ${f(q.radiance.z * k)} )`).join(", ");
-  const n = quads.length;
-  if (n === 0) return `vec3 bounceIrradiance( vec3 p, vec3 n ) { return vec3( 0.0 ); }`;
+  const v3 = (v: THREE.Vector3) => `vec3( ${f(v.x)}, ${f(v.y)}, ${f(v.z)} )`;
+  if (quads.length === 0) return `vec3 bounceIrradiance( vec3 p, vec3 n ) { return vec3( 0.0 ); }`;
+  const body = quads
+    .map((q) => {
+      // Emitting-side normal: the corners are counter-clockwise seen from the emitting side, so
+      // (v1 − v0) × (v3 − v0) points toward the receivers.
+      const e1 = new THREE.Vector3().subVectors(q.v[1], q.v[0]), e3 = new THREE.Vector3().subVectors(q.v[3], q.v[0]);
+      const e2 = new THREE.Vector3().subVectors(q.v[2], q.v[0]);
+      const N = new THREE.Vector3().crossVectors(e1, e3).normalize();
+      // Area of the (possibly non-parallelogram) quad: the two triangles' cross products.
+      const area = 0.5 * (new THREE.Vector3().crossVectors(e1, e2).length() + new THREE.Vector3().crossVectors(e2, e3).length());
+      const c = q.v[0].clone().add(q.v[1]).add(q.v[2]).add(q.v[3]).multiplyScalar(0.25);
+      const L = q.radiance.clone().multiplyScalar(k * 0.5);
+      // Beyond 3 quad-diagonals the patch is a point: E = L · A · cosθe · cosθr / r² (the contour
+      // integral and the point form agree to 3 % there); in nits × k, so L · 2 · A.
+      const far = 9 * (2 * area);
+      const Lpt = q.radiance.clone().multiplyScalar(k * area);
+      return `
+    { // ${q.name}
+      vec3 dc = ${v3(c)} - p;
+      float r2 = dot( dc, dc );
+      float ce = -dot( dc, ${v3(N)} );
+      if ( ce > 0.01 ) {
+        if ( r2 > ${f(far)} ) {
+          acc += ${v3(Lpt)} * ( ce * max( dot( n, dc ), 0.0 ) / ( r2 * r2 ) );
+        } else {
+          vec3 d0 = ${v3(q.v[0])} - p, d1 = ${v3(q.v[1])} - p, d2 = ${v3(q.v[2])} - p, d3 = ${v3(q.v[3])} - p;
+          if ( max( max( dot( n, d0 ), dot( n, d1 ) ), max( dot( n, d2 ), dot( n, d3 ) ) ) > 0.0 ) {
+            d0 = normalize( d0 ); d1 = normalize( d1 ); d2 = normalize( d2 ); d3 = normalize( d3 );
+            float ff = bounceEdge( d0, d1, n ) + bounceEdge( d1, d2, n ) + bounceEdge( d2, d3, n ) + bounceEdge( d3, d0, n );
+            acc += ${v3(L)} * max( -ff, 0.0 );
+          }
+        }
+      }
+    }`;
+    })
+    .join("");
   return /* glsl */ `
   // ---- sun-patch first bounce, rectangle form factors (src/scene/bounceRects.ts) ----
-  #define BOUNCE_N ${n}
-  const vec3 BOUNCE_V[${n * 4}] = vec3[${n * 4}]( ${verts} );
-  const vec3 BOUNCE_L[BOUNCE_N] = vec3[BOUNCE_N]( ${rads} );
+  #define BOUNCE_N ${quads.length}
+  // acos on [-1, 1], Eberly's polynomial (|err| < 7e-5 rad); the exact one is the cost here.
+  float bounceAcos( float x ) {
+    float ax = abs( x );
+    float r = sqrt( 1.0 - ax ) * ( 1.5707288 + ax * ( -0.2121144 + ax * ( 0.0742610 - 0.0187293 * ax ) ) );
+    return x < 0.0 ? PI - r : r;
+  }
   // γ · (n · Γ) for one edge; an edge of (near) zero length contributes nothing rather than the
   // garbage a normalised zero cross product gives (a collapsed corner cost a stop of fill once).
   float bounceEdge( vec3 a, vec3 b, vec3 n ) {
     vec3 c = cross( a, b );
     float l = length( c );
     if ( l < 1e-5 ) return 0.0;
-    return acos( clamp( dot( a, b ), -1.0, 1.0 ) ) * dot( n, c / l );
+    return bounceAcos( clamp( dot( a, b ), -1.0, 1.0 ) ) * dot( n, c ) / l;
   }
+  // Signed contour integral (Lambert): corners counter-clockwise from the emitting side put the
+  // sum negative for a fragment on that side; a fragment behind the emitting face, or facing
+  // away, gets nothing. Checked against the parallel-rectangle form factor (E/L 1.741 for a 2×2
+  // patch 1 m below a downward-facing point) in /tmp ff.mjs before shipping.
   vec3 bounceIrradiance( vec3 p, vec3 n ) {
-    vec3 acc = vec3( 0.0 );
-    for ( int i = 0; i < BOUNCE_N; i ++ ) {
-      vec3 v0 = normalize( BOUNCE_V[ 4 * i ] - p );
-      vec3 v1 = normalize( BOUNCE_V[ 4 * i + 1 ] - p );
-      vec3 v2 = normalize( BOUNCE_V[ 4 * i + 2 ] - p );
-      vec3 v3 = normalize( BOUNCE_V[ 4 * i + 3 ] - p );
-      float ff = bounceEdge( v0, v1, n ) + bounceEdge( v1, v2, n ) + bounceEdge( v2, v3, n ) + bounceEdge( v3, v0, n );
-      // Signed (corners counter-clockwise from the emitting side put the sum negative for a
-      // fragment on that side): a fragment behind the emitting face, or facing away, gets
-      // nothing. Checked against the parallel-rectangle form factor (E/L 1.741 for a 2×2 patch
-      // 1 m below a downward-facing point) in /tmp ff.mjs before shipping.
-      acc += BOUNCE_L[ i ] * max( -ff, 0.0 ) * 0.5;
-    }
+    if ( p.z > ${f(zInside + 0.02)} ) return vec3( 0.0 );
+    vec3 acc = vec3( 0.0 );${body}
     return acc;
   }
   `;
