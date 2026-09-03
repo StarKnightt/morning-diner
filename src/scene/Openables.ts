@@ -35,9 +35,10 @@ import { makePaneGlass } from "./Exterior";
 import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { PRESENCE_UV } from "../procedural/presence";
+import { KITCHEN } from "./Kitchen";
 import { BACK_BAR, KITCHEN_DOOR, ROOM } from "./layout";
 import { nits } from "./Lighting";
-import { lathe, ribbon, SAUCER_PROFILE, tiledRect, uvIntoRect } from "./Presence";
+import { lathe, ribbon, SAUCER_PROFILE, uvIntoRect } from "./Presence";
 
 export interface HingedLeaf {
   hinge: THREE.Group;
@@ -188,9 +189,7 @@ vec3 kpBoxDir( vec3 R ) {
   m.customProgramCacheKey = () => key;
 }
 
-/** 4 × 4" wall tiles and 4 × 6" quarry tiles per atlas cell. */
-const WALL_TILE_CELL = 4 * 0.1016;
-const QUARRY_CELL = 4 * 0.1524;
+
 
 /**
  * Give a geometry a flat vertex colour (RGBA) for a vertex-coloured leaf material. Alpha is a
@@ -483,10 +482,10 @@ function buildCabinet(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth
 
 /** 9 × 14 in vision panel, its centre at 1.5 m (eye height through the glass). */
 const VISION = { w: 0.229, h: 0.356, centerY: 1.5 };
-/** Kitchen slice depth and width (m) behind the partition. */
-const KITCHEN_DEPTH = 2.7;
+/** Kitchen depth (m) behind the partition — the real kitchen's (Kitchen.ts, = fix-rear's REAR). */
+const KITCHEN_DEPTH = KITCHEN.depth;
 
-function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, cloth: THREE.Material): { leaf: HingedLeaf; light: THREE.SpotLight; materials: THREE.MeshStandardMaterial[] } {
+function buildKitchenDoor(parent: THREE.Group, _pal: Palette, _s: MergedBuilder, cloth: THREE.Material): { leaf: HingedLeaf; light: THREE.SpotLight; materials: THREE.MeshStandardMaterial[] } {
   const T = ROOM.wallThickness, zBack = ROOM.zBack;
   const x0 = KITCHEN_DOOR.centerX - KITCHEN_DOOR.width / 2, x1 = KITCHEN_DOOR.centerX + KITCHEN_DOOR.width / 2;
   const h = KITCHEN_DOOR.height;
@@ -629,205 +628,10 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
   }
   b.build(hinge, { name: "kitchen-door" });
   parent.add(hinge);
-  // Kitchen metals (rev 3): a satin half-metal so the 16,000 lm spot lights them — bowls, pans,
-  // table, hood. Pure metal (`pal.stainless`) only mirrors the dining-room probe, which does not
-  // see into the kitchen, and read as charcoal with 1 px rims. Own bucket, all of it in the
-  // kitchen, so it is culled from the spawn; +1 draw with the door in view.
-  // Rev 4: real stainless (metalness 0.9, roughness 0.28) on its own probe captured inside the
-  // slice (`userData.probePos`, Diner.ts), so the bowls mirror the lit tile and the fixture
-  // instead of reading as matte melamine under the half-metal of rev 3.
-  const steel = new THREE.MeshStandardMaterial({ color: 0xe4e6e8, metalness: 0.85, roughness: 0.36, envMapIntensity: 1.2 });
-  steel.name = "kitchenSteel";
-  steel.userData.probePos = new THREE.Vector3(KITCHEN_DOOR.centerX, 1.05, zBack - T - 0.9);
+  // feat-kitchen: the slice (rev 2–4's floor, tile, prep table, range, hood, shelving, strip
+  // light) is gone — the whole walkable kitchen is Kitchen.ts. The leaf and its swing stay.
 
-  /* ---------------- the kitchen slice ---------------- */
-  const zIn = zBack - T, zFar = zIn - KITCHEN_DEPTH;
-  const kx0 = -ROOM.halfX, kx1 = x1 + 1.6; // the building's end wall continues; 1.6 m past the +x jamb
-  const H = ROOM.height;
-  const tileTop = 1.5;
-  const wallTile = PRESENCE_UV.wallTile, quarry = PRESENCE_UV.quarry;
-  const paint = pal.wallPaint;
-  const tile = (a: readonly [number, number, number], c: readonly [number, number, number], n: THREE.Vector3) => s.add(tiledRect(a, c, n, WALL_TILE_CELL, wallTile), cloth);
-  // Floor: quarry tile from the far wall through the opening to the dining floor's edge.
-  s.add(tiledRect([kx0, 0, zFar], [kx1, 0, zIn], V3(0, 1, 0), QUARRY_CELL, quarry), cloth);
-  s.add(tiledRect([x0 - 0.02, 0, zIn], [x1 + 0.02, 0, zBack], V3(0, 1, 0), QUARRY_CELL, quarry), cloth);
-  // Walls: tile to 1.5 m, paint above; ceiling in the same paint.
-  tile([kx0, 0, zFar], [kx1, tileTop, zFar], V3(0, 0, 1)); // far wall
-  s.box(paint, [kx0, tileTop, zFar - 0.05], [kx1, H, zFar]);
-  tile([kx0, 0, zFar], [kx0, tileTop, zIn], V3(1, 0, 0)); // -x wall
-  s.box(paint, [kx0 - 0.05, tileTop, zFar], [kx0, H, zIn]);
-  tile([kx1, 0, zFar], [kx1, tileTop, zIn], V3(-1, 0, 0)); // +x wall
-  s.box(paint, [kx1, tileTop, zFar], [kx1 + 0.05, H, zIn]);
-  s.box(paint, [kx0, H - 0.03, zFar], [kx1, H, zIn]); // ceiling
-  // The partition's kitchen face either side of the door casing (KITCHEN_DOOR.jamb) and above it.
-  const j = KITCHEN_DOOR.jamb, zFace = zIn - 0.0012; // 1.2 mm off the shell's cut face: no tie
-  tile([kx0, 0, zFace], [x0 - j, tileTop, zFace], V3(0, 0, -1));
-  tile([x1 + j, 0, zFace], [kx1, tileTop, zFace], V3(0, 0, -1));
-  s.box(paint, [kx0, tileTop, zFace], [x0 - j, H, zIn]);
-  s.box(paint, [x1 + j, tileTop, zFace], [kx1, H, zIn]);
-  s.box(paint, [x0 - j, h + j, zFace], [x1 + j, H, zIn]);
-  // Casing on the kitchen face (Shell.ts trims the dining side): the same 100 mm painted architrave.
-  s.rbox(pal.trimPaint, [x0 - j, 0, zIn - 0.015], [x0, h + j, zIn], 0.002);
-  s.rbox(pal.trimPaint, [x1, 0, zIn - 0.015], [x1 + j, h + j, zIn], 0.002);
-  s.rbox(pal.trimPaint, [x0, h, zIn - 0.015], [x1, h + j, zIn], 0.002);
-
-  // Prep table along the -x wall: 30 × 60 in stainless top with a 40 mm turned-down edge and a
-  // 100 mm upstand at the wall, 1⅝" legs, an undershelf; on it a stack of sheet pans at each
-  // end and a white poly cutting board between; a round trash can on the floor between the
-  // partition right of the door (rev 3 — the "black cube" was a bus tub on the undershelf; the
-  // "beige box" a Cambro; neither read as anything).
-  {
-    const ss = steel;
-    const tx0 = kx0 + 0.02, tx1 = tx0 + 0.76, tz1 = zIn - 1.0, tz0 = tz1 - 1.52, top = 0.9;
-    s.rbox(ss, [tx0, top - 0.04, tz0], [tx1, top, tz1], 0.004, 2);
-    s.box(ss, [tx0, top, tz0], [tx0 + 0.02, top + 0.1, tz1]); // upstand
-    for (const [lx, lz] of [[tx0 + 0.05, tz0 + 0.05], [tx1 - 0.05, tz0 + 0.05], [tx0 + 0.05, tz1 - 0.05], [tx1 - 0.05, tz1 - 0.05]]) {
-      const leg = new THREE.CylinderGeometry(0.02, 0.02, top - 0.04, 16);
-      leg.translate(lx, (top - 0.04) / 2, lz);
-      s.add(leg, ss);
-    }
-    s.rbox(ss, [tx0 + 0.04, 0.25, tz0 + 0.04], [tx1 - 0.04, 0.28, tz1 - 0.04], 0.003);
-    // Sheet pans (half size, 13 × 18 in): a 25 mm flared rim on a 2 mm floor, nested 14 mm apart.
-    // Rev 4: each pan's walls flare 3 mm wider than the one below and carry a 3 mm rolled bead at
-    // the top, so the stack reads as several thin lips stepping up, not one thick-rimmed tray.
-    const panStack = (x: number, z: number, n: number, y: number) => {
-      for (let i = 0; i < n; i++) {
-        const y0 = y + i * 0.014, f = i * 0.003, W = 0.33, D = 0.46, rim = 0.025, t = 0.0025;
-        const ax = x - f, az = z - f, cx2 = x + W + f, cz2 = z + D + f;
-        if (i === 0) s.rbox(ss, [ax, y0, az], [cx2, y0 + 0.002, cz2], 0.001, 1);
-        s.rbox(ss, [ax, y0 + 0.003, az], [cx2, y0 + rim, az + t], 0.001, 1);
-        s.rbox(ss, [ax, y0 + 0.003, cz2 - t], [cx2, y0 + rim, cz2], 0.001, 1);
-        s.rbox(ss, [ax, y0 + 0.003, az], [ax + t, y0 + rim, cz2], 0.001, 1);
-        s.rbox(ss, [cx2 - t, y0 + 0.003, az], [cx2, y0 + rim, cz2], 0.001, 1);
-        // Rolled bead round the rim, 1.5 mm proud of the wall.
-        s.rbox(ss, [ax - 0.0015, y0 + rim - 0.003, az - 0.0015], [cx2 + 0.0015, y0 + rim, cz2 + 0.0015], 0.0014, 1);
-      }
-    };
-    panStack(tx0 + 0.12, tz0 + 0.1, 3, top); // far end
-    panStack(tx0 + 0.18, tz1 - 0.52, 6, top); // near end, where the Cambro was
-    s.rbox(pal.fixtureWhite, [tx0 + 0.2, top, tz0 + 0.65], [tx0 + 0.65, top + 0.015, tz0 + 1.0], 0.006, 2); // cutting board
-    // 20-gallon round trash can against the partition's kitchen face right of the door casing —
-    // a peek past the +x jamb, not a black mass in the opening: a tapered body with two ribs and
-    // a rolled rim, a bin liner turned over the rim.
-    {
-      const cxT = x1 + 0.42, czT = zIn - 0.33;
-      const body = lathe([V2(0, 0.01), V2(0.2, 0.01), V2(0.205, 0), V2(0.215, 0), V2(0.242, 0.6), V2(0.25, 0.62), V2(0.242, 0.64), V2(0.232, 0.64), V2(0.225, 0.62), V2(0, 0.62)], 40);
-      body.translate(cxT, 0, czT);
-      s.add(body, pal.blackPowder);
-      for (const ry of [0.2, 0.4]) {
-        const rib = new THREE.TorusGeometry(0.215 + 0.045 * (ry / 0.6), 0.006, 8, 40);
-        rib.rotateX(Math.PI / 2);
-        rib.translate(cxT, ry, czT);
-        s.add(rib, pal.blackPowder);
-      }
-      const liner = lathe([V2(0.2, 0.6), V2(0.238, 0.645), V2(0.252, 0.635), V2(0.256, 0.59), V2(0.25, 0.52), V2(0.246, 0.5)], 40);
-      liner.translate(cxT, 0, czT);
-      s.add(liner, pal.blackPlastic);
-    }
-    // Wall shelf over the table at 1.55 m, 300 deep, two brackets; three #10 cans and a stack of bowls on it.
-    const sy = 1.55;
-    s.rbox(ss, [kx0 + 0.001, sy, tz0 + 0.1], [kx0 + 0.3, sy + 0.02, tz1 - 0.1], 0.003);
-    s.box(ss, [kx0 + 0.001, sy - 0.02, tz0 + 0.1], [kx0 + 0.3, sy, tz0 + 0.13]);
-    s.box(ss, [kx0 + 0.001, sy - 0.02, tz1 - 0.13], [kx0 + 0.3, sy, tz1 - 0.1]);
-    // #10 cans: tinplate body with the chimes (seam rims) top and bottom, a recessed lid, and a
-    // paper label (atlas `canLabel`) round the middle 150 mm — the third can turned a little.
-    for (const [cz, turn] of [[tz0 + 0.3, 0.4], [tz0 + 0.5, 2.9], [tz0 + 0.7, 1.7]] as const) {
-      const cx = kx0 + 0.15, cy = sy + 0.02, R = 0.0785, H = 0.178;
-      const tin = new THREE.CylinderGeometry(R - 0.001, R - 0.001, H, 28, 1, true);
-      tin.translate(cx, cy + H / 2, cz);
-      s.add(tin, ss);
-      for (const ry of [0.0025, H - 0.0025]) {
-        const chime = new THREE.TorusGeometry(R - 0.0015, 0.0025, 8, 28);
-        chime.rotateX(Math.PI / 2);
-        chime.translate(cx, cy + ry, cz);
-        s.add(chime, ss);
-      }
-      const lid = new THREE.CircleGeometry(R - 0.003, 28);
-      lid.rotateX(-Math.PI / 2);
-      lid.translate(cx, cy + H - 0.004, cz);
-      s.add(lid, ss);
-      const label = new THREE.CylinderGeometry(R, R, 0.15, 28, 1, true);
-      uvIntoRect(label, PRESENCE_UV.canLabel);
-      label.rotateY(turn);
-      label.translate(cx, cy + H / 2 - 0.002, cz);
-      s.add(label, cloth);
-    }
-    // Mixing bowls, nested four high: a 4 mm rolled bead at the rim so the rim reads as a rim.
-    for (let i = 0; i < 4; i++) {
-      const bowl = lathe([V2(0, 0), V2(0.05, 0), V2(0.085, 0.045), V2(0.09, 0.052), V2(0.088, 0.056), V2(0.083, 0.052), V2(0.081, 0.047), V2(0.047, 0.005), V2(0, 0.005)], 36);
-      bowl.translate(kx0 + 0.15, sy + 0.02 + i * 0.03, tz1 - 0.35);
-      s.add(bowl, ss);
-    }
-  }
-  // Fluorescent strip on the -x wall over the table at 1.95 m: a 4 ft vapour-tight housing with
-  // its diffuser facing the room — the troffer lens material (a two-tube band of its map), so it
-  // glows at the troffers' 4100 K luminance and reaches the probe / the vision glass.
-  const lampZ = zIn - 1.76;
-  {
-    const fy = 1.95, fx = kx0 + 0.001;
-    s.rbox(pal.fixtureWhite, [fx, fy - 0.07, lampZ - 0.62], [fx + 0.09, fy + 0.07, lampZ + 0.62], 0.008, 2);
-    const lens = uvIntoRect(new THREE.PlaneGeometry(1.2, 0.1), [0, 0, 1, 1], [0.3, 0.72]);
-    lens.rotateY(Math.PI / 2);
-    lens.translate(fx + 0.0905, fy, lampZ);
-    s.add(lens, pal.fixtureLens);
-  }
-  // Range under a stainless hood on the far wall, right of the table's line (rev 2 had it
-  // behind the table's far end, through the pans), the duct up.
-  {
-    const ss = steel;
-    const rx0 = kx0 + 0.95, rx1 = rx0 + 0.9; // its -x end in the door's line of sight, clear of the table
-    s.rbox(pal.blackPowder, [rx0, 0.1, zFar], [rx1, 0.9, zFar + 0.8], 0.006, 2);
-    s.box(pal.blackPowder, [rx0 + 0.05, 0, zFar + 0.05], [rx1 - 0.05, 0.1, zFar + 0.75]);
-    s.rbox(ss, [rx0 - 0.002, 0.9, zFar - 0.001], [rx1 + 0.002, 0.93, zFar + 0.8], 0.004, 2); // top
-    s.rbox(ss, [rx0, 0.93, zFar], [rx1, 1.3, zFar + 0.08], 0.004, 2); // back riser
-    for (let i = 0; i < 4; i++) {
-      const knob = new THREE.CylinderGeometry(0.018, 0.02, 0.02, 16);
-      knob.rotateX(Math.PI / 2);
-      knob.translate(rx0 + 0.15 + i * 0.2, 0.86, zFar + 0.81);
-      s.add(knob, pal.blackPlastic);
-    }
-    // Hood: canopy 1.5 m wide × 0.95 deep, bottom at 1.95, a 60 mm lip (grease trough) along the
-    // front edge, and a row of three baffle filters slanted 50° under it, each with its six
-    // vertical baffle ribs and a frame — the grille lines the eye expects under a hood.
-    const hx0 = kx0 + 0.75, hx1 = hx0 + 1.5;
-    s.rbox(ss, [hx0, 1.95, zFar], [hx1, 2.4, zFar + 0.95], 0.005, 2);
-    s.rbox(ss, [hx0, 1.89, zFar + 0.9], [hx1, 1.955, zFar + 0.97], 0.004, 2); // lip / trough
-    s.box(ss, [hx0 + 0.5, 2.4, zFar + 0.25], [hx0 + 1.0, H, zFar + 0.75]); // duct
-    for (let i = 0; i < 3; i++) {
-      const fx = hx0 + 0.3 + i * 0.45;
-      const parts: THREE.BufferGeometry[] = [new THREE.BoxGeometry(0.4, 0.5, 0.012)];
-      for (let k = 0; k < 6; k++) {
-        const rib = new THREE.BoxGeometry(0.014, 0.48, 0.02);
-        rib.translate(-0.175 + k * 0.07, 0, -0.012);
-        parts.push(rib);
-      }
-      for (const sx of [-1, 1]) {
-        const rail = new THREE.BoxGeometry(0.012, 0.5, 0.024);
-        rail.translate(sx * 0.194, 0, -0.008);
-        parts.push(rail);
-      }
-      const filter = mergeGeometries(parts)!;
-      filter.rotateX(THREE.MathUtils.degToRad(-50));
-      filter.translate(fx, 2.15, zFar + 0.32);
-      s.add(filter, ss);
-    }
-  }
-  // Wire shelving on the +x wall, chrome, with white bus tubs — the kitchen proper beyond.
-  {
-    const wx1 = kx1 - 0.02, wx0 = wx1 - 0.46, wz0 = zIn - 0.6, wz1 = wz0 - 1.2;
-    for (const [px, pz] of [[wx0, wz0], [wx1, wz0], [wx0, wz1], [wx1, wz1]]) {
-      const post = new THREE.CylinderGeometry(0.0125, 0.0125, 1.85, 12);
-      post.translate(px, 0.925, pz);
-      s.add(post, pal.chrome);
-    }
-    for (const y of [0.15, 0.6, 1.05, 1.5]) {
-      s.rbox(pal.chrome, [wx0, y, wz1], [wx1, y + 0.035, wz0], 0.004, 1);
-      s.rbox(pal.fixtureWhite, [wx0 + 0.03, y + 0.035, wz1 + 0.1], [wx1 - 0.03, y + 0.035 + 0.15, wz1 + 0.5], 0.008, 2);
-      s.rbox(pal.fixtureWhite, [wx0 + 0.03, y + 0.035, wz0 - 0.55], [wx1 - 0.03, y + 0.035 + 0.15, wz0 - 0.1], 0.008, 2);
-    }
-  }
-
-  // One shadowless 5000 K spot for the slice: 16,000 lm (four 2-lamp strips — a working
+  // One shadowless 5000 K spot for the kitchen: 16,000 lm (four 2-lamp strips — a working
   // kitchen's 600+ lux) at the ceiling just inside the door header, aimed 43° down into the
   // kitchen. Its 46° cone covers the far wall, the floor, the table and the -x wall beside
   // the door (what the vision glass shows); its +z edge misses every dining-room point
@@ -835,6 +639,7 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
   // no light pools on the dining floor. `distance` 6 m clips the rest.
   // Cooler than the dining room's FLUORESCENT (a 5000 K "daylight" tube against the 3500 K
   // troffers): the mixed-light cast through the doorway is what says "kitchen" in a photo.
+  const zIn = zBack - T, kx0 = -ROOM.halfX, H = KITCHEN.ceiling;
   const KITCHEN_TUBE = new THREE.Color().setRGB(232 / 255, 241 / 255, 1, THREE.SRGBColorSpace);
   const light = new THREE.SpotLight(KITCHEN_TUBE, nits(16_000 / Math.PI), 6, THREE.MathUtils.degToRad(46), 0.35, 2);
   light.castShadow = false;
@@ -852,6 +657,6 @@ function buildKitchenDoor(parent: THREE.Group, pal: Palette, s: MergedBuilder, c
       width: w,
     },
     light,
-    materials: [leafMat, steel, pane],
+    materials: [leafMat, pane],
   };
 }

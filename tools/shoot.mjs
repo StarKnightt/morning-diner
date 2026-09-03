@@ -65,6 +65,10 @@ const POSES = {
   // Close-ups for prop judgement: 0.6 m from the third booth's caddy set; 0.7 m from the decanter + pour mug.
   "macro-table": { x: -0.68, y: 0.98, z: 2.68, yaw: 136, pitch: -17 },
   "macro-warmer": { x: -1.42, y: 1.22, z: -1.68, yaw: 15, pitch: -18 },
+  // fix-backcounter — standing in the service aisle at the door end looking along the work side
+  // of the counter (the user's frame), and 0.75 m from the reach-in / plate shelves.
+  along: { x: 1.3, z: -1.1, yaw: 95, pitch: -24 },
+  close: { x: -2.75, y: 1.2, z: -1.8, yaw: 150, pitch: -18 },
   // System 3 — windows, blinds, exterior. yaw 180 looks straight out through the window wall (+z).
   // Seated at the third booth, eye-line through the slats.
   window: { x: -1.1, y: 1.15, z: 2.35, yaw: 180, pitch: 0 },
@@ -99,10 +103,25 @@ const POSES = {
   "dbg-wheelstop": { x: 1.7, y: 0.75, z: 5.2, yaw: 248, pitch: -24 },
   // Standing on the lot in the empty stall between the two cars: CMU wall, scrub edge, road, ranges.
   "dbg-wall-road": { x: 1.35, y: 1.87, z: 6.5, yaw: 180, pitch: -1 },
+  // fix-pole — the lot light standard at x 5.4: the user's look-up at the head from ~3 m on the
+  // drive aisle (mast left, arm sweeping right), and the whole standard from 15 m.
+  "fix-pole-lookup": { x: 8.0, y: 1.62, z: 10.1, yaw: 84, pitch: 64 },
+  "fix-pole-lot": { x: 18.4, y: 1.62, z: 18.9, yaw: 60, pitch: 10 },
+  // Crouched 1.6 m from the pier: base plate, anchor bolts, shoe, rust bloom, handhole cover.
+  "fix-pole-base": { x: 6.6, y: 1.1, z: 10.2, yaw: 135, pitch: -16 },
+  // Signage (Signage.ts) — from the lot, 8–12 m: the pylon at the entrance gap, the parapet
+  // letters over the facade, the door's enamel panels. Shoot with --tag=sign.
+  "sign-pylon": { x: 10.0, y: 1.62, z: 9.0, yaw: 140, pitch: 12 },
+  "sign-facade": { x: 1.6, y: 1.62, z: 13.0, yaw: 0, pitch: 6 },
+  "sign-door": { x: 5.6, y: 1.62, z: 11.5, yaw: 0, pitch: 2 },
   // System 7 — interactions. These call window.__interactPose(name) (src/interactions/debug.ts),
   // which resets every interaction, seeks the named one to a fixed time, freezes the animation
   // clocks and places the camera itself (the seated pose IS the camera).
   "sit-seated": { interact: "sit-seated" },
+  // Counter stools (feat-stool-sit): prompt up behind stool 5, seated on it, seated with the look turned 60° left.
+  "stool-approach": { interact: "stool-approach" },
+  "stool-seated": { interact: "stool-seated" },
+  "stool-seated-look-left": { interact: "stool-seated-look-left" },
   "pour-mid": { interact: "pour-mid" },
   "pour-full": { interact: "pour-full" },
   "door-open": { interact: "door-open" },
@@ -121,6 +140,13 @@ const POSES = {
   "blinds-mid": { interact: "blinds-mid" },
   "blinds-up": { interact: "blinds-up" },
   "blinds-up-exterior": { interact: "blinds-up-exterior" },
+  // feat-kitchen — the walkable kitchen (Kitchen.ts). `kitchen-door-open` is the swing door held
+  // open from the service aisle; the rest stand inside the kitchen (z < -2.85).
+  "kitchen-door-open": { interact: "kitchen-door-open", x: -4.2, y: 1.55, z: -1.0, yaw: 28, pitch: -6 },
+  "kitchen-line": { x: -0.2, z: -5.2, yaw: 178, pitch: -8 },
+  "kitchen-prep": { x: 2.2, z: -3.6, yaw: 120, pitch: -12 },
+  "kitchen-dish": { x: 3.2, z: -4.2, yaw: 255, pitch: -8 },
+  "kitchen-back-door": { x: -0.8, z: -3.4, yaw: 30, pitch: -4 },
 };
 const NAMES = ONLY.length ? Object.keys(POSES).filter((p) => ONLY.includes(p)) : Object.keys(POSES);
 
@@ -251,9 +277,9 @@ async function main() {
       if (p.interact) {
         if (!window.__interactPose) throw new Error(`pose needs window.__interactPose (System 7) for "${p.interact}"`);
         window.__interactPose(p.interact);
-      } else {
-        window.__setPose(p);
       }
+      // A pose with a camera of its own (feat-kitchen: an interact pose shot from elsewhere).
+      if (p.x !== undefined) window.__setPose(p);
     }, { p: pose, name });
     await page.waitForTimeout(SETTLE_MS);
     // A few extra frames so shadows and any lazily compiled program have drawn.

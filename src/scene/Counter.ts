@@ -15,8 +15,14 @@ import { plainColor } from "../core/upholstery";
 import { BACK_BAR, CABINETS, COUNTER, ROOM, STOOL } from "./layout";
 import { punchedWall } from "./Shell";
 
-export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: MergedBuilder["colliders"] } {
+export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: MergedBuilder["colliders"]; stoolSeats: THREE.Group[] } {
   const b = new MergedBuilder();
+  /**
+   * One Group per stool holding its seat top (swivel plate, cushion, welt, seam, chrome band),
+   * pivoted on the column axis at the floor, so the seat can swivel under a seated player
+   * (interactions/Sit.ts). `userData.seatHeight` is that stool's cushion top (±6 mm).
+   */
+  const stoolSeats: THREE.Group[] = [];
 
   /* ---------------- counter ---------------- */
   {
@@ -259,6 +265,15 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
           new THREE.Vector3(1 + (rng() - 0.5) * 0.03, squash, 1 + (rng() - 0.5) * 0.03),
         )
         .multiply(new THREE.Matrix4().makeTranslation(0, -yb, 0));
+      // The seat top goes into its own builder → a Group pivoted on the column axis (world
+      // geometry shifted back by the stool centre), so Sit.ts can swivel it. Materials are the
+      // room's, so the probes and shadow masks treat it exactly like the merged buckets.
+      const seatGroup = new THREE.Group();
+      seatGroup.name = `stool-seat:${i}`;
+      seatGroup.position.set(x + dx, 0, STOOL.z + dz);
+      seatGroup.userData.seatHeight = seatHeight + dh;
+      const seatM_local = new THREE.Matrix4().makeTranslation(-(x + dx), 0, -(STOOL.z + dz)).multiply(seatM);
+      const sb = new MergedBuilder();
       for (const [g, mat] of seatParts) {
         const geo = g.clone();
         if (g === cushion) {
@@ -280,8 +295,11 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
           }
           geo.computeVertexNormals();
         }
-        b.add(geo, mat ?? chrome, seatM);
+        sb.add(geo, mat ?? chrome, seatM_local);
       }
+      sb.build(seatGroup, { name: `stool-seat:${i}` });
+      parent.add(seatGroup);
+      stoolSeats.push(seatGroup);
     });
     for (const x of STOOL.centersX) {
       b.collider([x - r, 0, STOOL.z - r], [x + r, seatHeight, STOOL.z + r]);
@@ -385,5 +403,5 @@ export function buildCounter(parent: THREE.Group, pal: Palette): { colliders: Me
   }
 
   b.build(parent, { name: "counter" });
-  return { colliders: b.colliders };
+  return { colliders: b.colliders, stoolSeats };
 }
