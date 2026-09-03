@@ -2529,6 +2529,34 @@ Boot 11.1 s ready (rev 3 11.0–11.9 s).
 - **Harness time is float.** Stepping `0.8 s` as 96 × 1/120 lands at 0.79999; a state that
   flips at exactly `end` reads one frame late. Step past the end by a frame.
 
+## Fix — "melting" blinds through the storefront glass from the lot (`fix-glass`, `shots/fix-glass-*.png`)
+
+Reported from outside the diner, ~9 m back on the lot, looking at the window row: the slats
+behind the panes read as smeared, wavy, horizontally streaked bands
+(`shots/fix-glass-before-exterior.png`, crop `shots/crops/crop-fix-glass-before-exterior.png`).
+
+**Root cause.** Not the glass material. Lighting.ts runs three's transmission pass at half
+resolution (`renderer.transmissionResolutionScale = 0.5`, a 960 × 540 buffer) because from
+inside the panes only ever have the lot behind them. From the lot the blinds are *behind* the
+glass and so render into that buffer: a 1" slat pitch is ≈ 2.5 px at 1080p and 1.25 px in the
+buffer — under Nyquist even with its 4× MSAA — and the beat between the slat pitch and the
+buffer rows changes with perspective across each pane, so the aliasing forms the curved bands,
+which the bicubic upsample then smears. A/B at the exterior pose with the live material:
+`roughness 0` + no roughness map, `FrontSide`, `thickness 0` each changed nothing;
+`?txscale=1` alone gave straight slats.
+
+**Fix** (`src/scene/GlassResolution.ts`, hooked from the window glass in Shell.ts and the door
+glass in Door.ts — no lighting or material change): the panes' `onBeforeRender` sets the
+transmission scale to 1 while the camera's world z is on the lot side of the pane plane and
+restores Lighting's value (or the `?txscale` override) the moment it is back inside. Only poses
+with a pane in the frustum run it; the renderer reads the scale at the start of `render()`, so a
+crossing lands one frame late. Inside is untouched: the interior before/after
+(`shots/fix-glass-{before,after}-interior.png`, the `window` pose) differ by 21.1 % of pixels
+> 6/765, mean 4.06 — the same as two consecutive frames of the same build (21.4 %, mean 4.18:
+grain and motes). Known residue: Lighting's LOD compensation is baked for k = 2, so at scale 1
+the door handprints frost ~0.8 mip less from outside than inside — invisible at 6 m. If the
+full-size buffer is wanted everywhere instead, that is Lighting's `txScale` (3.4 vs 0.5 ms).
+
 ## System status
 
 | # | System | Status |

@@ -5,6 +5,7 @@ tmp/
 # Only the final per-system frames and their proof crops are committed.
 shots/*
 !shots/sys*-*.png
+!shots/fix-*-*.png
 !shots/crops/
 shots/crops/*
 !shots/crops/crop-*.png
