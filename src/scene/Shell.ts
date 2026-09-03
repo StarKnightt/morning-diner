@@ -11,8 +11,7 @@ import { MergedBuilder } from "../core/merge";
 import { DECAL, atlasQuad } from "../core/shapes";
 import { makeRng } from "../core/rng";
 import { dinerFloorWear, floorCrackSegments } from "../procedural/textures";
-import { KITCHEN } from "./Kitchen";
-import { DOOR, KITCHEN_DOOR, PASS_THROUGH, REGISTER, ROOM, WINDOW } from "./layout";
+import { DOOR, KITCHEN_DOOR, PASS_THROUGH, REAR, REGISTER, ROOM, WINDOW } from "./layout";
 import { buildGlazing } from "./Glazing";
 
 export interface Opening {
@@ -439,27 +438,10 @@ export function buildShell(parent: THREE.Group, pal: Palette): { colliders: Merg
     base([halfX - bt, 0, zBack], [halfX, bh, zFront]);
   }
 
-  /* ---------------- roof slab / parapet (exterior only) ---------------- */
-  b.box(pal.wallPaintExt, [-halfX - T - 0.2, H, zBack - T - 0.2], [halfX + T + 0.2, H + 0.35, zFront + T + 0.25], uv);
-
-  /* ---------------- kitchen void ---------------- */
-  {
-    // feat-kitchen: the void wraps the whole kitchen box (KITCHEN.depth) plus its rear wall.
-    const kd = KITCHEN.depth + T + 0.2;
-    const g = new THREE.BoxGeometry(halfX * 2 + 0.4, H + slabDrop, kd);
-    g.translate(0, (H - slabDrop) / 2, zBack - T - kd / 2 + 0.1);
-    // No +z face: the player is inside the kitchen now, and a back-side face in the partition's
-    // plane would black out the pass-through and the open swing door from the kitchen side.
-    // (BoxGeometry face order +x, -x, +y, -y, +z, -z; 6 indices each.)
-    const idx = g.index!.array as ArrayLike<number>;
-    g.setIndex([...Array.from(idx).slice(0, 24), ...Array.from(idx).slice(30)]);
-    g.clearGroups();
-    const voidMat = pal.voidBlack.clone();
-    voidMat.side = THREE.BackSide;
-    const voidBox = new THREE.Mesh(g, voidMat);
-    voidBox.name = "kitchen-void";
-    parent.add(voidBox);
-  }
+  /* ---------------- roof slab / parapet (exterior only) — over the whole footprint, kitchen box included (Rear.ts) ---------------- */
+  b.box(pal.wallPaintExt, [-halfX - T - 0.2, H, REAR.zOuter - 0.2], [halfX + T + 0.2, H + 0.35, zFront + T + 0.25], uv);
+  // The "kitchen void" (a BackSide black box 3.4 m deep behind the partition) is gone: the
+  // kitchen is a real enclosed box now — rear wall, end walls, base course in Rear.ts.
 
   /* ---------------- exterior ground: apron slab one 120 mm step below the floor ---------------- */
   {

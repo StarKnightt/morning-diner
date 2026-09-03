@@ -22,7 +22,7 @@ import { assertSceneGpu, launchOptions, readLaunchRenderer, isSoftwareRenderer }
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const WIDTH = 1920;
 const HEIGHT = 1080;
-const READY_TIMEOUT_MS = 90_000;
+const READY_TIMEOUT_MS = Number(process.env.SHOOT_READY_MS) || 90_000;
 const SETTLE_MS = 600;
 
 const argv = process.argv.slice(2);
@@ -143,6 +143,13 @@ const POSES = {
   "sys9-kitchen-door": { x: -4.6, y: 1.5, z: -1.3, yaw: 23, pitch: -18 },
   "sys9-kitchen-door-open": { interact: "kitchen-door-open" },
   "sys9-kitchen-door-back": { interact: "kitchen-door-back" },
+  // fix-rear — the enclosed kitchen box from the lot side, ~8 m off: rear quarter (from the −x
+  // rear corner), straight on to the back wall, and the −x side; `fix-side` is the user's pose:
+  // standing off the −x end looking down the long side wall toward the storefront.
+  "fix-rear-quarter": { x: -14.5, y: 1.62, z: -15.0, yaw: 232, pitch: 3 },
+  "fix-rear-back": { x: -1.5, y: 1.62, z: -15.5, yaw: 180, pitch: 4 },
+  "fix-rear-side": { x: -14.0, y: 1.62, z: -6.0, yaw: 272, pitch: 4 },
+  "fix-side": { x: -15.5, y: 1.62, z: -0.5, yaw: 262, pitch: 3 },
   // feat-blinds-f — window 1's blind down / mid-raise / up from the second booth, and the raised
   // blind from the lot (all through __interactPose; the camera is part of the pose).
   "blinds-down": { interact: "blinds-down" },

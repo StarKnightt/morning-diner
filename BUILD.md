@@ -169,6 +169,22 @@ shallow dim kitchen box behind the pass-through and a black void elsewhere.
   re-render on the next frame) — those passes were ~110 draw calls and ~6 ms of
   GPU time per frame.
 
+## Controls
+
+| Key | Action |
+|---|---|
+| `W A S D` / arrows | walk (1.4 m/s), sliding collision against the scene colliders |
+| mouse | look (click the canvas for pointer lock) |
+| `Shift` | sprint (2.6 m/s) |
+| `Space` | hop (0.32 m apex) |
+| `E` (or `F`, or click) | interact with the highlighted target: open the door / kitchen swing door / cabinets, sit on a bench or stool, pour, drink |
+| `Q` | stand up from a bench or stool |
+| `F` | tilt the blinds of the window you are looking at (`feat-blinds-f`) |
+| `[` / `]` | exposure −/+ ⅓ EV (`main.ts`) |
+
+The scene lights with the 6:45 PM evening preset (System 4 rev 7). `?ev=±n` sets the exposure
+offset in stops (default 0; `[` `]` step it and the value is remembered in localStorage).
+
 ## Startup
 
 `main.ts` boots in stages behind a DOM overlay (`index.html` `#loader`,
