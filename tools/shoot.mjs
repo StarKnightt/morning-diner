@@ -104,6 +104,11 @@ const POSES = {
   "world-road": { x: -2.5, y: 1.62, z: 27.0, yaw: 100, pitch: -4 },
   "world-facade-wide": { x: 9.0, y: 1.62, z: 29.0, yaw: 14, pitch: -3 },
   "world-door-view": { x: 4.9, y: 1.62, z: 4.2, yaw: 172, pitch: -4 },
+  // Signage (Signage.ts) — from the lot, 8–12 m: the pylon at the entrance gap, the parapet
+  // letters over the facade, the door's enamel panels. Shoot with --tag=sign.
+  "sign-pylon": { x: 10.0, y: 1.62, z: 9.0, yaw: 140, pitch: 12 },
+  "sign-facade": { x: 1.6, y: 1.62, z: 13.0, yaw: 0, pitch: 6 },
+  "sign-door": { x: 5.6, y: 1.62, z: 11.5, yaw: 0, pitch: 2 },
   // System 7 — interactions. These call window.__interactPose(name) (src/interactions/debug.ts),
   // which resets every interaction, seeks the named one to a fixed time, freezes the animation
   // clocks and places the camera itself (the seated pose IS the camera).

@@ -23,6 +23,7 @@ import { buildExterior } from "./Exterior";
 import { ROOM_PROBE_INTENSITY, buildContactShadows, buildLighting, installShadowMasks, sunDirection } from "./Lighting";
 import { buildProps } from "./Props";
 import { buildShell } from "./Shell";
+import { buildSignage } from "./Signage";
 import { buildSystem9, type System9 } from "./Sys9";
 import { buildWorld } from "./World";
 import { DOOR, FAN, ROOM } from "./layout";
@@ -91,6 +92,9 @@ export class Diner {
     buildBlinds(this.group, this.palette);
     await hooks.stage("Hanging the blinds", 7 / 8);
     const exterior = buildExterior(this.group, this.palette, sunDirection(), this.bank);
+    // Exterior signage (Signage.ts): pylon, channel letters, door panels — added inside the
+    // `exterior` group so it takes the lot probe, the lot sun and the lotCaster flag with it.
+    buildSignage(this.group, this.palette);
     // System 4: baked contact occlusion along every base line (nothing else in the rig
     // shadows those regions) and, rev 2, under the mugs and saucers. Casts nothing, so it
     // stays out of the shadow-mask lists.
