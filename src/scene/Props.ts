@@ -13,10 +13,12 @@ import type { Palette } from "../core/materials";
 import { MergedBuilder } from "../core/merge";
 import { makeRng } from "../core/rng";
 import { BACK_BAR, BOOTH, COUNTER, PROPS, ROOM, WINDOW } from "./layout";
-import type { ContactDisc } from "./Lighting";
+import { buildContactDisc, type ContactDisc } from "./Lighting";
 
 export interface PropsResult {
   pourMug: THREE.Mesh;
+  /** The pour mug's contact disc, its own mesh so the drink can fade it with the lift. */
+  pourMugShadow: THREE.Mesh;
   coffeePot: THREE.Group;
   /** Contact-occlusion rings under the mugs and saucers, for Lighting.ts buildContactShadows. */
   contactDiscs: ContactDisc[];
@@ -322,7 +324,8 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
   const pourFoot = new THREE.Mesh(footGeo, pal.bisque);
   pourMug.add(pourFoot);
   parent.add(pourMug);
-  contactDiscs.push({ x: PROPS.pourMug.x, y: yBar, z: PROPS.pourMug.z, r0: 0.031, r1: 0.062, ao: 0.6 });
+  // Its contact disc is its own mesh: the drink (System 9) fades it as the mug lifts off the bar.
+  const pourMugShadow = buildContactDisc(parent, { x: PROPS.pourMug.x, y: yBar, z: PROPS.pourMug.z, r0: 0.031, r1: 0.062, ao: 0.6 }, "pourMug:contact");
 
   /* ---------------- BUNN VPR-class brewer + decanter ---------------- */
   const coffeePot = new THREE.Group();
@@ -516,5 +519,5 @@ export function buildProps(parent: THREE.Group, pal: Palette): PropsResult {
   }
 
   b.build(parent, { name: "props" });
-  return { pourMug, coffeePot, contactDiscs };
+  return { pourMug, pourMugShadow, coffeePot, contactDiscs };
 }

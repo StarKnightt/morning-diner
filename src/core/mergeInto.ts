@@ -33,13 +33,25 @@ export function mergeIntoHosts(root: THREE.Object3D, parent: THREE.Object3D, b: 
   return { hosted, own };
 }
 
+const IDENTITY = new THREE.Matrix4();
+const EPS = 1e-6;
+
+/**
+ * A host must sit at the world origin with no rotation or scale: the bucket geometry is
+ * authored in world space, and a merged mesh inside a placed prop group (rev 1's
+ * `blackPlastic` host was the napkin dispenser's) would carry it off to wherever the
+ * group is. Hidden hosts are skipped too.
+ */
 function findHost(root: THREE.Object3D, material: THREE.Material): THREE.Mesh | null {
   let found: THREE.Mesh | null = null;
+  root.updateWorldMatrix(true, true);
   root.traverse((o) => {
     if (found) return;
     const m = o as THREE.Mesh;
     if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || m.material !== material) return;
-    if (!m.name.includes(":")) return;
+    if (!m.name.includes(":") || !m.visible) return;
+    const e = m.matrixWorld.elements, i = IDENTITY.elements;
+    for (let k = 0; k < 16; k++) if (Math.abs(e[k] - i[k]) > EPS) return;
     found = m;
   });
   return found;

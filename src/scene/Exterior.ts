@@ -583,7 +583,7 @@ function latheColors(g: THREE.BufferGeometry, f: (r: number, h: number) => numbe
  * both panes of a cabin composite. Seen from inside the cabin (back face) the reflection is
  * cut to 12 % — the inner face mirrors the dark cabin, not the probe's sky.
  */
-function makePaneGlass(alpha0: number, envInt: number): THREE.MeshPhysicalMaterial {
+export function makePaneGlass(alpha0: number, envInt: number): THREE.MeshPhysicalMaterial {
   const m = new THREE.MeshPhysicalMaterial({
     color: 0x000000, roughness: 0.04, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: envInt, specularIntensity: 1,
     side: THREE.DoubleSide, transparent: false, depthWrite: false,

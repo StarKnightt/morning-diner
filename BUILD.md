@@ -56,11 +56,14 @@ src/
                           dome scaled to nits), `installShadowMasks` (per-light caster lists,
                           shadow-once), `buildContactShadows()` (multiply decals)
     Openables.ts          System 9: under-counter cabinet bay (carcass, shelf, saucers, filters, spray
-                          bottle; two overlay laminate leaves on hinge Groups with chrome pulls) and the
-                          kitchen swing-door leaf + dim vestibule (Shell.ts keeps the casings only)
-    Presence.ts           System 9 implied presence: apron on a hook, cardigan over a stool, half-finished
-                          plate + folded newspaper (booth 2), lipstick cup — lofts + lathes on the
-                          `presenceAtlas` material, statics merged into existing buckets
+                          bottle; two overlay laminate leaves, one CPU-baked mesh, chrome by vertex alpha)
+                          and the kitchen swing-door leaf (paint + brushed-stainless plates by vertex
+                          alpha, vision pane, scuff decal) + the lit kitchen slice behind it (Shell.ts
+                          keeps the casings only)
+    Presence.ts           System 9 implied presence (rev 3): a chrome hook by the pass-through, the
+                          finished plate setting in booth 2 (plate, fork, crumbs, yolk film), the
+                          lipstick cup on its saucer — lathes + lofts, decals on `presenceAtlas`,
+                          statics merged into existing buckets
     Sys9.ts               buildSystem9(): the two above → one statics builder → core/mergeInto.ts
   player/FirstPerson.ts   pointer-lock look, WASD at 1.4 m/s (Shift 2.6), Space hop, eye 1.62 m, AABB sliding collision
   core/
@@ -86,7 +89,8 @@ src/
                           concrete, vinyl micro-grain + crazing (normal/roughness only), boomerang
                           and speckle laminate, wood grain (map/rough/normal), glaze speckle,
                           brushed-metal roughness, prismatic lens normal
-    presence.ts           System 9 atlas: cotton canvas, knit, newsprint, toast/yolk, lipstick strip
+    presence.ts           System 9 atlas: wall tile, quarry floor, lipstick print, yolk film, crumb,
+                          box label, #10 can label, cart-scuff transfer, residue ring, dreg, contact AO
     exterior.ts           System 3 canvases: lot surface (drift, tyre-polish, sealcoat patches,
                           alligator + long cracks, oil drips, faded/re-striped stalls) + aggregate
                           normal/roughness, glass dust/wipe/handprint roughness + handprint alpha,
@@ -1954,8 +1958,11 @@ Five features, all in new files hooked into the existing ones by a few lines eac
 `scene/Sys9.ts` (one call in `Diner.build` after `buildProps`), `interactions/Openables.ts`
 + `Drink.ts` (registered in `interactions/index.ts`), `audio/ambience/Kitchen.ts` + `sfx/Player.ts`
 + `sfx/Openables.ts` (positions + entries in `audio/index.ts`), `player/FirstPerson.ts` (feature 5).
-Frames: `shots/sys9-sys9-{apron,cardigan,plate,cup,cabinet,cabinet-open,kitchen-door,kitchen-door-open,kitchen-door-back}.png`,
-sheets `shots/sys9-seq-{drink,cabinet,cabinet-close,kitchen-door}.png` + key frames.
+Frames: `shots/sys9-sys9-{plate,cup,cabinet,cabinet-open,kitchen-door,kitchen-door-open,kitchen-door-back}.png`,
+sheets `shots/sys9-seq-{drink,cabinet,cabinet-close,kitchen-door}.png` + key frames. The five
+paragraphs below describe rev 1 as built; **"Rev 2"** and **"Rev 3"** after the verification
+paragraph list what the two critic passes failed and how it stands now (cardigan, toast, yolk
+smear, newspaper and apron are gone).
 
 **1 · Drink the coffee** (`interactions/Drink.ts`; hooks in `Pour.ts`: `fill`, `setFill`, `levelFor`,
 steam scale). Once the mug holds more than `EMPTY_FILL` (15 %) the mug's target is "Drink"
@@ -2043,7 +2050,193 @@ the transmission pass draws the opaques twice. Triangles 1.220 → 1.225 M. Boot
 under the same contention (+0.5 s, within the run-to-run noise of a shared GPU). `tools/gpu.mjs`
 passes.
 
+### Rev 2 (`sys9-rev2`) — the critic's frame review, item by item
+
+The rule applied: a prop a viewer clocks as procedural is worse than no prop.
+
+**Cut.** The *cardigan* (mesh, `knit` atlas strip, pose, frame — stools are backless and it read
+as a tea-cosy), the *toast* (an annulus wedge), the *yolk smear* (a matte polygon) and the
+*newspaper* (a rigid slab with a keyboard-like band). Nothing replaces them; booth 2 keeps a
+finished setting — plate, fork, crumbs — and the atlas strips were reassigned (below).
+
+**Plate** (`buildPlate`): a lathe with the diner profile — 2 cm rolled rim with a lip, shallow well,
+foot ring — in the mugs' `ceramic` (roughness 0.15, clearcoat), so the rim carries the window's
+specular arc (`sys9-plate` 995–1277 × 558–635); a stainless fork with thickness (lofted bowed
+handle, neck, four tapering tines, in the hosted `stainless`, sun highlight at 1042 × 703, tines
+1072–1123 × 703–737) resting on the rim at 7.5° pitch; 11 flake crumbs — irregular lofted flakes
+at random yaw and 5–9 mm, not cubes — on the well and the table; a thin glossy near-transparent
+dried-yolk *film* (alpha decal, `yolkFilm` tile: feathered blob, three fork-drag streaks) that only
+reads as a sheen change.
+
+**Cup** (`buildLipstickCup`): the lipstick is a `lipstick` alpha decal on the outer face of the rim
+(17 × 7.5 mm two-lobed upper-lip print, cupid's bow, lip lines, pressure fading to the outline —
+`sys9-cup` 909 × 471), UVs inset 4 % so the mip chain cannot pull the tile's neighbours in (the
+square halo rev 2 first shot). The cup wall's crease was the lathe's seam: `lathe()` now welds the
+seam normals. Inside: a `residue` ring (ragged tide line, alpha) 4 mm above a `dreg` disc (opaque
+cold coffee, roughness 0.06–0.16, in the decal bucket rather than a `coffee` clone). Saucer with
+centre well + foot ring (828–1100 × 555–639) and a `contactAO` disc under the cup (902–1026 × 606–621).
+
+**Apron** (`buildApron`, rebuilt): a fabric loop over the hook (a ribbon tube, 740 × 20–120), the
+waistband bunched under it — a flat 26 mm band pleated into 116 mm as six unequal sawtooth pleats
+with 1.4 mm rolled edges — and the skirt gathered under the band: four heavy folds of unequal
+width (crests 0.11 / 0.37 / 0.60 / 0.84 of the width, 32–48 mm relief) plus four incommensurate
+gather frequencies running the full drop (decaying to 30 %, not to zero), half-width 116 → 160 mm
+(hem barely wider than the bunch), hem dips of a few mm, a 5 × 3 mm rolled hem and 3 × 2 mm
+selvedges. Patch pocket: face proud 4 mm with a gaping mouth and a sagging top hem, closed sides,
+stitch line and doubled top hem in the atlas (656–844 × 534–750), contact shadow under its mouth on
+the skirt. Two 25 mm ties: one hanging past the hem with a lazy twist (834 × 940), one tucked back
+under the band's left end. Blots: a continuous darker tide line round a lighter mottled interior
+(703 × 440, 769 × 825). Weave: the coarse 2/1 basket dot grid is gone — a 2 px twill in the height
+field only (sub-texel at frame scale, mips average it to matte), fibre grain, anisotropy 8. Judged
+at 1:1: it hangs, it does not flare; kept.
+
+**Kitchen door** (`buildKitchenDoor`, rebuilt). Behind it, a lit kitchen slice 2.7 m deep to a far
+wall, seen through the opening and the vision glass: 4" white ceramic wall tile to 1.5 m with
+cushion edges and grey grout (`wallTile` atlas tile, `sys9-kitchen-door-open` 1069–1294 × 319–806),
+white paint above, 6" red quarry floor (`quarry` tile, 1069–1275 × 937–1080), a stainless prep
+table with undershelf, sheet pans, a board and a Cambro (1162–1294 × 544–619), a stainless wall
+shelf with #10 cans and mixing bowls, a range under a stainless hood on the far wall
+(1200–1312 × 0–94), a chrome wire unit on the +x wall, and a 4 ft strip fixture at 1.95 m
+(`fixtureLens` band, 1078–1219 × 103–169) — all statics hosted in existing buckets. Light: one
+shadowless 5000 K SpotLight, 16,000 lm, aimed 43° down into the slice; its 46° cone misses every
+dining-room point, so no pool on the dining floor. Door face: 9 × 14 in vision panel in a black
+rubber moulding with a blended dielectric pane (`makePaneGlass`, single pass — the transmissive
+`glass` doubled the opaque list; 881–984 × 216–459, tile grid visible through it), stainless kick
+plate 16 in (788–1050 × 881–1050) and a 4 × 16 in push plate (1022–1059 × 375–600), both as
+vertex-alpha metal on the one leaf mesh (`metalByVertexAlpha`: `vColor.a < 0.5` renders polished
+metal), soft diagonal cart scuffs at hip height (900–1050 × 600–881). Swing physics unchanged
+(harness: 90.0° → −23.0°, 4 frame passes, rest by 3.2 s).
+
+**Cabinet.** Open curve: 0.15 s quadratic ease-in from rest (θ(0.275 s)/θ(0.35 s) = 0.250,
+first 1/120 s step 0.3°, rev 1 stepped 0 → 29°), then the quick swing, damper and 1.2° overshoot
+kept. Two Ø 35 mm Euro hinge cups on each leaf's inner face with arms on the carcass
+(`sys9-cabinet-open` 491 × 203, 572 × 694, 1631 × 356, 1500 × 947). Spray bottle with a neck and a
+trigger head (1388 × 244); filter box with a printed `label` band (844–1022 × 281–375); five
+saucers with the diner rim profile (806–938 × 544–647). Both leaves + pulls + cups are ONE mesh:
+the leaf geometry is baked on the CPU through its hinge matrix from `updateMatrixWorld`, pulls and
+cups are chrome by vertex alpha — 4 rev-1 meshes → 1.
+
+**Drink** (`Drink.ts`): 2.8 s. Reach 0–0.25 (nothing moves), lift 0.25–0.95 on a quintic
+smootherstep (zero velocity and acceleration at both ends), sip 0.95–1.55 with the level falling
+1.10–1.45 (`sys9-seq-drink` FILL 100 → 97 → 77 → 67), lower 1.55–1.85, set-down 1.85–2.55
+decelerating to contact, release to 2.8. The head is a Catmull-Rom spline through nine keys
+(`HEAD_KEYS`): pitch back 5.2° at the sip, yaw drift 1.2°, roll 1.5°, so the camera itself moves
+every frame (harness: no two 50 ms samples identical between 0.26 and 2.8 s); `FirstPerson.lean`
+gained `yaw`. Fill drop ⅓ per sip and Pour re-arm under 15 % kept; steam untouched.
+
+**Verification.** `tsc --noEmit`, `npm run build` clean; `tools/gpu.mjs` assertion passes (ANGLE
+D3D11 on the 4060). Live harness 27/27: cabinet anticipation / ease-in / velocity ramp / overshoot
+/ 95° rest / settle-once / other leaf untouched / closed by 0.8 s; kitchen door 90 → −23 → 4
+passes → rest, `blocked()` false; drink 2.79 s, tilt 5.2°, yaw 1.2°, camera never static, fill
+1 → 0.667, three sips → 0 → "Pour coffee" → refill → "Drink", seek deterministic; walk 1.4 /
+sprint 2.6 / release / stop / hop 0.320 m / hop refused mid-drink. **Draw calls vs `origin/main`
+`5150cea` (which already holds rev 1; same GPU, same session, other agents shooting):** boot
+179 → 183 (+4), `door` 196 → 202 (+6), `aisle` 271 → 272 (+1), `warmer` 224 → 222 (−2), `counter`
+274 → 270 (−4), `length` 321 → 317 (−4), `sys9-apron` 192 → 190, `sys9-plate` 241 → 244,
+`sys9-cup` 203 → 203, `sys9-cabinet` 228 → 223, `sys9-cabinet-open` 229 → 221 (−8),
+`sys9-kitchen-door` 160 → 165, `sys9-kitchen-door-open` 172 → 175, `drink-sip` 216 → 216. Own
+meshes 6 → 5 (presence, presence decals, cabinet doors, kitchen leaf, vision pane) — the whole
+kitchen slice is hosted. Triangles 1.242 → 1.298 M at the spawn. Boot 11.4 s (main) vs
+10.8–11.2 s over four runs (noise).
+
+### Rev 3 (`sys9-rev2` → `main`) — second frame review: apron cut, fork, plates, drink
+
+Verdicts carried from rev 2: cup, plate, crumbs KEEP; cabinet, kitchen-door physics + slice, drink
+timing PASS. Rev 3 answers the rest.
+
+**Apron — cut.** Two lofted attempts failed the 1:1 bar (a stiff flat band with a regular scallop,
+square floating shoulders, 6 × 3 px stitch dashes, a flat strap). Mesh, `cotton` + `pocket` atlas
+strips, the `sys9-apron` pose and frame are gone; the chrome hook stays (`buildHook`, it passed).
+Implied presence is now the plate setting and the lipstick cup. The freed atlas quarter holds the
+cart-scuff transfer and the #10 can label.
+
+**Fork** (`sys9-plate` 1013–1300 × 650–745): rebuilt on one spine — four tines 2 mm apart with a
+tip curl (tips 1013–1023 × 653–670), tine root → shoulder (1073–1103 × 673–690, the highlight)
+→ waisted neck → a handle with a superellipse section, bowed and widening to the rim; soft contact
+shadows (`aoEllipse`: vertex-alpha gradient on the decal bucket) under the head (1047–1080 ×
+690–710) and the handle root. The head was moved out of the sun spot into the well's shade.
+
+**Cup** (`sys9-cup` 928–962 × 462–478): the print's mid-line sits 0.8 mm past the rim's outer top
+corner, so the contact line is 2.8 mm down the outer face, the lobes lie over the 5 mm rolled rim
+top and a faint broken trace (tile v 0.69–0.77, alpha ≤ 0.26) laps 0–1.5 mm down the inside; it
+faces the pose camera (centre azimuth 77°); colour pulled ~15 % toward luminance (0.73/0.19/0.24).
+
+**Kitchen door.** Plates: `leafMat` is a `MeshPhysicalMaterial` with `anisotropy` 0.75; the
+vertex-alpha branch renders metalness 1, roughness 0.35, the anisotropy vector zeroed on the
+paint, the interior probe as envMap; plates 1.5 mm proud with a 0.7 mm round-over and pan-head
+screws (slotted, on a template: four per push plate, six on the kick plate). Read: closed push
+plate 1313–1440 × 140–593 mean 86 with a vertical reflection gradient (max 117), open push plate
+1028–1055 × 385–590 mean 95 / max 146 against paint 111 — satin steel mirroring a dim room, not
+charcoal. *Scuffs* are a `MultiplyBlending` albedo decal (`scuff` tile: layered soft strokes, palm
+smears, streak smudges, no repeat) 0.3 mm proud of both faces — darker than the paint from every
+angle (closed 773–1307 × 713–940: p2 77 vs median 99; open 860–1050 × 560–880: 93 vs 117). *Vision
+panel*: `makePaneGlass` α₀ 0.08, env 1.6 — the pane reflects at the oblique `kitchen-door` view.
+*Slice props*: #10 can with tinplate body, chime rings, recessed lid and a printed `canLabel`
+(1225–1300 × 235–300); mixing bowls in `kitchenSteel` (metalness 0.55, roughness 0.3, probe env)
+with a 4 mm rolled bead (1125–1220 × 230–300); the Cambro is a stack of six sheet pans on the prep
+table (1130–1285 × 555–620); the black cube is a ribbed 20-gal trash can on the partition's kitchen
+face right of the casing; the hood has a downturned lip and a baffle filter grille — hood and can
+sit outside the three door frames. One new material (`kitchenSteel`) + the scuff decal.
+
+**Drink.** Per-sip volume 25 % (four sips), drained linearly across the whole 0.95–1.55 s sip
+(harness: 1 → 0.875 → 0.75 at 0.95 / 1.25 / 1.55, worst 0.2 s share 42 %). The pour mug's contact
+disc is its own mesh (`buildContactDisc`) and `Drink.setDisc` fades it with lift — opacity
+1 − lift / 3 cm, so it is gone before the mug clears the bar (`sys9-seq-drink` k1 925–1030 ×
+875–945 and k4 900–980 × 990–1050 are plain counter now); back to 1 at rest and on reset.
+
+**Hygiene.** `shoot.mjs` / `sequence.mjs` hide the prompt on `sys9-*` poses and the drink / cabinet
+/ kitchen-door sheets. The pale tapering sliver at 935–945 × 0–60 in the drink k0/k4 frames is the
+pour mug's steam column (`pour:steam` quad, world −1.37, 1.46–1.48, −2.3) seen against the wall —
+System 7/8's, not touched.
+
+**Verification.** `tsc --noEmit`, `npm run build` clean; GPU assertion passes (ANGLE D3D11, RTX 4060).
+Harness 27/27 (cabinet ease-in / overshoot / rest / one mesh / close; kitchen door 90 → −23 → +5.9
+→ rest by 3 s; drink tilt 5.2°, yaw 1.7°, camera never static, 25 % per sip spread over the sip,
+disc 0 aloft / 1 at rest, four sips → Pour re-armed → seek deterministic; sprint / stop / hop).
+**Draw calls vs `origin/main` `5150cea`:** boot 179 → 183 (+4), `door` 196 → 202 (+6), `aisle`
+271 → 272 (+1), `warmer` 224 → 226 (+2), `counter` 274 → 275 (+1), `length` 321 → 322 (+1),
+`sys9-plate` 241 → 244, `sys9-cup` 203 → 206, `sys9-cabinet` 228 → 227, `sys9-cabinet-open`
+229 → 225, `sys9-kitchen-door` 160 → 166, `sys9-kitchen-door-open` 172 → 176 (rev 2 → rev 3:
++1…+5 by pose = scuff decal + `kitchenSteel` + the mug's disc mesh, doubled by the transmission
+pass). Triangles 1.266 M at the spawn (rev 2 1.298 M — the apron). Boot 11.0–11.9 s over five runs
+(main 11.4 s in the rev 2 session; shared GPU).
+
 ### Lessons
+- **Lofted cloth does not pass at 1:1 without a real cloth solve; cut it.** Two apron rebuilds
+  (catenary pleats, then unequal folds + incommensurate gathers + rolled hems) still read as a
+  stiff panel with a regular scallop under a 6× crop. Folds that are not driven by tension,
+  gravity and contact keep a period the eye finds instantly. Either simulate or leave it out.
+- **Raycast the pixel before theorising about a decal.** The lip print "on the far inside wall"
+  was on the near outer rim all along — the rim ellipse is 25 px tall at the pose and the far
+  inner wall shows above the near rim line. `Raycaster.setFromCamera` at the frame's pixel, with
+  the post quads and `distance < 0.05` filtered out, settles it in one run.
+- **Multiply for rubber, not gloss.** A roughness-only scuff flips sign with the view (darker
+  where it kills a reflection, brighter where it scatters one). Rubber transfer is pigment:
+  a `MultiplyBlending` albedo decal (`premultipliedAlpha: true`, no depth write) is dark from
+  every angle and costs one draw.
+- **A contact disc must know its caster is airborne.** Static contact AO under a prop that
+  moves rides the counter while the prop lifts; give the moving prop its own disc mesh and fade
+  it with height (gone by 3 cm).
+- **Mind the canvas row when a tile sits at the right edge.** `px(x, y)` indexes `(y·S + x)`; a
+  loop drawn CE wide into a 64 px tile at x = 960 wrote 32 px past the edge, which wrapped to
+  x 0–31 of the *next* rows — a coffee-brown bar on the cotton tile's left edge that surfaced
+  as a 10 mm dark strip up the apron's selvedge and cost an hour of lighting theories. Dump the
+  atlas (`material.map.image` → PNG) before reasoning about shading.
+- **A merged bucket is culled by one sphere.** Hosting the kitchen's ceramic bowls in the `ceramic`
+  bucket stretched its bounding sphere from the kitchen shelf to booth 2, so a bucket the spawn
+  never saw was drawn every frame (+2 with the transmission pass). Host far-apart props in
+  buckets that are already in view everywhere, or keep them out.
+- **Vertex alpha is a free material slot.** A vertex-coloured mesh can carry paint *and* polished
+  metal (`onBeforeCompile`: `vColor.a < 0.5` → metalness 1, fixed roughness) — kick plate, push
+  plate, pulls and hinge cups cost no draw call.
+- **Bake a hinge on the CPU when the leaves must share a mesh.** Override the hinge Group's
+  `updateMatrixWorld`, transform that leaf's vertex range by `matrixWorld`, upload; the shadow
+  and main passes see the same frame and two doors are one draw.
+- **Blend, don't transmit, for small glass.** A 9 × 14 in transmissive pane made the renderer draw
+  every opaque twice; `makePaneGlass` (Fresnel-weighted custom blend, opaque list) shows the lit
+  kitchen for one draw.
+- **Inset decal UVs.** A decal whose UV rect touches the tile boundary picks up the neighbour in
+  the lower mips — a faint square around the lipstick. 2–4 % in fixes it.
 - **"Merge into the existing buckets" needs a host.** Palette materials that only live on an
   `InstancedMesh` (the mugs' `bisque` foot ring), on a per-prop clone (`vinylRed` on the booths
   is a different instance) or nowhere yet (`orangeBand`) have no mesh to join, and each became
@@ -2078,12 +2271,12 @@ passes.
 | 6 | Sound design | **built, rev 3** (section above) — 100 % synthesised: AM-radio speech rhythm, AC drone + rattle, fan whoosh, warmer ticks/gurgle, room tone; pour / clink / door one-shots and the exterior heat wall. Rev 3 measured the live mix at six listener poses (BS.1770 LUFS per bus) and re-levelled it: aisle bed −36.2 LUFS, room −44.5, AC / fan / radio −35 / −39 / −33 at 1 m, warmer near-field; pour lands with the stream, clinks −12 dBFS, heat wall −26 LUFS with an equal-power swell, room ducks 3 dB while the door is open, latch on close |
 | 7 | The 3 interactions (sit, pour coffee, open door) | **built, rev 2 — feel polish** (`shots/sys7-seq-{sit,pour,door,door-ext}.png` time-series sheets + 18 key frames from `tools/sequence.mjs`; anticipation beats, arced/tilting pour with continuity-thinning stream, drips and volume-true fill, closer-profile door with hold-while-in-doorway and latch SFX, four-beat sit with lean and cushion settle, System 8 `SteamEmitter` reused (duplicate `interactions/Steam.ts` deleted), first-pour 0.7 s link hitch removed; player accel/decel 0.15/0.12 s, 1.4 cm head-bob, push-out collision that slides round stool bases — see "System 7 rev 2" above). Rev 1 was: (merged into `main` over the loader + System 3 rev 2: shadow-once invalidation on door/pour, audio on the loader's enter click, pour programs pre-issued) — `src/interactions/*` + `src/audio/wiring.ts` (System 6 wired: gesture start, positional beds, pour/clink/door SFX, exterior crossfade). Frames `shots/sys7-{sit-seated,pour-mid,pour-full,door-open}.png`; 23/23 live Playwright checks; update ≈ 0.01 ms; +6 draw calls only while pouring |
 | 8 | Post-processing and final polish | **built, rev 1** (`src/post/`, section above), merged with the loader + System 3 rev 2 (spot sun, shadow-once — see "Integration" above) — MSAA 4× scene target, sun-beam dust (5 k shadow-map-lit motes), half-res volumetric haze through the beam prisms, exterior-only heat shimmer, ambient decanter steam (`SteamEmitter`; System 7 rev 2's pour steam is a second instance of the same class), high-threshold bloom, CA 0.5 px, 0.3 EV vignette, corner softness, ACES/AgX/Neutral tone map, luminance-dependent procedural grain; ~1.3 ms post + ~1.3 ms MSAA at 1080p on the 4060; `?post=0` bypasses everything |
-| 9 | Extended interactions and implied presence | **built, rev 1** (branch `sys9-interactions`, section above; frames `shots/sys9-sys9-*.png`, sheets `shots/sys9-seq-{drink,cabinet,cabinet-close,kitchen-door}.png`) — drink from the mug (1.6 s camera-attached raise, ⅓ per sip, volume-true, steam with level, Pour re-arms under 15 %); openable cabinet doors (soft stop, magnetic catch SFX, shelf of saucers/filters/spray bottle) and a double-acting kitchen swing door (push to 90°, spring return with two decaying oscillations, dim vestibule, no lights), shadow-once at rest; implied presence — apron on a hook, cardigan over a stool, half-finished plate + folded newspaper in booth 2, lipstick cup at the counter — on one atlas material with the statics merged into existing buckets; kitchen presence audio (murmur, dishes, tap; −48 LUFS at the counter, aisle bed unchanged); Shift sprint / Space hop / E + Q keys. +4…+10 draw calls by pose, 6 own meshes |
+| 9 | Extended interactions and implied presence | **built, rev 3** (`sys9-rev2` merged to `main`; "Rev 3" under System 9; frames `shots/sys9-sys9-{plate,cup,cabinet,cabinet-open,kitchen-door,kitchen-door-open,kitchen-door-back}.png`, sheets `shots/sys9-seq-{drink,cabinet,cabinet-close,kitchen-door}.png`) — second frame review: **apron cut** (two lofted rebuilds still read as a stiff scalloped panel at 1:1; the hook stays), fork rebuilt on one spine (2 mm tines with a tip curl, root → shoulder → neck, superellipse handle, contact AO, head out of the sun spot), lip print straddling the rim top with an inner trace, kitchen-door plates as brushed stainless by vertex alpha + anisotropy with screws, cart scuffs as a multiply albedo decal (no sign flip), Fresnel vision pane, #10 can label, stainless bowls, sheet-pan stack, trash can, hood lip + grille, drink drained linearly over the sip at 25 % (four sips) with the contact disc fading by 3 cm of lift, prompts hidden on `sys9-*` frames; harness 27/27, draw calls vs main +1…+6 by pose, boot within noise. Rev 2 (critic's frame review answered item by item): **cut** the cardigan, toast, yolk smear and newspaper (read as procedural: tea-cosy, annulus wedge, matte polygon, keyboard slab); plate with a rolled-rim diner profile in glossy ceramic, stainless fork with a bowed handle and tapering tines, 11 flake crumbs, a near-transparent dried-yolk film; cup with a two-lobed upper-lip lipstick print on the outer rim, welded lathe seam, residue ring + dreg, saucer well + foot ring + contact shadow; apron rebuilt (fabric loop on the hook, pleated waistband, four heavy unequal folds + full-drop gathers, hem 160 mm vs 116 mm bunch, rolled hem, pocket with stitch line / gaping mouth / sag, tide-line blots, two ties, twill weave); kitchen door with a lit 2.7 m kitchen slice behind it (white 4" tile, quarry floor, stainless prep table + shelf, hood, 5000 K strip + one shadowless spot), 9 × 14 in vision panel in rubber moulding with a blended pane, 16 in kick plate, push plate, cart scuffs; cabinet open with a 0.15 s ease-in, Euro hinge cups + arms, spray trigger head, filter label band, saucer-profile stack, both leaves one CPU-baked mesh; drink retimed to 2.8 s with a Catmull-Rom head spline (5.2° tilt, 1.2° yaw drift, no static frames). Harness 27/27. Own meshes 6 → 5; draw calls vs main −8…+6 by pose (all ≤ +8); boot within noise. Rev 1 was: (branch `sys9-interactions`, section above; frames `shots/sys9-sys9-*.png`, sheets `shots/sys9-seq-{drink,cabinet,cabinet-close,kitchen-door}.png`) — drink from the mug (1.6 s camera-attached raise, ⅓ per sip, volume-true, steam with level, Pour re-arms under 15 %); openable cabinet doors (soft stop, magnetic catch SFX, shelf of saucers/filters/spray bottle) and a double-acting kitchen swing door (push to 90°, spring return with two decaying oscillations, dim vestibule, no lights), shadow-once at rest; implied presence — apron on a hook, cardigan over a stool, half-finished plate + folded newspaper in booth 2, lipstick cup at the counter — on one atlas material with the statics merged into existing buckets; kitchen presence audio (murmur, dishes, tap; −48 LUFS at the counter, aisle bed unchanged); Shift sprint / Space hop / E + Q keys. +4…+10 draw calls by pose, 6 own meshes |
 
 Known simplifications after System 3: no heat shimmer (System 8 post), no
 chain fence, the cars have no interiors (dark glass hides it at 10–30 m), the
 sky has no clouds, L-return top empty (register is a later prop),
-kitchen box holds dim grey silhouettes only, no second (restroom) door on the
+kitchen box holds dim grey silhouettes only (the slice behind the swing door is lit since System 9 rev 2), no second (restroom) door on the
 far end wall, the troffer lens prism pattern is a faint 6 mm cell map +
 normal map, cap rails have no separate end-grain material. After System 4:
 the lot asphalt sits at +1.4 EV rather than the brief's +2.5 (its albedo is

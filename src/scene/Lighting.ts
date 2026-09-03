@@ -1086,10 +1086,21 @@ export function buildContactShadows(parent: THREE.Object3D, extra: readonly Cont
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   g.setIndex(idx);
+  const mesh = new THREE.Mesh(g, contactMaterial());
+  mesh.name = "contact-occlusion";
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.renderOrder = -1; // before the transmissive glass in the transparent pass
+  parent.add(mesh);
+  return mesh;
+}
+
+function contactMaterial(): THREE.MeshBasicMaterial {
   const mat = new THREE.MeshBasicMaterial({
     vertexColors: true,
     // r185: MultiplyBlending is dst × (src·a + 1 − a) and requires premultipliedAlpha;
-    // with a = 1 that is dst × colour, colour = 1 − ao.
+    // with a = 1 that is dst × colour, colour = 1 − ao. `opacity` therefore fades the
+    // occlusion out to "no darkening" — buildContactDisc's movable discs use that.
     blending: THREE.MultiplyBlending,
     premultipliedAlpha: true,
     transparent: true,
@@ -1101,11 +1112,50 @@ export function buildContactShadows(parent: THREE.Object3D, extra: readonly Cont
     polygonOffsetUnits: -2,
   });
   mat.userData.noCast = true;
-  const mesh = new THREE.Mesh(g, mat);
-  mesh.name = "contact-occlusion";
+  return mat;
+}
+
+/**
+ * One contact disc as its OWN mesh (its own material, so `material.opacity` can fade it): for a
+ * prop that leaves its surface — the pour mug, lifted to drink (System 9 rev 3: the baked disc
+ * stayed dense on the bar under a mug 15 cm in the air). Same annulus as `buildContactShadows`'
+ * `disc`; +1 draw where the prop is in view.
+ */
+export function buildContactDisc(parent: THREE.Object3D, d: ContactDisc, name: string): THREE.Mesh {
+  const pos: number[] = [], col: number[] = [], idx: number[] = [];
+  const STEPS = 6, N = 28;
+  const fall = (t: number) => (1 - t) * (1 - t) * (1 - 0.35 * t);
+  const push = (x: number, y: number, z: number, ao: number) => {
+    pos.push(x, y, z);
+    col.push(1 - ao, 1 - ao, 1 - ao);
+    return pos.length / 3 - 1;
+  };
+  const y = d.y + 0.0015;
+  const c = push(d.x, y, d.z, d.ao);
+  const rings: number[][] = [];
+  for (let i = 0; i <= STEPS; i++) {
+    const t = i / STEPS, r = d.r0 + (d.r1 - d.r0) * t, ring: number[] = [];
+    for (let k = 0; k < N; k++) {
+      const a = (k / N) * Math.PI * 2;
+      ring.push(push(d.x + Math.cos(a) * r, y, d.z + Math.sin(a) * r, d.ao * fall(t)));
+    }
+    rings.push(ring);
+  }
+  for (let k = 0; k < N; k++) idx.push(c, rings[0][k], rings[0][(k + 1) % N]);
+  for (let i = 0; i < STEPS; i++)
+    for (let k = 0; k < N; k++) {
+      const a0 = rings[i][k], b0 = rings[i][(k + 1) % N], a1 = rings[i + 1][k], b1 = rings[i + 1][(k + 1) % N];
+      idx.push(a0, b0, b1, a0, b1, a1);
+    }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  const mesh = new THREE.Mesh(g, contactMaterial());
+  mesh.name = name;
   mesh.castShadow = false;
   mesh.receiveShadow = false;
-  mesh.renderOrder = -1; // before the transmissive glass in the transparent pass
+  mesh.renderOrder = -1;
   parent.add(mesh);
   return mesh;
 }

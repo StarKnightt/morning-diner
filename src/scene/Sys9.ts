@@ -11,7 +11,7 @@ import { MergedBuilder } from "../core/merge";
 import { mergeIntoHosts } from "../core/mergeInto";
 import type { TextureBank } from "../core/textureBank";
 import { buildOpenables, type OpenablesResult } from "./Openables";
-import { buildPresence, type PresenceResult } from "./Presence";
+import { buildPresence, presenceMaterials, type PresenceResult } from "./Presence";
 
 export interface System9 {
   openables: OpenablesResult;
@@ -23,8 +23,9 @@ export interface System9 {
 
 export function buildSystem9(root: THREE.Group, pal: Palette, bank?: TextureBank): System9 {
   const statics = new MergedBuilder();
-  const openables = buildOpenables(root, pal, statics);
-  const presence = buildPresence(statics, pal, bank);
+  const mats = presenceMaterials(pal, bank);
+  const openables = buildOpenables(root, pal, statics, mats.cloth);
+  const presence = buildPresence(statics, pal, mats);
   const group = new THREE.Group();
   group.name = "sys9";
   root.add(group);

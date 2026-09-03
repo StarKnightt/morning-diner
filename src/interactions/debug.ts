@@ -8,7 +8,7 @@
  *   __interact("sit", t?, {booth, side})   sit (booth 0–4, side −1|1; default: nearest bench); `t` seeks + freezes
  *                                   (1.8 s: anticipation 0.15, step 0.75, lower 1.45, settle 1.8)
  *   __interact("stand")             stand up
- *   __interact("drink", t?)         System 9: drink from the mug (1.6 s; a seek first fills it)
+ *   __interact("drink", t?)         System 9: drink from the mug (2.8 s; a seek first fills it)
  *   __interact("cabinet", t?)       System 9: toggle the LEFT cabinet door; `t` seeks into the 0.8 s opening
  *   __interact("cabinet-right", t?) the right door likewise
  *   __interact("cabinet-close", t?) close the (open) left door; `t` seeks into the 0.75 s closing
@@ -65,9 +65,9 @@ export const INTERACT_POSES: Record<InteractPoseName, { camera?: typeof POUR_CAM
   "pour-mid": { camera: POUR_CAMERA, note: "1.2 s into the stream (t ≈ 3.0): mug half full, stream + building steam" },
   "pour-full": { camera: POUR_CAMERA, note: "6 s: decanter back on the warmer 9 mm lower, mug full, steam" },
   "door-open": { camera: DOOR_CAMERA, note: "2 s: leaf held at 85° (hold phase 1.45–2.85 s)" },
-  "drink-sip": { camera: DRINK_CAMERA, note: "0.95 s into the drink from a full mug: rim at the lips, head tilted back, level falling" },
+  "drink-sip": { camera: DRINK_CAMERA, note: "1.35 s into the drink from a full mug: rim at the lips, head tilted back 5°, level falling" },
   "cabinet-open": { camera: CABINET_CAMERA, note: "both cabinet doors open at rest (95°): shelf, saucers, filters, spray bottle" },
-  "kitchen-door-open": { camera: KITCHEN_DOOR_CAMERA, note: "0.7 s: leaf pushed to 90° into the kitchen, vestibule beyond" },
+  "kitchen-door-open": { camera: KITCHEN_DOOR_CAMERA, note: "0.7 s: leaf pushed to 90° into the kitchen, the lit kitchen slice beyond" },
   "kitchen-door-back": { camera: KITCHEN_DOOR_CAMERA, note: "1.38 s: the spring's back-swing, leaf ~23° into the dining room" },
 };
 
@@ -195,7 +195,7 @@ export function installInteractionDebugApi(
         interact("door", 2.0);
         break;
       case "drink-sip":
-        interact("drink", 0.95);
+        interact("drink", 1.35);
         break;
       case "cabinet-open":
         interact("cabinet", 10);

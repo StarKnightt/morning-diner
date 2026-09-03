@@ -57,6 +57,7 @@ export class Diner {
   sunBeam!: THREE.SpotLight;
   /** Named props later systems animate: the mug that gets filled, the decanter that pours. */
   pourMug!: THREE.Mesh;
+  pourMugShadow!: THREE.Mesh;
   coffeePot!: THREE.Group;
   /** System 9: the openables' hinges and the presence props (Sys9.ts). */
   sys9!: System9;
@@ -94,6 +95,7 @@ export class Diner {
     // stays out of the shadow-mask lists.
     buildContactShadows(this.group, props.contactDiscs);
     this.pourMug = props.pourMug;
+    this.pourMugShadow = props.pourMugShadow;
     this.coffeePot = props.coffeePot;
     this.fanRotor = ceiling.fanRotor;
     this.colliders.push(...shell.colliders, ...booths.colliders, ...counter.colliders);
@@ -171,6 +173,9 @@ export class Diner {
       for (const m of Object.values(this.palette)) {
         if (m instanceof THREE.MeshStandardMaterial && m.metalness >= 0.9 && !propSet.has(m) && !exteriorMats.has(m)) metalMats.push(m);
       }
+      // System 9's two door materials carry their stainless / chrome in the vertex alpha
+      // (one bucket per door): they take the metal probe so the plates and pulls mirror the room.
+      metalMats.push(...this.sys9.openables.envMetals);
       const assign = (mats: Iterable<THREE.MeshStandardMaterial>, env: THREE.Texture | null) => {
         for (const m of mats) {
           m.envMap = env;

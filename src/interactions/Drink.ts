@@ -2,19 +2,26 @@
  * Drinking the coffee (System 9). Press E at the `pourMug` once it holds more than
  * `EMPTY_FILL`: the mug comes up off the bar on an arc toward the lens, tips to the
  * lips while the head tilts back a little, a third of a full mug goes, and it is set
- * back down. Hand-less, like the pour; 1.6 s from the E press; camera-attached, so
+ * back down. Hand-less, like the pour; 2.8 s from the E press (rev 2); camera-attached, so
  * looking around carries the mug with the head (the feet are planted for the sip).
  *
  * Timeline (seconds from E) — see TL:
- *   reach   0 → 0.22   nothing moves; the hint fades
- *   lift    0.22 → 0.72 the mug rises from its rest on a quadratic arc (up first, then in) to a
- *                      point low-right of the lens, 0.30 m out; the handle turns to the right hand
- *   sip     0.72 → 1.15 the mug closes to 0.21 m and tips 38° toward the lens (rim to the lips);
- *                      the head tilts back 4° with 1.5° of roll; from 0.82 to 1.08 the level drops
- *                      by a third of the mug (volume-true through the same LUT as the pour), the
- *                      steam scales down with it; sip SFX at 0.78
- *   set     1.15 → 1.60 untilt, arc back down, decelerating landing (no slam); the head straightens;
- *                      a quiet clink as the foot meets the bar
+ *   reach   0 → 0.25   the mug is still; the hint fades; the gaze starts to drop to it
+ *   lift    0.25 → 0.95 the mug rises from rest (smootherstep: zero velocity and acceleration at
+ *                      the start — nothing jumps) on a quadratic arc (up first, then in) to a point
+ *                      low-right of the lens, 0.36 m out; the handle turns to the right hand
+ *   sip     0.95 → 1.55 the mug closes to 0.22 m and tips 26–51° toward the lens (rim to the lips);
+ *                      the head tilts back 5° with 1.5° of roll and the gaze drifts ~1° left; from
+ *                      1.10 to 1.45 the level drops by a third of the mug (volume-true through the
+ *                      same LUT as the pour), the steam scales down with it; sip SFX at 1.05
+ *   lower   1.55 → 1.85 untilt (ease-out) and back out to the hold point; the head straightens
+ *   set     1.85 → 2.55 arc back down to the bar, smootherstep so the foot decelerates to contact
+ *                      (no slam); a quiet clink as it lands
+ *   release 2.55 → 2.80 the mug is down; the head and gaze return to neutral
+ *
+ * The head never holds still: `HEAD_KEYS` is a Catmull-Rom spline of small pitch / yaw / roll
+ * offsets (FirstPerson.lean) through the whole 2.8 s, zero only at the two ends, so no two frames
+ * of the sequence are alike anywhere in the picture — the way a head behaves when its owner drinks.
  *
  * The liquid disc is a child of the mug: while the mug tilts it is counter-rotated to stay
  * world-horizontal and slid up toward the low side so the surface reads as liquid, not a lid.
@@ -27,17 +34,21 @@ import { EMPTY_FILL, MUG_H, type PourInteraction } from "./Pour";
 import { clamp01, easeInOut, easeOut, lerp, phase, type Interactable } from "./util";
 
 const TL = {
-  reach: [0, 0.22],
-  lift: [0.22, 0.72],
-  sip: [0.72, 1.15],
-  drink: [0.82, 1.08],
-  set: [1.15, 1.6],
-  end: 1.6,
-  sipSfx: 0.78,
+  reach: [0, 0.25],
+  lift: [0.25, 0.95],
+  sip: [0.95, 1.55],
+  drink: [0.95, 1.55],
+  lower: [1.55, 1.85],
+  set: [1.85, 2.55],
+  release: [2.55, 2.8],
+  end: 2.8,
+  sipSfx: 1.05,
 } as const;
 export const DRINK_END = TL.end;
-/** Fraction of a full mug per sip. */
-const SIP = 1 / 3;
+/** Fraction of a full mug per sip (rev 3: a quarter — four sips, each a 25 % drain over the whole 0.6 s sip). */
+const SIP = 0.25;
+/** The contact disc under the mug is gone by this lift (m). */
+const DISC_FADE_LIFT = 0.03;
 /**
  * Mug tilt at the sip: enough to bring the surface to the rim for the level it starts at (a full
  * mug tips ~24°, a third-full one ~45°), plus a few degrees to drink; the head's answer.
@@ -46,8 +57,50 @@ const TILT_MIN = THREE.MathUtils.degToRad(20);
 const TILT_MAX = THREE.MathUtils.degToRad(45);
 const TILT_EXTRA = THREE.MathUtils.degToRad(6);
 const MUG_R = 0.032;
-const HEAD_PITCH = THREE.MathUtils.degToRad(4);
-const HEAD_ROLL = THREE.MathUtils.degToRad(1.5);
+/**
+ * Head offsets through the drink, degrees [t, pitch (+ = back), yaw (+ = left), roll]. A glance
+ * down-right at the mug as it lifts, 5° back with a 1.2° gaze drift left at the sip, a glance down
+ * again to set it, neutral at both ends. Sampled with a Catmull-Rom spline (`headAt`).
+ */
+const HEAD_KEYS: ReadonlyArray<readonly [number, number, number, number]> = [
+  [0.0, 0, 0, 0],
+  [0.5, -0.8, 0.5, 0.2],
+  [0.95, 0.6, 0.3, 0.4],
+  [1.35, 5.0, -0.9, 1.5],
+  [1.55, 4.6, -1.2, 1.3],
+  [1.85, 1.0, -0.6, 0.5],
+  [2.3, -0.9, 0.4, 0.0],
+  [2.55, -0.5, 0.3, 0.0],
+  [2.8, 0, 0, 0],
+];
+/** Quintic smoothstep: zero velocity and acceleration at both ends. */
+const smoother = (t: number): number => {
+  t = clamp01(t);
+  return t * t * t * (t * (t * 6 - 15) + 10);
+};
+/** Catmull-Rom through HEAD_KEYS at time `t` → [pitch, yaw, roll] in radians. */
+function headAt(t: number, out: number[]): number[] {
+  const K = HEAD_KEYS;
+  const n = K.length;
+  if (t <= K[0][0] || t >= K[n - 1][0]) {
+    out[0] = out[1] = out[2] = 0;
+    return out;
+  }
+  let i = 0;
+  while (i < n - 2 && K[i + 1][0] <= t) i++;
+  const p0 = K[Math.max(0, i - 1)], p1 = K[i], p2 = K[i + 1], p3 = K[Math.min(n - 1, i + 2)];
+  const h = p2[0] - p1[0], u = (t - p1[0]) / h;
+  const u2 = u * u, u3 = u2 * u;
+  for (let c = 0; c < 3; c++) {
+    const y0 = p0[c + 1], y1 = p1[c + 1], y2 = p2[c + 1], y3 = p3[c + 1];
+    // Non-uniform Catmull-Rom tangents (finite differences scaled to this segment's length).
+    const m1 = i === 0 ? y2 - y1 : ((y2 - y0) / (p2[0] - p0[0])) * h;
+    const m2 = i === n - 2 ? y2 - y1 : ((y3 - y1) / (p3[0] - p1[0])) * h;
+    const v = (2 * u3 - 3 * u2 + 1) * y1 + (u3 - 2 * u2 + u) * m1 + (-2 * u3 + 3 * u2) * y2 + (u3 - u2) * m2;
+    out[c] = THREE.MathUtils.degToRad(v);
+  }
+  return out;
+}
 /**
  * Mug foot in camera space (37° vertical FOV, ±18.5°): held low-right after the lift with the rim
  * just under the centre line; at the lips 0.22 m out so the tipped rim sits in the lower frame and
@@ -96,12 +149,15 @@ export class DrinkInteraction {
   private readonly tmpQ2 = new THREE.Quaternion();
   private readonly worldQ = new THREE.Quaternion();
   private readonly axisY = new THREE.Vector3(0, 1, 0);
+  private readonly head = [0, 0, 0];
 
   constructor(
     private readonly pour: PourInteraction,
     mug: THREE.Mesh,
     private readonly player: FirstPerson,
     private readonly audio: DrinkAudio,
+    /** The mug's contact disc on the bar (Props.ts), faded out as the mug lifts. */
+    private readonly shadow?: THREE.Mesh,
   ) {
     this.mug = mug;
     this.mugRest.copy(mug.position);
@@ -166,13 +222,7 @@ export class DrinkInteraction {
     this.state = "idle";
     this.t = 0;
     this.moved = true;
-    this.mug.position.copy(this.mugRest);
-    this.mug.quaternion.copy(this.mugRestQ);
-    this.pour.liquid.quaternion.identity();
-    this.pour.steamObject.position.copy(this.steamRest);
-    this.player.lean.pitch = 0;
-    this.player.lean.roll = 0;
-    this.player.movementLocked = false;
+    this.restore();
     this.pour.setFill(this.fillFrom);
   }
 
@@ -183,7 +233,7 @@ export class DrinkInteraction {
     if (dt > 0) {
       this.moved = true;
       if (before < TL.sipSfx && this.t >= TL.sipSfx) this.audio.sip();
-      if (before < TL.end && this.t >= TL.end) this.audio.clink(this.pour.rim);
+      if (before < TL.set[1] && this.t >= TL.set[1]) this.audio.clink(this.pour.rim);
     }
     if (this.t >= TL.end) {
       this.finish();
@@ -196,18 +246,36 @@ export class DrinkInteraction {
     const to = this.fillTo;
     this.state = "idle";
     this.moved = true;
+    this.restore();
+    this.pour.setFill(to);
+  }
+
+  /** Mug, liquid, steam and head back to rest. */
+  private restore(): void {
     this.mug.position.copy(this.mugRest);
     this.mug.quaternion.copy(this.mugRestQ);
     this.pour.liquid.quaternion.identity();
     this.pour.steamObject.position.copy(this.steamRest);
     this.player.lean.pitch = 0;
     this.player.lean.roll = 0;
+    this.player.lean.yaw = 0;
     this.player.movementLocked = false;
-    this.pour.setFill(to);
+    this.setDisc(0);
   }
 
+  /**
+   * Fill through the drink: the level falls over the WHOLE sip (0.95 → 1.55), nearly linearly —
+   * a swallow is a steady draw, and rev 2's 0.35 s ease-in-out dropped 97 → 67 % in 0.2 s.
+   */
   private fillAt(t: number): number {
-    return lerp(this.fillFrom, this.fillTo, easeInOut(phase(t, TL.drink[0], TL.drink[1])));
+    const u = phase(t, TL.drink[0], TL.drink[1]);
+    return lerp(this.fillFrom, this.fillTo, 0.75 * u + 0.25 * easeInOut(u));
+  }
+
+  /** Contact disc opacity for a mug `lift` m off the bar: full at rest, gone by DISC_FADE_LIFT. */
+  private setDisc(lift: number): void {
+    if (!this.shadow) return;
+    (this.shadow.material as THREE.MeshBasicMaterial).opacity = 1 - clamp01(lift / DISC_FADE_LIFT);
   }
 
   /** Pose the mug, its liquid, the steam and the head for drink-time `t`. */
@@ -222,14 +290,14 @@ export class DrinkInteraction {
 
     // Where the mug is and how far it has tipped (0..1), by beat.
     let tilt = 0;
-    let head = 0;
     const P = this.target;
     const rest = this.restW;
     if (t < TL.lift[0]) {
       P.copy(rest);
     } else if (t < TL.lift[1]) {
-      // Up off the bar first, then in toward the body: a quadratic arc with its control point over the rest.
-      const u = easeInOut(phase(t, TL.lift[0], TL.lift[1]));
+      // Up off the bar first, then in toward the body: a quadratic arc with its control point over
+      // the rest. Smootherstep — the mug leaves the bar from rest, no kick.
+      const u = smoother(phase(t, TL.lift[0], TL.lift[1]));
       this.ctrl.copy(rest).lerp(this.hold, 0.4);
       this.ctrl.y = 0.5 * (rest.y + this.hold.y) + 0.08;
       bezier2(rest, this.ctrl, this.hold, u, P);
@@ -238,28 +306,25 @@ export class DrinkInteraction {
       // Closing to the lips and tipping happen together; the tip leads a little so the rim arrives first.
       P.lerpVectors(this.hold, this.lips, u);
       tilt = easeInOut(clamp01(u * 1.15));
-      head = u;
+    } else if (t < TL.lower[1]) {
+      // Untilt fast (ease-out) while the mug comes back out to the hold point.
+      const u = phase(t, TL.lower[0], TL.lower[1]);
+      tilt = 1 - easeOut(clamp01(u * 1.3));
+      P.lerpVectors(this.lips, this.hold, easeInOut(u));
     } else if (t < TL.set[1]) {
+      // The arc down, smootherstep: the foot decelerates to the bar and lands from ~zero speed.
       const u = phase(t, TL.set[0], TL.set[1]);
-      // Untilt fast (ease-out), then the arc down with a decelerating landing.
-      tilt = 1 - easeOut(clamp01(u * 1.8));
-      head = 1 - easeInOut(clamp01(u * 1.6));
-      const a = easeInOut(u);
-      this.ctrl.copy(rest).lerp(this.lips, 0.4);
-      this.ctrl.y = 0.5 * (rest.y + this.lips.y) + 0.06;
-      bezier2(this.lips, this.ctrl, rest, a, P);
-      // Landing: quadratic ease-out on y over the last 30 % so the foot settles, no slam.
-      if (u > 0.7) {
-        const v = phase(u, 0.7, 1);
-        P.y = lerp(P.y, rest.y, 1 - (1 - v) * (1 - v));
-      }
+      const a = smoother(u);
+      this.ctrl.copy(rest).lerp(this.hold, 0.4);
+      this.ctrl.y = 0.5 * (rest.y + this.hold.y) + 0.06;
+      bezier2(this.hold, this.ctrl, rest, a, P);
     } else {
       P.copy(rest);
     }
 
     // Orientation: rest yaw → handle to the right hand over the lift, then tip about the camera's
     // right axis so the rim comes to the lens (+angle about camRight tips the top toward the camera).
-    const grip = t < TL.lift[0] ? 0 : t < TL.lift[1] ? easeInOut(phase(t, TL.lift[0], TL.lift[1])) : t < TL.set[0] ? 1 : 1 - easeInOut(phase(t, TL.set[0] + 0.12, TL.set[1]));
+    const grip = t < TL.lift[0] ? 0 : t < TL.lift[1] ? smoother(phase(t, TL.lift[0], TL.lift[1])) : t < TL.set[0] ? 1 : 1 - smoother(phase(t, TL.set[0] + 0.1, TL.set[1]));
     // Yaw that points the mug's local +x (the handle) along the camera's right: RotY(ψ)·x̂ = (cos ψ, 0, −sin ψ).
     const yawHand = Math.atan2(-this.camRight.z, this.camRight.x) + HANDLE_YAW;
     const yaw = this.yawRest + wrapAngle(yawHand - this.yawRest) * grip;
@@ -276,6 +341,8 @@ export class DrinkInteraction {
     }
     this.mug.position.copy(P);
     this.mug.updateMatrixWorld(true);
+    // The disc on the bar fades with the lift (multiply → 1): nothing dense under a mug in the air.
+    this.setDisc(this.mug.getWorldPosition(this.tmpV).y - rest.y);
 
     // Liquid: horizontal in the world, level for this frame's fill, slid toward the low side.
     const fill = this.fillAt(t);
@@ -292,9 +359,11 @@ export class DrinkInteraction {
     this.tmpV.set(0, MUG_H - 0.004, 0).applyQuaternion(this.worldQ);
     this.mug.getWorldPosition(this.pour.steamObject.position).add(this.tmpV);
 
-    // Head: a small tilt back and a hint of roll at the sip.
-    this.player.lean.pitch = HEAD_PITCH * head;
-    this.player.lean.roll = HEAD_ROLL * head;
+    // Head: the spline of small pitch / yaw / roll offsets — 5° back at the sip, never still.
+    const h = headAt(t, this.head);
+    this.player.lean.pitch = h[0];
+    this.player.lean.yaw = h[1];
+    this.player.lean.roll = h[2];
   }
 }
 
