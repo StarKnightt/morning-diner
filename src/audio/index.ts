@@ -76,6 +76,9 @@ export interface DinerSfx {
   footfall(strength?: number): void;
   /** System 9: drinking from the mug (liquid draw + swallow, at the listener). */
   sip(): void;
+  /** Seats: vinyl taking / releasing the weight (`strength` 0..1) and a stool's swivel bearing (`amount` 0..1). */
+  seatCreak(strength?: number): void;
+  stoolSqueak(amount?: number): void;
   /** System 9 openables: cabinet magnetic catch (release / close) and its soft stop, at the door. */
   cabinetCatch(at: Vec3, phase: "release" | "close"): void;
   cabinetStop(at: Vec3): void;
@@ -117,9 +120,11 @@ export function defaultPositions(): Required<DinerAudioPositions> {
     doorWidth: DOOR.width - 2 * DOOR.jamb,
     openings: [...WINDOW.centersX.map((x) => ({ x, y: windowY, z: ROOM.zFront })), door],
     mug: { x: 0.5, y: COUNTER.height + 0.05, z: COUNTER.topFrontZ - 0.2 },
-    // Just behind the pass-through opening (that is where the kitchen reaches the room).
-    kitchenSink: { x: PASS_THROUGH.centerX - 0.45, y: PASS_THROUGH.sill + 0.3, z: ROOM.zBack - 0.35 },
-    kitchenRadio: { x: PASS_THROUGH.centerX + 0.4, y: PASS_THROUGH.sill + 0.35, z: ROOM.zBack - 0.5 },
+    // feat-kitchen: the kitchen is walkable now (scene/Kitchen.ts), so the emitters sit where the
+    // work is — the dishes at the 3-compartment sink on the +x wall, the radio on the line's
+    // shelf under the hood (a few dm behind the pass, so the dining room still hears it there).
+    kitchenSink: { x: ROOM.halfX - 0.4, y: 1.0, z: ROOM.zBack - ROOM.wallThickness - 1.6 },
+    kitchenRadio: { x: PASS_THROUGH.centerX + 0.9, y: 1.4, z: ROOM.zBack - ROOM.wallThickness - 0.6 },
   };
 }
 
@@ -154,6 +159,8 @@ class DinerAudioImpl implements DinerAudio {
       },
       footfall: (s) => this.playerSfx?.footfall(s),
       sip: () => this.playerSfx?.sip(),
+      seatCreak: (s) => this.playerSfx?.seatCreak(s),
+      stoolSqueak: (a) => this.playerSfx?.stoolSqueak(a),
       cabinetCatch: (at, phase) => this.openablesSfx?.cabinetCatch(at, phase),
       cabinetStop: (at) => this.openablesSfx?.cabinetStop(at),
       kitchenDoorPush: (at) => this.openablesSfx?.kitchenDoorPush(at),
