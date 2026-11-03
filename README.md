@@ -59,3 +59,5 @@ offsets the exposure by n stops (`[` `]` do the same live); see BUILD.md "Evenin
 - **Custom tonemap** — a camera curve (hue-preserving knee, Hable shoulder, print toe) with physical exposure (ISO · f-stop · shutter), haze and Karis bloom in HDR.
 
 Build notes, per-system verification and the capture / bench harnesses: `BUILD.md`.
+
+☕ like it? [buy me a coffee](https://buymeacoffee.com/prasenx) or [sponsor on github](https://github.com/sponsors/StarKnightt)
